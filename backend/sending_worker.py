@@ -212,108 +212,88 @@ def send_transactional_email(to_email: str, subject: str, body_html: str, tenant
         logger.error(f"Transactional email failed to send to {to_email}: [{code}] {msg}")
     return success
 
-async def process_queue():
-    last_expiry_check = 0
-    
-    while True:
-        db = SessionLocal()
-        try:
-            now = datetime.utcnow()
+from concurrent.futures import ThreadPoolExecutor
+
+class TenantRateLimiter:
+    def __init__(self, speed_limit_per_hour: int):
+        self.speed_limit = speed_limit_per_hour
+        self.tokens = 1.0
+        self.last_update = time.time()
+
+    def update_limit(self, speed_limit_per_hour: int):
+        self.speed_limit = speed_limit_per_hour
+
+    def consume(self) -> bool:
+        if self.speed_limit <= 0:
+            return True
+        now = time.time()
+        elapsed = now - self.last_update
+        self.last_update = now
+        # Add tokens: speed_limit / 3600 per second
+        self.tokens = min(10.0, self.tokens + elapsed * (self.speed_limit / 3600.0))
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            return True
+        return False
+
+# Global Thread Pool Executor for concurrent sends
+executor = ThreadPoolExecutor(max_workers=50)
+rate_limiters = {}
+
+def deliver_item_task(item_id: int):
+    db = SessionLocal()
+    try:
+        item = db.query(QueueItem).filter(QueueItem.id == item_id).first()
+        if not item:
+            return
             
-            # Periodically check for expired queue items (once every 60 seconds)
-            if time.time() - last_expiry_check > 60:
-                last_expiry_check = time.time()
-                cutoff_date = now - timedelta(days=3)
-                expired_items = db.query(QueueItem).filter(
-                    QueueItem.status.in_(["pending", "deferred"]),
-                    QueueItem.created_at < cutoff_date
-                ).all()
-                
-                for exp_item in expired_items:
-                    exp_item.status = "failed"
-                    exp_item.error_message = "Queue item expired after 3 days of delivery attempts."
-                    exp_item.error_code = 408
-                    
-                    # Update campaign failures if possible
-                    camp = db.query(Campaign).filter(Campaign.id == exp_item.campaign_id).first()
-                    if camp:
-                        camp.failed_count += 1
-                        
-                    # Progress subscriber status
-                    sub = db.query(Subscriber).filter(Subscriber.id == exp_item.subscriber_id).first()
-                    if sub:
-                        if sub.status == "deferred":
-                            sub.status = "failed"
-                            sub.bounce_reason = "Consecutive email queue timeouts of 3 days."
-                            sub.bounce_source_email = "System Outbox Queue Monitor"
-                        else:
-                            sub.status = "deferred"
-                            sub.bounce_reason = "Email queue delivery timeout of 3 days."
-                            sub.bounce_source_email = "System Outbox Queue Monitor"
-                    db.commit()
-            
-            # Fetch a pending or deferred item
-            item = db.query(QueueItem).filter(
-                QueueItem.status.in_(["pending", "deferred"]),
-                QueueItem.next_attempt <= now
-            ).order_by(QueueItem.created_at.asc()).first()
-            
-            if not item:
-                # Sleep briefly if nothing to send
-                await asyncio.sleep(2)
-                continue
-                
-            tenant = db.query(Tenant).filter(Tenant.id == item.tenant_id).first()
-            campaign = db.query(Campaign).filter(Campaign.id == item.campaign_id).first()
-            subscriber = db.query(Subscriber).filter(Subscriber.id == item.subscriber_id).first()
-            
-            # Exclude blocked subscriber statuses
-            if not tenant or not campaign or not subscriber or subscriber.status not in ["active", "deferred"]:
-                item.status = "failed"
-                item.error_message = "Tenant, Campaign, or active/deferred Subscriber not found"
-                item.error_code = 400
-                db.commit()
-                continue
-                
-            logger.info(f"Sending QueueItem {item.id} to {item.email}")
-            
-            # Record start time to implement rate limits
-            start_time = time.time()
-            
-            # Send
-            success = False
-            if tenant.direct_send:
-                success, is_transient, code, msg = send_direct_mta(item, tenant)
-            else:
-                success, is_transient, code, msg = send_external_smtp(item, tenant)
-                
-            # Update item status
-            if success:
-                item.status = "sent"
-                item.error_code = 250
-                item.last_mx_response = "Sent successfully"
-                campaign.sent_count += 1
-            else:
-                item.error_code = code
-                item.last_mx_response = msg
-                item.error_message = msg
-                
-                if is_transient:
-                    # Reschedule temporary failures without marking subscriber bad
-                    item.status = "deferred"
-                    item.next_attempt = datetime.utcnow() + timedelta(minutes=15)
-                else:
-                    # Permanent failure: immediately mark failed and block subscriber
-                    item.status = "failed"
-                    campaign.failed_count += 1
-                    
-                    subscriber.status = "bounced"
-                    subscriber.bounce_reason = f"[{code}] {msg}"
-                    subscriber.bounce_source_email = f"SMTP/MX: {item.email.split('@')[-1]}"
-                    
+        tenant = db.query(Tenant).filter(Tenant.id == item.tenant_id).first()
+        campaign = db.query(Campaign).filter(Campaign.id == item.campaign_id).first()
+        subscriber = db.query(Subscriber).filter(Subscriber.id == item.subscriber_id).first()
+        
+        if not tenant or not campaign or not subscriber or subscriber.status not in ["active", "deferred"]:
+            item.status = "failed"
+            item.error_message = "Tenant, Campaign, or active/deferred Subscriber not found"
+            item.error_code = 400
             db.commit()
+            return
             
-            # Dispatch Webhook Delivery notifications
+        # Send
+        success = False
+        if tenant.direct_send:
+            success, is_transient, code, msg = send_direct_mta(item, tenant)
+        else:
+            success, is_transient, code, msg = send_external_smtp(item, tenant)
+            
+        # Update status
+        if success:
+            item.status = "sent"
+            item.error_code = 250
+            item.last_mx_response = "Sent successfully"
+            campaign.sent_count += 1
+        else:
+            item.error_code = code
+            item.last_mx_response = msg
+            item.error_message = msg
+            
+            if is_transient:
+                item.status = "deferred"
+                item.next_attempt = datetime.utcnow() + timedelta(minutes=15)
+            else:
+                item.status = "failed"
+                campaign.failed_count += 1
+                
+                subscriber.status = "bounced"
+                subscriber.bounce_reason = f"[{code}] {msg}"
+                subscriber.bounce_source_email = f"SMTP/MX: {item.email.split('@')[-1]}"
+                
+        db.commit()
+        
+        from engagement_service import trigger_engagement_recalc
+        trigger_engagement_recalc(subscriber.id)
+        
+        # Dispatch Webhook Delivery notifications
+        try:
             from webhook_dispatcher import trigger_webhook
             if success:
                 trigger_webhook(tenant.id, "email.sent", {
@@ -339,40 +319,113 @@ async def process_queue():
                         "reason": f"[{code}] {msg}",
                         "campaign_id": campaign.id
                     })
+        except Exception as webhook_err:
+            logger.error(f"Failed to dispatch webhooks for item {item.id}: {webhook_err}")
             
-            # Calculate next delay for this tenant's items to respect speed limit
-            if tenant.speed_emails_per_hour > 0:
-                delay = 3600.0 / tenant.speed_emails_per_hour
-                other_pending = db.query(QueueItem).filter(
-                    QueueItem.tenant_id == tenant.id,
-                    QueueItem.status.in_(["pending", "deferred"])
+        # Check if campaign is finished
+        total_pending = db.query(QueueItem).filter(
+            QueueItem.campaign_id == campaign.id,
+            QueueItem.status.in_(["pending", "deferred", "sending"])
+        ).count()
+        if total_pending == 0:
+            campaign.status = "completed"
+            db.commit()
+            logger.info(f"Campaign '{campaign.name}' (ID: {campaign.id}) finished dispatching all items.")
+            
+    except Exception as e:
+        logger.exception(f"Error in deliver_item_task for QueueItem {item_id}: {e}")
+    finally:
+        db.close()
+
+async def process_queue():
+    last_expiry_check = 0
+    
+    # Run Power Loss Recovery on startup
+    db_recovery = SessionLocal()
+    try:
+        orphans = db_recovery.query(QueueItem).filter(QueueItem.status == "sending").all()
+        if orphans:
+            logger.info(f"Power Loss Recovery: Resetting {len(orphans)} orphaned QueueItems to pending status.")
+            for o in orphans:
+                o.status = "pending"
+            db_recovery.commit()
+    except Exception as e:
+        logger.error(f"Failed running Power Loss Recovery check: {e}")
+    finally:
+        db_recovery.close()
+        
+    while True:
+        db = SessionLocal()
+        try:
+            now = datetime.utcnow()
+            
+            # 1. Periodically check for expired queue items (once every 60 seconds)
+            if time.time() - last_expiry_check > 60:
+                last_expiry_check = time.time()
+                cutoff_date = now - timedelta(days=3)
+                expired_items = db.query(QueueItem).filter(
+                    QueueItem.status.in_(["pending", "deferred"]),
+                    QueueItem.created_at < cutoff_date
                 ).all()
                 
-                next_time = datetime.utcnow() + timedelta(seconds=delay)
-                for other_item in other_pending:
-                    if other_item.next_attempt < next_time:
-                        other_item.next_attempt = next_time
-                        next_time += timedelta(seconds=delay)
-                db.commit()
+                for exp_item in expired_items:
+                    exp_item.status = "failed"
+                    exp_item.error_message = "Queue item expired after 3 days of delivery attempts."
+                    exp_item.error_code = 408
+                    
+                    camp = db.query(Campaign).filter(Campaign.id == exp_item.campaign_id).first()
+                    if camp:
+                        camp.failed_count += 1
+                        
+                    sub = db.query(Subscriber).filter(Subscriber.id == exp_item.subscriber_id).first()
+                    if sub:
+                        if sub.status == "deferred":
+                            sub.status = "failed"
+                            sub.bounce_reason = "Consecutive email queue timeouts of 3 days."
+                            sub.bounce_source_email = "System Outbox Queue Monitor"
+                        else:
+                            sub.status = "deferred"
+                            sub.bounce_reason = "Email queue delivery timeout of 3 days."
+                            sub.bounce_source_email = "System Outbox Queue Monitor"
+                    db.commit()
+            
+            # 2. Fetch active sending candidate batch (up to 50 items)
+            items = db.query(QueueItem).join(Campaign).filter(
+                QueueItem.status.in_(["pending", "deferred"]),
+                QueueItem.next_attempt <= now,
+                Campaign.status == "sending" # Skip paused, draft, or completed campaigns
+            ).order_by(QueueItem.created_at.asc()).limit(50).all()
+            
+            if not items:
+                await asyncio.sleep(2)
+                continue
                 
-                elapsed = time.time() - start_time
-                wait_time = max(0.0, delay - elapsed)
-                if wait_time > 0:
-                    await asyncio.sleep(wait_time)
-            else:
-                await asyncio.sleep(0.05)
+            for item in items:
+                # Resolve rate limiter for this tenant
+                tenant_id = item.tenant_id
+                if tenant_id not in rate_limiters:
+                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                    limit = tenant.speed_emails_per_hour if tenant else 500
+                    rate_limiters[tenant_id] = TenantRateLimiter(limit)
+                else:
+                    # Update limit dynamically if changed in DB
+                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                    if tenant:
+                        rate_limiters[tenant_id].update_limit(tenant.speed_emails_per_hour)
+                        
+                limiter = rate_limiters[tenant_id]
+                if limiter.consume():
+                    # Set status to sending to prevent multiple submission races
+                    item.status = "sending"
+                    db.commit()
+                    
+                    # Submit task to concurrent thread pool
+                    executor.submit(deliver_item_task, item.id)
                 
-            # Check if campaign is finished
-            total_pending = db.query(QueueItem).filter(
-                QueueItem.campaign_id == campaign.id,
-                QueueItem.status.in_(["pending", "deferred"])
-            ).count()
-            if total_pending == 0:
-                campaign.status = "sent"
-                db.commit()
-                
+            await asyncio.sleep(0.1) # Sleep briefly to throttle loop queries
+            
         except Exception as e:
-            logger.exception(f"Error in sending worker loop: {e}")
+            logger.exception(f"Error in process_queue loop: {e}")
             await asyncio.sleep(5)
         finally:
             db.close()

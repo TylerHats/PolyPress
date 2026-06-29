@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////home/tylerhats/Documents/GitHub/PolyPress/backend/polypress.db")
@@ -65,6 +65,7 @@ class Tenant(Base):
     
     # Speed Limit Configuration
     speed_emails_per_hour = Column(Integer, default=500) # 0 means unlimited
+    max_sending_threads = Column(Integer, default=10)
     double_opt_in = Column(Boolean, default=False)
     
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -125,6 +126,10 @@ class Subscriber(Base):
     # Source tag (e.g. from embedded forms, CSV, etc.)
     source_tag = Column(String, nullable=True)
     
+    # Advanced Segmentation: engagement score (1 to 5 stars) and tags list
+    engagement_score = Column(Integer, default=3, index=True)
+    tags = Column(JSON, default=list)
+    
     # Double Opt-In and Bounce Diagnostics
     double_opt_in_token = Column(String, unique=True, index=True, nullable=True)
     bounce_reason = Column(Text, nullable=True)
@@ -152,6 +157,7 @@ class Campaign(Base):
     body_html = Column(Text) # Exported raw HTML for actual email transmission
     
     status = Column(String, default="draft") # draft, queued, sending, sent, cancelled
+    target_rules = Column(JSON, default=dict)
     
     # Statistics
     total_recipients = Column(Integer, default=0)
@@ -241,6 +247,26 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    
+    # Auto-migration queries for SQLite databases
+    try:
+        with engine.begin() as conn:
+            # Check subscribers table
+            res = conn.execute(text("PRAGMA table_info(subscribers)")).fetchall()
+            cols = [r[1] for r in res]
+            if "engagement_score" not in cols:
+                conn.execute(text("ALTER TABLE subscribers ADD COLUMN engagement_score INTEGER DEFAULT 3"))
+            if "tags" not in cols:
+                conn.execute(text("ALTER TABLE subscribers ADD COLUMN tags JSON DEFAULT '[]'"))
+                
+            # Check campaigns table
+            res = conn.execute(text("PRAGMA table_info(campaigns)")).fetchall()
+            cols = [r[1] for r in res]
+            if "target_rules" not in cols:
+                conn.execute(text("ALTER TABLE campaigns ADD COLUMN target_rules JSON DEFAULT '{}'"))
+    except Exception as migration_error:
+        print(f"Database migration note: {migration_error}")
+
     db = SessionLocal()
     try:
         # Seed settings if empty

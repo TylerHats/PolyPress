@@ -83,6 +83,7 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
         subject=payload.get("subject", "No Subject"),
         body_blocks=payload.get("body_blocks", []),
         body_html=payload.get("body_html", ""),
+        target_rules=payload.get("target_rules", {}),
         status="draft"
     )
     db.add(campaign)
@@ -106,6 +107,7 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
     campaign.subject = payload.get("subject", campaign.subject)
     campaign.body_blocks = payload.get("body_blocks", campaign.body_blocks)
     campaign.body_html = payload.get("body_html", campaign.body_html)
+    campaign.target_rules = payload.get("target_rules", campaign.target_rules)
     
     if "list_id" in payload:
         sub_list = db.query(SubscriberList).filter(SubscriberList.id == payload["list_id"], SubscriberList.tenant_id == current_user.tenant_id).first()
@@ -164,12 +166,40 @@ def launch_campaign(campaign_id: int, request: Request, db: Session = Depends(ge
     if campaign.status != "draft":
         raise HTTPException(status_code=400, detail="Campaign is already sent or sending")
         
-    # Get subscribers
-    subscribers = db.query(Subscriber).filter(
+    # Get subscribers matching list constraints and targeting rules
+    query = db.query(Subscriber).filter(
         Subscriber.list_id == campaign.list_id,
         Subscriber.tenant_id == current_user.tenant_id,
         Subscriber.status.in_(["active", "deferred"])
-    ).all()
+    )
+    
+    rules = campaign.target_rules or {}
+    if rules:
+        target_tag = rules.get("tag")
+        if target_tag:
+            query = query.filter(Subscriber.tags.like(f'%"{target_tag}"%'))
+            
+        target_engagement = rules.get("engagement")
+        if target_engagement is not None and target_engagement != "":
+            query = query.filter(Subscriber.engagement_score == int(target_engagement))
+            
+        signup_after = rules.get("signup_after")
+        if signup_after:
+            try:
+                dt = datetime.fromisoformat(signup_after.replace("Z", ""))
+                query = query.filter(Subscriber.created_at >= dt)
+            except Exception:
+                pass
+                
+        signup_before = rules.get("signup_before")
+        if signup_before:
+            try:
+                dt = datetime.fromisoformat(signup_before.replace("Z", ""))
+                query = query.filter(Subscriber.created_at <= dt)
+            except Exception:
+                pass
+                
+    subscribers = query.all()
     
     if not subscribers:
         raise HTTPException(status_code=400, detail="Cannot send campaign to an empty list")
@@ -262,3 +292,73 @@ def preview_campaign(campaign_id: int, mock_name: str = "John Doe", mock_email: 
         subscriber_id=0
     )
     return HTMLResponse(content=rendered)
+
+@router.post("/{campaign_id}/pause")
+def pause_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    if campaign.status != "sending":
+        raise HTTPException(status_code=400, detail="Only active sending campaigns can be paused")
+        
+    campaign.status = "paused"
+    db.commit()
+    return {"detail": "Campaign paused successfully."}
+
+@router.post("/{campaign_id}/resume")
+def resume_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    if campaign.status != "paused":
+        raise HTTPException(status_code=400, detail="Only paused campaigns can be resumed")
+        
+    campaign.status = "sending"
+    db.commit()
+    return {"detail": "Campaign resumed successfully."}
+
+@router.get("/{campaign_id}/click-map")
+def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    from sqlalchemy import func
+    clicks = db.query(
+        TrackingLog.link_url,
+        func.count(TrackingLog.id).label("click_count")
+    ).filter(
+        TrackingLog.campaign_id == campaign_id,
+        TrackingLog.event_type == "click"
+    ).group_by(TrackingLog.link_url).all()
+    
+    click_map = [{"url": c[0], "clicks": c[1]} for c in clicks if c[0]]
+    total_opens = campaign.open_count or 1
+    
+    formatted_map = []
+    for item in click_map:
+        percentage = (item["clicks"] / total_opens) * 100
+        formatted_map.append({
+            "url": item["url"],
+            "clicks": item["clicks"],
+            "percentage": round(percentage, 1)
+        })
+        
+    return {
+        "campaign_id": campaign_id,
+        "total_clicks": sum(item["clicks"] for item in click_map),
+        "click_map": formatted_map,
+        "body_html": campaign.body_html
+    }
+

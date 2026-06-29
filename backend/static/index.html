@@ -382,6 +382,12 @@
                                                     <button @click="openStatsModal(c.id)" class="btn btn-secondary btn-sm" title="View Metrics">
                                                         <i data-lucide="bar-chart-2"></i> Stats
                                                     </button>
+                                                    <button x-show="c.status === 'sending'" @click="pauseCampaign(c.id)" class="btn btn-secondary btn-sm" title="Pause Broadcast" style="background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); color: var(--color-warning); padding: 4px 8px; font-size: 11px;">
+                                                         <i data-lucide="pause" style="width:12px; height:12px;"></i> Pause
+                                                     </button>
+                                                     <button x-show="c.status === 'paused'" @click="resumeCampaign(c.id)" class="btn btn-secondary btn-sm" title="Resume Broadcast" style="background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); color: var(--color-success); padding: 4px 8px; font-size: 11px;">
+                                                         <i data-lucide="play" style="width:12px; height:12px;"></i> Resume
+                                                     </button>
                                                     <button x-show="c.status === 'draft'" @click="deleteCampaign(c.id)" class="btn btn-danger btn-sm" title="Delete">
                                                         <i data-lucide="trash-2"></i>
                                                     </button>
@@ -672,14 +678,48 @@
                             </div>
                         </div>
 
+                        <!-- Advanced List Filters Row -->
+                        <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Status:</span>
+                                <select x-model="subscribersFilterStatus" @change="fetchSubscribers()" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff;">
+                                    <option value="">All Statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="pending">Pending (Opt-In)</option>
+                                    <option value="unsubscribed">Unsubscribed</option>
+                                    <option value="bounced">Bounced</option>
+                                    <option value="spam">Spam Report</option>
+                                    <option value="deferred">Deferred</option>
+                                    <option value="failed">Failed</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Hygiene Stars:</span>
+                                <select x-model="subscribersFilterEngagement" @change="fetchSubscribers()" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff;">
+                                    <option value="">All Ratings</option>
+                                    <option value="5">★★★★★ (5 Stars)</option>
+                                    <option value="4">★★★★☆ (4 Stars)</option>
+                                    <option value="3">★★★☆☆ (3 Stars)</option>
+                                    <option value="2">★★☆☆☆ (2 Stars)</option>
+                                    <option value="1">★☆☆☆☆ (1 Star)</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Tag:</span>
+                                <input type="text" x-model="subscribersFilterTag" @input.debounce.300ms="fetchSubscribers()" placeholder="e.g. VIP" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; max-width: 120px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff;">
+                            </div>
+                        </div>
+
                         <div class="table-container">
                             <table class="data-table">
                                 <thead>
                                     <tr>
                                         <th>Email Address</th>
                                         <th>Name</th>
+                                        <th>Engagement</th>
                                         <th>Status</th>
-                                        <th>Origin Source</th>
+                                        <th>Origin</th>
+                                        <th>Tags</th>
                                         <!-- Dynamic custom field headers -->
                                         <template x-for="f in listSelectedFields" :key="f.key">
                                             <th x-text="f.label"></th>
@@ -693,11 +733,14 @@
                                             <td style="font-weight: 500;" x-text="s.email"></td>
                                             <td x-text="s.name || '-'"></td>
                                             <td>
+                                                <span style="color: #f59e0b; font-size: 14px; letter-spacing: 1px;" x-text="'★'.repeat(s.engagement_score || 3) + '☆'.repeat(5 - (s.engagement_score || 3))"></span>
+                                            </td>
+                                            <td>
                                                 <div>
                                                     <span class="badge" :class="getSubscriberBadgeClass(s.status)" x-text="s.status"></span>
                                                     <template x-if="s.status === 'bounced' || s.status === 'spam' || s.status === 'deferred' || s.status === 'failed'">
                                                         <div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; max-width: 180px; line-height: 1.3;" 
-                                                             :title="(s.status === 'spam' ? s.complaint_reason : s.bounce_reason) + '\\nSource: ' + (s.bounce_source_email || 'Unknown')">
+                                                             :title="(s.status === 'spam' ? s.complaint_reason : s.bounce_reason) + '\nSource: ' + (s.bounce_source_email || 'Unknown')">
                                                             <span style="font-weight: 600; color: var(--color-accent);">Reason:</span> 
                                                             <span x-text="s.status === 'spam' ? (s.complaint_reason || 'Spam report received') : (s.bounce_reason || 'Unknown failure')"></span>
                                                         </div>
@@ -705,6 +748,16 @@
                                                 </div>
                                             </td>
                                             <td x-text="s.source_tag || '-'"></td>
+                                            <td>
+                                                <div style="display: flex; flex-wrap: wrap; gap: 4px; max-width: 150px;">
+                                                    <template x-for="tag in (s.tags || [])" :key="tag">
+                                                        <span class="badge badge-muted" style="font-size: 9px; padding: 2px 6px; background: rgba(255,255,255,0.08);" x-text="tag"></span>
+                                                    </template>
+                                                    <template x-if="!(s.tags && s.tags.length)">
+                                                        <span style="color: var(--text-muted); font-size: 11px;">-</span>
+                                                    </template>
+                                                </div>
+                                            </td>
                                             <!-- Dynamic Custom Fields data mapping -->
                                             <template x-for="f in listSelectedFields" :key="f.key">
                                                 <td x-text="s.custom_data[f.key] || '-'"></td>
@@ -717,7 +770,7 @@
                                         </tr>
                                     </template>
                                     <tr x-show="subscribers.length === 0">
-                                        <td :colspan="5 + listSelectedFields.length" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                                        <td :colspan="7 + listSelectedFields.length" style="text-align: center; padding: 30px; color: var(--text-muted);">
                                             No subscribers found.
                                         </td>
                                     </tr>
@@ -1392,6 +1445,81 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Database Backup & Restore Console -->
+                    <div class="card" style="margin-top: 30px;">
+                        <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="database" style="color: var(--color-primary);"></i>
+                            System Database Backups & Recovery (Super Admin)
+                        </h2>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                            Generate highly portable system snapshots including SQLite subscriber lists, campaign databases, and branding assets. Upload backups to restore complete site state.
+                        </p>
+                        
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 30px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                            <!-- Backups Table -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <h3 style="font-size: 14px; margin: 0; color: var(--color-accent);">Backup Snapshots</h3>
+                                    <button @click="createBackup()" class="btn btn-secondary btn-sm" style="padding: 4px 10px; font-size: 11px;">
+                                        + Generate Backup
+                                    </button>
+                                </div>
+                                <div class="table-container" style="max-height: 250px; overflow-y: auto;">
+                                    <table class="data-table" style="font-size: 12px;">
+                                        <thead>
+                                            <tr>
+                                                <th>Filename</th>
+                                                <th>Size</th>
+                                                <th>Created At</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-if="backups.length === 0">
+                                                <tr>
+                                                    <td colspan="4" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 15px;">
+                                                        No backup snapshots generated yet.
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <template x-for="b in backups" :key="b.filename">
+                                                <tr>
+                                                    <td style="font-weight:600; font-family: monospace;" x-text="b.filename"></td>
+                                                    <td x-text="(b.size / 1024 / 1024).toFixed(2) + ' MB'"></td>
+                                                    <td x-text="new Date(b.created_at).toLocaleString()"></td>
+                                                    <td>
+                                                        <div style="display: flex; gap: 6px;">
+                                                            <a :href="'/api/admin/backups/download/' + b.filename" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 10px; display: inline-flex; align-items: center; gap: 2px;" download>
+                                                                <i data-lucide="download" style="width: 10px; height: 10px;"></i> Get
+                                                            </a>
+                                                            <button @click="restoreBackup(b.filename)" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 10px; display: inline-flex; align-items: center; gap: 2px; background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); color: var(--color-warning);">
+                                                                <i data-lucide="rotate-ccw" style="width: 10px; height: 10px;"></i> Restore
+                                                            </button>
+                                                            <button @click="deleteBackup(b.filename)" class="btn btn-danger btn-sm" style="padding: 2px 6px; font-size: 10px;">
+                                                                <i data-lucide="trash-2" style="width: 10px; height: 10px;"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- Upload Recovery / Drag & Drop -->
+                            <div>
+                                <h3 style="font-size: 14px; margin-bottom: 15px; color: var(--color-accent);">Upload Recovery Archive</h3>
+                                <div style="border: 2px dashed var(--border-glass); border-radius: 8px; padding: 25px 15px; text-align: center; background: rgba(255,255,255,0.01); display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer; position: relative;">
+                                    <input type="file" @change="uploadBackupRestoreFile($event)" accept=".zip" style="position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;">
+                                    <i data-lucide="upload-cloud" style="width: 32px; height: 32px; color: var(--color-primary);"></i>
+                                    <div style="font-size: 12px; font-weight: 500;">Click to upload ZIP backup</div>
+                                    <div style="font-size: 10px; color: var(--text-muted);">Must contain a valid polypress.db file.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
             </div>
@@ -1689,6 +1817,44 @@
                     <p>• <strong>Rate limit:</strong> <span x-text="tenant.speed_emails_per_hour ? tenant.speed_emails_per_hour + ' emails/hour' : 'Unlimited'"></span></p>
                     <p>• <strong>Send strategy:</strong> <span x-text="tenant.direct_send ? 'Direct MTA + DKIM Signature' : 'External SMTP Relay'"></span></p>
                 </div>
+                
+                <!-- Campaign Target Segment rules -->
+                <div style="margin-top: 15px; text-align: left;">
+                    <div @click="toggleTargetingRulesCollapse()" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; background:rgba(255,255,255,0.05); padding:10px; border-radius:6px; border:1px solid var(--border-glass);">
+                        <span style="font-size:12px; font-weight:600; text-transform:uppercase; color:var(--color-accent); display:flex; align-items:center; gap:6px;">
+                            <i data-lucide="filter" style="width:14px; height:14px;"></i> List Targeting Segment Rules
+                        </span>
+                        <i :data-lucide="targetingCollapsed ? 'chevron-down' : 'chevron-up'" style="width:16px; height:16px;"></i>
+                    </div>
+                    
+                    <div x-show="!targetingCollapsed" style="background:rgba(0,0,0,0.25); border:1px solid var(--border-glass); border-top:none; border-bottom-left-radius:6px; border-bottom-right-radius:6px; padding:15px; display:flex; flex-direction:column; gap:12px;">
+                        <div class="field">
+                            <label style="font-size:11px;">Target specific tag (leave empty for all)</label>
+                            <input type="text" x-model="editingCampaign.target_rules.tag" placeholder="e.g. VIP" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                        </div>
+                        <div class="field">
+                            <label style="font-size:11px;">Minimum Engagement Stars (1-5)</label>
+                            <select x-model="editingCampaign.target_rules.engagement" style="font-size:12px; padding:4px 8px; border-radius:4px; height:32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                                <option value="">Target All Ratings</option>
+                                <option value="5">★★★★★ (5 Stars)</option>
+                                <option value="4">★★★★☆ (4 Stars)</option>
+                                <option value="3">★★★☆☆ (3 Stars)</option>
+                                <option value="2">★★☆☆☆ (2 Stars)</option>
+                                <option value="1">★☆☆☆☆ (1 Star)</option>
+                            </select>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                            <div class="field">
+                                <label style="font-size:11px;">Signed Up After</label>
+                                <input type="date" x-model="editingCampaign.target_rules.signup_after" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                            <div class="field">
+                                <label style="font-size:11px;">Signed Up Before</label>
+                                <input type="date" x-model="editingCampaign.target_rules.signup_before" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button @click="modals.confirmLaunch = false" class="btn btn-secondary">Cancel</button>
@@ -1805,6 +1971,22 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Click Map Overlay Visualizer Section -->
+                <div style="margin-top: 25px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h4 style="font-size: 14px; margin: 0; color: var(--color-accent); display:flex; align-items:center; gap:8px;">
+                            <i data-lucide="map" style="width:16px; height:16px;"></i> Click Map Overlay Visualizer
+                        </h4>
+                        <button @click="showClickMapVisualizer = !showClickMapVisualizer; if(showClickMapVisualizer) loadClickMapOverlay();" class="btn btn-secondary btn-sm" style="font-size:11px; padding:4px 10px;">
+                            <span x-text="showClickMapVisualizer ? 'Hide Visualizer' : 'Show Click Map'"></span>
+                        </button>
+                    </div>
+                    
+                    <div x-show="showClickMapVisualizer" style="border:1px solid var(--border-glass); border-radius:8px; overflow:hidden; background:#fff; height:450px; position:relative; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                        <iframe id="clickMapIframe" style="width:100%; height:100%; border:none; background:#fff;"></iframe>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1996,6 +2178,7 @@
                 campaigns: [],
                 lists: [],
                 tenants: [],
+                backups: [],
                 
                 // Modals
                 modals: {
@@ -2020,6 +2203,9 @@
                 subscribersCount: 0,
                 subscribersPage: 1,
                 subscribersSearch: '',
+                subscribersFilterStatus: '',
+                subscribersFilterEngagement: '',
+                subscribersFilterTag: '',
 
                 // Custom fields mapping
                 fieldsListTarget: { name: '', custom_fields: [] },
@@ -2038,12 +2224,16 @@
                 csvImportStep: 1,
                 
                 // Visual block editor state
-                editingCampaign: { id: null, name: '', subject: '' },
+                editingCampaign: { id: null, name: '', subject: '', target_rules: { tag: '', engagement: '', signup_after: '', signup_before: '' } },
+                targetingCollapsed: true,
                 editorBlocks: [],
                 selectedBlockIndex: null,
                 
                 // Stats popup
                 campaignStats: { name: '', sent: 0, opens: 0, clicks: 0, bounces: 0, click_stats: [] },
+                showClickMapVisualizer: false,
+                clickMapHtml: '',
+                clickMapStats: [],
                 
                 // Dashboard summary
                 stats: { totalSubscribers: 0, campaignsSent: 0, avgOpenRate: 0, avgBounceRate: 0 },
@@ -2555,6 +2745,113 @@
                     }
                 },
                 
+                async fetchBackups() {
+                    if (this.user.role !== 'super_admin') return;
+                    try {
+                        const res = await fetch('/api/admin/backups', {
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.backups = await res.json();
+                            setTimeout(() => lucide.replace(), 50);
+                        }
+                    } catch(e) {}
+                },
+
+                async createBackup() {
+                    try {
+                        const res = await fetch('/api/admin/backups/create', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.backups = data.backups;
+                            this.showToast('Database snapshot generated successfully');
+                            setTimeout(() => lucide.replace(), 50);
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Failed to create backup');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async restoreBackup(filename) {
+                    if (!confirm('Are you absolutely sure you want to restore the system database from: ' + filename + '?\n\nWARNING: THIS WILL COMPLETELY OVERWRITE ALL DATA IN THE SYSTEM. This cannot be undone!')) {
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/admin/backups/restore-local?filename=' + encodeURIComponent(filename), {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('System backup restored successfully. Reloading...', 'success');
+                            setTimeout(() => window.location.reload(), 1500);
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Failed to restore backup');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async deleteBackup(filename) {
+                    if (!confirm('Are you sure you want to delete the backup snapshot ' + filename + '?')) {
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/admin/backups/' + encodeURIComponent(filename), {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.backups = data.backups;
+                            this.showToast('Backup snapshot deleted');
+                            setTimeout(() => lucide.replace(), 50);
+                        }
+                    } catch(e) {}
+                },
+
+                async uploadBackupRestoreFile(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    if (!confirm('Are you absolutely sure you want to upload and restore this backup ZIP archive?\n\nWARNING: THIS WILL COMPLETELY OVERWRITE ALL EXISTING DATA IN THE SYSTEM!')) {
+                        event.target.value = '';
+                        return;
+                    }
+                    
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    try {
+                        this.showToast('Uploading and restoring system snapshot...', 'info');
+                        const res = await fetch('/api/admin/backups/restore', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': this.getAuthHeaders()['Authorization']
+                            },
+                            body: formData
+                        });
+                        if (res.ok) {
+                            this.showToast('System restore complete! Reloading workspace...', 'success');
+                            setTimeout(() => window.location.reload(), 1500);
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Restore failed');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    } finally {
+                        event.target.value = '';
+                    }
+                },
+                
                 async saveTenantSettings() {
                     try {
                         const res = await fetch('/api/tenants/my', {
@@ -2599,6 +2896,7 @@
                         this.fetchDeveloperConsole();
                     } else if (tab === 'admin') {
                         this.fetchSslStatus();
+                        this.fetchBackups();
                     }
                 },
 
@@ -2847,13 +3145,21 @@
                     this.listSelectedFields = list.custom_fields || [];
                     this.subscribersPage = 1;
                     this.subscribersSearch = '';
+                    this.subscribersFilterStatus = '';
+                    this.subscribersFilterEngagement = '';
+                    this.subscribersFilterTag = '';
                     this.fetchSubscribers();
                 },
                 
                 async fetchSubscribers() {
                     if (this.listSelected === null) return;
                     try {
-                        const res = await fetch(`/api/lists/${this.listSelected}/subscribers?page=${this.subscribersPage}&search=${encodeURIComponent(this.subscribersSearch)}`, {
+                        let url = `/api/lists/${this.listSelected}/subscribers?page=${this.subscribersPage}&search=${encodeURIComponent(this.subscribersSearch)}`;
+                        if (this.subscribersFilterStatus) url += `&status=${this.subscribersFilterStatus}`;
+                        if (this.subscribersFilterEngagement) url += `&engagement=${this.subscribersFilterEngagement}`;
+                        if (this.subscribersFilterTag) url += `&tag=${encodeURIComponent(this.subscribersFilterTag)}`;
+                        
+                        const res = await fetch(url, {
                             headers: this.getAuthHeaders()
                         });
                         const data = await res.json();
@@ -3020,9 +3326,18 @@
                 // Visual newsletter block editor logic
                 startVisualEditor(campaign) {
                     this.editingCampaign = campaign;
+                    if (!this.editingCampaign.target_rules) {
+                        this.editingCampaign.target_rules = { tag: '', engagement: '', signup_after: '', signup_before: '' };
+                    }
+                    this.targetingCollapsed = true;
                     this.editorBlocks = campaign.body_blocks || [];
                     this.selectedBlockIndex = null;
                     this.switchTab('editor');
+                },
+                
+                toggleTargetingRulesCollapse() {
+                    this.targetingCollapsed = !this.targetingCollapsed;
+                    setTimeout(() => lucide.replace(), 50);
                 },
                 
                 getActiveListFields() {
@@ -3091,7 +3406,8 @@
                                 name: this.editingCampaign.name,
                                 subject: this.editingCampaign.subject,
                                 body_blocks: this.editorBlocks,
-                                body_html: html
+                                body_html: html,
+                                target_rules: this.editingCampaign.target_rules
                             })
                         });
                         if (res.ok) {
@@ -3118,7 +3434,8 @@
                                 name: this.editingCampaign.name,
                                 subject: this.editingCampaign.subject,
                                 body_blocks: this.editorBlocks,
-                                body_html: html
+                                body_html: html,
+                                target_rules: this.editingCampaign.target_rules
                             })
                         });
                         
@@ -3140,14 +3457,120 @@
                     }
                 },
 
+                async pauseCampaign(id) {
+                    try {
+                        const res = await fetch(`/api/campaigns/${id}/pause`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Campaign sending paused');
+                            await this.fetchCampaigns();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to pause campaign', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async resumeCampaign(id) {
+                    try {
+                        const res = await fetch(`/api/campaigns/${id}/resume`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Campaign sending resumed');
+                            await this.fetchCampaigns();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to resume campaign', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
                 // Stats logs
                 async openStatsModal(campaignId) {
+                    this.showClickMapVisualizer = false;
+                    this.clickMapHtml = '';
+                    this.clickMapStats = [];
                     try {
                         const res = await fetch(`/api/campaigns/${campaignId}/stats`, { headers: this.getAuthHeaders() });
                         if (res.ok) {
                             this.campaignStats = await res.json();
+                            this.campaignStats.id = campaignId;
                             this.modals.stats = true;
                             setTimeout(() => lucide.replace(), 50);
+                        }
+                    } catch(e) {}
+                },
+                
+                async loadClickMapOverlay() {
+                    const campaignId = this.campaignStats.id;
+                    if (!campaignId) return;
+                    try {
+                        const res = await fetch(`/api/campaigns/${campaignId}/click-map`, { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.clickMapHtml = data.body_html;
+                            this.clickMapStats = data.click_map;
+                            
+                            setTimeout(() => {
+                                const iframe = document.getElementById('clickMapIframe');
+                                if (!iframe) return;
+                                
+                                iframe.srcdoc = this.clickMapHtml || '<p style="color:#000; padding:20px;">No HTML template available.</p>';
+                                iframe.onload = () => {
+                                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                                    if (!doc) return;
+                                    
+                                    const style = doc.createElement('style');
+                                    style.textContent = `
+                                        .click-overlay-bubble {
+                                            position: absolute;
+                                            background: linear-gradient(135deg, #ec4899, #f43f5e);
+                                            color: #ffffff !important;
+                                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                                            font-size: 10px;
+                                            font-weight: bold;
+                                            padding: 2px 6px;
+                                            border-radius: 12px;
+                                            box-shadow: 0 3px 8px rgba(244, 63, 94, 0.4);
+                                            pointer-events: none;
+                                            z-index: 99999;
+                                            white-space: nowrap;
+                                            transform: translate(-50%, -100%);
+                                            animation: popIn 0.3s ease-out;
+                                            border: 1px solid rgba(255,255,255,0.2);
+                                        }
+                                        @keyframes popIn {
+                                            0% { transform: translate(-50%, -100%) scale(0.6); opacity: 0; }
+                                            100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+                                        }
+                                    `;
+                                    doc.head.appendChild(style);
+                                    
+                                    const links = doc.getElementsByTagName('a');
+                                    for (let a of links) {
+                                        const url = a.getAttribute('href');
+                                        if (!url) continue;
+                                        
+                                        const stat = this.clickMapStats.find(x => x.url === url || url.includes(x.url));
+                                        if (stat) {
+                                            const bubble = doc.createElement('span');
+                                            bubble.className = 'click-overlay-bubble';
+                                            bubble.textContent = `${stat.percentage}% (${stat.clicks})`;
+                                            
+                                            a.style.position = 'relative';
+                                            a.appendChild(bubble);
+                                        }
+                                    }
+                                };
+                            }, 50);
                         }
                     } catch(e) {}
                 },
@@ -3190,8 +3613,9 @@
                 
                 // Badge color mappings
                 getCampaignBadgeClass(status) {
-                    if (status === 'sent') return 'badge-success';
+                    if (status === 'sent' || status === 'completed') return 'badge-success';
                     if (status === 'sending') return 'badge-info';
+                    if (status === 'paused') return 'badge-warning';
                     if (status === 'queued') return 'badge-warning';
                     if (status === 'cancelled') return 'badge-muted';
                     return 'badge-muted'; // draft

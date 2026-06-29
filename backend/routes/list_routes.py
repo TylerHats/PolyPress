@@ -76,7 +76,17 @@ def delete_subscriber_list(list_id: int, db: Session = Depends(get_db), current_
 # SUBSCRIBER ENDPOINTS
 
 @router.get("/{list_id}/subscribers")
-def list_subscribers(list_id: int, page: int = 1, limit: int = 50, search: str = "", db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def list_subscribers(
+    list_id: int, 
+    page: int = 1, 
+    limit: int = 50, 
+    search: str = "", 
+    status: str = "",
+    engagement: int = None,
+    tag: str = "",
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(auth.get_current_user)
+):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -90,6 +100,12 @@ def list_subscribers(list_id: int, page: int = 1, limit: int = 50, search: str =
         query = query.filter(
             (Subscriber.email.ilike(f"%{search}%")) | (Subscriber.name.ilike(f"%{search}%"))
         )
+    if status:
+        query = query.filter(Subscriber.status == status)
+    if engagement is not None:
+        query = query.filter(Subscriber.engagement_score == engagement)
+    if tag:
+        query = query.filter(Subscriber.tags.like(f'%"{tag}"%'))
         
     total = query.count()
     offset = (page - 1) * limit
@@ -121,6 +137,7 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
         existing.name = payload.get("name", existing.name)
         existing.status = payload.get("status", "active")
         existing.custom_data = payload.get("custom_data", existing.custom_data)
+        existing.tags = payload.get("tags", existing.tags)
         db.commit()
         db.refresh(existing)
         return existing
@@ -132,6 +149,7 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
         name=payload.get("name"),
         status=payload.get("status", "active"),
         custom_data=payload.get("custom_data", {}),
+        tags=payload.get("tags", []),
         source_tag=payload.get("source_tag", "Manual Admin")
     )
     db.add(subscriber)

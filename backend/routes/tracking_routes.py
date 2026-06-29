@@ -51,6 +51,9 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 "subscriber_id": subscriber_id,
                 "email": subscriber.email
             })
+            
+            from engagement_service import trigger_engagement_recalc
+            trigger_engagement_recalc(subscriber_id)
     except Exception as e:
         # Fail silently to avoid showing broken pixel image in email clients
         print(f"Tracking open error: {e}")
@@ -106,6 +109,9 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 "email": subscriber.email,
                 "url": url
             })
+            
+            from engagement_service import trigger_engagement_recalc
+            trigger_engagement_recalc(subscriber_id)
     except Exception as e:
         print(f"Tracking click error: {e}")
         
