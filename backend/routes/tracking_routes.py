@@ -44,6 +44,13 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 campaign.open_count += 1
                 
             db.commit()
+            
+            from webhook_dispatcher import trigger_webhook
+            trigger_webhook(campaign.tenant_id, "email.open", {
+                "campaign_id": campaign_id,
+                "subscriber_id": subscriber_id,
+                "email": subscriber.email
+            })
     except Exception as e:
         # Fail silently to avoid showing broken pixel image in email clients
         print(f"Tracking open error: {e}")
@@ -91,6 +98,14 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 campaign.click_count += 1
                 
             db.commit()
+            
+            from webhook_dispatcher import trigger_webhook
+            trigger_webhook(campaign.tenant_id, "email.click", {
+                "campaign_id": campaign_id,
+                "subscriber_id": subscriber_id,
+                "email": subscriber.email,
+                "url": url
+            })
     except Exception as e:
         print(f"Tracking click error: {e}")
         

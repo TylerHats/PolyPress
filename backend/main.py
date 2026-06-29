@@ -14,7 +14,7 @@ from sending_worker import process_queue
 from bounce_worker import bounce_worker_loop
 
 # Import routers
-from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes
+from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("polypress")
@@ -87,6 +87,7 @@ app.include_router(list_routes.router)
 app.include_router(tracking_routes.router)
 app.include_router(embed_routes.router)
 app.include_router(ssl_routes.router)
+app.include_router(developer_routes.router)
 
 # Mount branding folder for custom assets
 branding_dir = "/home/tylerhats/Documents/GitHub/PolyPress/branding"

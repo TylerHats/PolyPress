@@ -180,6 +180,17 @@ def process_tenant_bounces(db: Session, tenant: Tenant):
                                 
                     db.commit()
                     
+                    from webhook_dispatcher import trigger_webhook
+                    trigger_webhook(tenant.id, f"subscriber.{new_status}", {
+                        "id": subscriber.id,
+                        "email": subscriber.email,
+                        "name": subscriber.name,
+                        "status": subscriber.status,
+                        "reason": bounce_info["diagnostic_code"],
+                        "source": bounce_info["sender_email"],
+                        "campaign_id": bounce_info["campaign_id"]
+                    })
+                    
                 imap.store(msg_id, "+FLAGS", "\\Seen")
             except Exception as e:
                 logger.error(f"Error processing IMAP message {msg_id}: {e}")

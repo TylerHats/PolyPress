@@ -321,6 +321,16 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         
     db.commit()
     
+    from webhook_dispatcher import trigger_webhook
+    trigger_webhook(sub_list.tenant_id, "subscriber.subscribe", {
+        "id": subscriber_id,
+        "email": email,
+        "name": name,
+        "status": status_state,
+        "list_id": list_id,
+        "source": tag
+    })
+    
     # Send transactional confirmation email if pending (Double Opt-In)
     if is_double_optin:
         settings = db.query(GlobalSettings).first()
@@ -410,6 +420,15 @@ def confirm_optin(token: str, db: Session = Depends(get_db)):
     subscriber.double_opt_in_token = None
     db.commit()
     
+    from webhook_dispatcher import trigger_webhook
+    trigger_webhook(subscriber.tenant_id, "subscriber.active", {
+        "id": subscriber.id,
+        "email": subscriber.email,
+        "name": subscriber.name,
+        "status": subscriber.status,
+        "list_id": subscriber.list_id
+    })
+    
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -473,5 +492,15 @@ def post_unsubscribe(subscriber_id: int, campaign_id: int, db: Session = Depends
     if subscriber.status != "unsubscribed":
         subscriber.status = "unsubscribed"
         db.commit()
+        
+        from webhook_dispatcher import trigger_webhook
+        trigger_webhook(subscriber.tenant_id, "subscriber.unsubscribe", {
+            "id": subscriber.id,
+            "email": subscriber.email,
+            "name": subscriber.name,
+            "status": subscriber.status,
+            "list_id": subscriber.list_id,
+            "campaign_id": campaign_id
+        })
         
     return {"unsubscribed": True, "detail": f"Subscriber {subscriber.email} has been unsubscribed."}

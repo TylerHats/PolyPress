@@ -313,6 +313,33 @@ async def process_queue():
                     
             db.commit()
             
+            # Dispatch Webhook Delivery notifications
+            from webhook_dispatcher import trigger_webhook
+            if success:
+                trigger_webhook(tenant.id, "email.sent", {
+                    "campaign_id": campaign.id,
+                    "subscriber_id": subscriber.id,
+                    "email": subscriber.email
+                })
+            else:
+                if is_transient:
+                    trigger_webhook(tenant.id, "email.deferred", {
+                        "campaign_id": campaign.id,
+                        "subscriber_id": subscriber.id,
+                        "email": subscriber.email,
+                        "code": code,
+                        "reason": msg
+                    })
+                else:
+                    trigger_webhook(tenant.id, "subscriber.bounce", {
+                        "id": subscriber.id,
+                        "email": subscriber.email,
+                        "name": subscriber.name,
+                        "status": subscriber.status,
+                        "reason": f"[{code}] {msg}",
+                        "campaign_id": campaign.id
+                    })
+            
             # Calculate next delay for this tenant's items to respect speed limit
             if tenant.speed_emails_per_hour > 0:
                 delay = 3600.0 / tenant.speed_emails_per_hour

@@ -209,6 +209,28 @@ class TrackingLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     campaign = relationship("Campaign", back_populates="tracking_logs")
+    
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+    name = Column(String)
+    prefix = Column(String)
+    key_hash = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+
+class WebhookSubscription(Base):
+    __tablename__ = "webhook_subscriptions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+    url = Column(String)
+    secret = Column(String)
+    events = Column(JSON, default=list)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 def get_db():
     db = SessionLocal()
