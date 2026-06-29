@@ -13,10 +13,14 @@
 3. **Internal MTA (Direct Send)**: Resolves MX records of recipient domains directly and delivers emails without using third-party relays.
 4. **DKIM Signature Layer**: Generates 2048-bit RSA key pairs per domain and displays the DNS TXT record layout directly in the UI.
 5. **IMAP Bounce Processor**: Periodically polls a configured bounce mailbox to parse DSNs (delivery status notifications) and ARF (Abuse Report Format) spam reports, auto-flagging bad contacts.
-6. **Visual Newsletter Builder**: Inline block editor (Heading, Paragraph, Button, Image, Divider, Spacer) with template compile engine and subscriber merge tags (e.g. `{{name}}`, `{{email}}`, custom attributes).
-7. **CSV subscriber import**: Drag-and-drop CSV importer with custom database header mapping matching flexible subscriber list schemas domain-to-domain.
-8. **Metrics & Dynamic Open/Click Tracking**: Injects open tracking pixels and rewrites hyperlinks to capture clicks and opens dynamically.
-9. **White Label System**: Brand custom naming and logo support.
+6. **Visual Newsletter Builder**: Inline block editor (Heading, Paragraph, Button, Image, Divider, Spacer) with template compile engine and subscriber merge tags.
+7. **Double Opt-In Flow**: Per-domain toggle sends responsive verification emails to pending subscribers with activation links.
+8. **Visual Mock Previews**: Renders newsletter templates inside the browser with live subscriber merge-tag variable overrides.
+9. **RFC 8058 One-Click Unsubscribe**: Appends `List-Unsubscribe` headers to support direct client-side unsubscribes.
+10. **Outbox Queue Board**: Displays pending/deferred sends, MX responses, retry intervals, and allows purging queue items.
+11. **Developer REST API & HMAC Webhooks**: API Key authentication for programmatic subscriber additions, and secure HMAC-SHA256 signed event postbacks.
+12. **In-Process Let's Encrypt SSL (ACME)**: Acquire Let's Encrypt certificates directly inside the Admin console with automatic in-process HTTP-01 challenge routing.
+13. **White Label System**: Brand custom naming and logo support.
 
 ---
 

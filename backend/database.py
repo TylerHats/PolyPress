@@ -112,11 +112,11 @@ class Subscriber(Base):
     __tablename__ = "subscribers"
     
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"))
-    list_id = Column(Integer, ForeignKey("subscriber_lists.id"))
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
+    list_id = Column(Integer, ForeignKey("subscriber_lists.id"), index=True)
     email = Column(String, index=True)
     name = Column(String, nullable=True)
-    status = Column(String, default="active") # active, unsubscribed, bounced, spam
+    status = Column(String, default="active", index=True) # active, unsubscribed, bounced, spam
     
     # JSON key-value store mapping list custom fields
     # Format: {"city": "New York", "gender": "male"}
@@ -173,17 +173,17 @@ class QueueItem(Base):
     __tablename__ = "queue_items"
     
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"))
-    campaign_id = Column(Integer, ForeignKey("campaigns.id"))
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), index=True)
     subscriber_id = Column(Integer, ForeignKey("subscribers.id"))
     
     email = Column(String)
     subject = Column(String)
     body_html = Column(Text)
     
-    status = Column(String, default="pending") # pending, sending, sent, failed
+    status = Column(String, default="pending", index=True) # pending, sending, sent, failed
     retries = Column(Integer, default=0)
-    next_attempt = Column(DateTime, default=datetime.utcnow)
+    next_attempt = Column(DateTime, default=datetime.utcnow, index=True)
     error_message = Column(Text, nullable=True)
     last_mx_response = Column(Text, nullable=True)
     error_code = Column(Integer, nullable=True)
@@ -197,11 +197,11 @@ class TrackingLog(Base):
     __tablename__ = "tracking_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"))
-    campaign_id = Column(Integer, ForeignKey("campaigns.id"))
-    subscriber_id = Column(Integer, ForeignKey("subscribers.id"))
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), index=True)
+    subscriber_id = Column(Integer, ForeignKey("subscribers.id"), index=True)
     
-    event_type = Column(String) # open, click
+    event_type = Column(String, index=True) # open, click
     link_url = Column(String, nullable=True) # Null for email open event
     
     ip_address = Column(String, nullable=True)
