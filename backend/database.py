@@ -5,7 +5,8 @@ from typing import List, Optional
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////home/tylerhats/Documents/GitHub/PolyPress/backend/polypress.db")
+BASE_DIR = os.path.realpath(os.path.dirname(__file__))
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'polypress.db')}")
 
 engine = create_engine(
     DATABASE_URL, 

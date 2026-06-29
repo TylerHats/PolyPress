@@ -91,10 +91,11 @@ app.include_router(developer_routes.router)
 app.include_router(backup_routes.router)
 
 # Mount branding folder for custom assets
-branding_dir = "/home/tylerhats/Documents/GitHub/PolyPress/branding"
+BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
+branding_dir = os.path.join(BASE_DIR, "branding")
 os.makedirs(branding_dir, exist_ok=True)
 # Copy default logo if it is in place
-logo_source = "/home/tylerhats/Documents/GitHub/PolyPress/PolyPressLogo.png"
+logo_source = os.path.join(BASE_DIR, "PolyPressLogo.png")
 logo_dest = os.path.join(branding_dir, "logo.png")
 if os.path.exists(logo_source) and not os.path.exists(logo_dest):
     try:
@@ -107,7 +108,7 @@ if os.path.exists(logo_source) and not os.path.exists(logo_dest):
 app.mount("/branding", StaticFiles(directory=branding_dir), name="branding")
 
 # Serve Static Frontend
-static_path = "/home/tylerhats/Documents/GitHub/PolyPress/backend/static"
+static_path = os.path.join(BASE_DIR, "backend", "static")
 os.makedirs(static_path, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 

@@ -21,6 +21,10 @@
 11. **Developer REST API & HMAC Webhooks**: API Key authentication for programmatic subscriber additions, and secure HMAC-SHA256 signed event postbacks.
 12. **In-Process Let's Encrypt SSL (ACME)**: Acquire Let's Encrypt certificates directly inside the Admin console with automatic in-process HTTP-01 challenge routing.
 13. **White Label System**: Brand custom naming and logo support.
+14. **Parallel Send & Retries Queue**: Multithreaded sending workers with token bucket rate limits, continuous transient failures retry logic, and active pause/resume buttons.
+15. **Engagement Stars & Targeting**: Asynchronous 1-5 star hygiene rating based on subscriber open/click activity ratios, advanced multi-filters, and segmented targeting constraints.
+16. **Hot Backup snap-restore System**: High-portability backups zip packages database files and branding assets. Handles SQLAlchemy pool disposals for transparent restores.
+17. **Click Map Visualizer**: Sandy iframe overlays showing click statistics directly on top of matching newsletter links.
 
 ---
 

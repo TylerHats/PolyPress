@@ -12,9 +12,10 @@ import auth
 
 router = APIRouter(prefix="/api/admin/backups", tags=["backups"])
 
-BACKUP_DIR = "/home/tylerhats/Documents/GitHub/PolyPress/backups"
-DB_PATH = "/home/tylerhats/Documents/GitHub/PolyPress/backend/polypress.db"
-BRANDING_DIR = "/home/tylerhats/Documents/GitHub/PolyPress/branding"
+BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+BACKUP_DIR = os.path.join(BASE_DIR, "backups")
+DB_PATH = os.path.join(BASE_DIR, "backend", "polypress.db")
+BRANDING_DIR = os.path.join(BASE_DIR, "branding")
 
 def run_sqlite_backup(src: str, dest: str):
     src_conn = sqlite3.connect(src)

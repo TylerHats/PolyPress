@@ -8,7 +8,8 @@ from cryptography import x509
 
 router = APIRouter(prefix="/api/ssl", tags=["ssl"])
 
-CERTS_DIR = "/home/tylerhats/Documents/GitHub/PolyPress/certs"
+BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+CERTS_DIR = os.path.join(BASE_DIR, "certs")
 
 @router.get("/status")
 def get_ssl_status(current_user: User = Depends(auth.require_super_admin)):
