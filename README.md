@@ -39,6 +39,32 @@ graph TD
 
 ---
 
+## System Requirements
+
+Before running the installer, make sure your hosting server or local machine meets these minimal requirements:
+
+### 1. Hardware
+PolyPress is lightweight, using zero-configuration SQLite storage. It runs comfortably on low-resource machines:
+- **Processor**: 1 CPU core is plenty.
+- **Memory (RAM)**: 512 MB minimum (1 GB recommended).
+- **Disk Space**: Less than 100 MB for base files, plus a small amount of storage for subscriber databases.
+
+### 2. Software Prerequisites
+PolyPress is built for Linux. To prepare your system:
+- **Python**: Version `3.8` or higher.
+- **Dependencies Helper**: On Debian/Ubuntu systems, install python utilities by running:
+  ```bash
+  sudo apt update
+  sudo apt install python3-pip python3-venv -y
+  ```
+
+### 3. Network Ports
+- **Dashboard Access (Port 8000)**: Used to connect to the GUI console locally.
+- **Let's Encrypt SSL (Port 80)**: *Optional.* If you plan to use the built-in **GUI Let's Encrypt Creator**, your server must be publicly reachable on port `80` (HTTP) so Let's Encrypt can perform challenge validations.
+- **Outbound Mail MTA (Port 25)**: *Optional.* If you use **Direct Send Mode** (built-in MTA), your hosting provider must allow outbound connections on Port `25`. *Note: Most cloud providers (like DigitalOcean, AWS) and home ISPs block port 25 to prevent spam. If blocked, simply configure an external SMTP Relay (like SendGrid, Resend, or SES) on port 587 or 465.*
+
+---
+
 ## Installation & Setup
 
 ### 1. Automated Installation
