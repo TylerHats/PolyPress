@@ -1,0 +1,2976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyPress Admin Dashboard</title>
+    <link rel="icon" href="/branding/logo.png" type="image/png">
+    <link href="/static/style.css" rel="stylesheet">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Load ChartJS for premium charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body x-data="polyPressApp()" x-init="initApp()">
+    
+    <div class="bg-glow"></div>
+    
+    <!-- Toast Notifications -->
+    <div class="toast-container">
+        <template x-for="t in toasts" :key="t.id">
+            <div class="toast" :class="t.type === 'success' ? 'toast-success' : 'toast-error'">
+                <i :data-lucide="t.type === 'success' ? 'check-circle' : 'alert-circle'"></i>
+                <span x-text="t.message"></span>
+            </div>
+        </template>
+    </div>
+
+    <!-- Setup Wizard Page -->
+    <div x-show="!setupCompleted" class="login-container" style="display: none;">
+        <div class="login-card" style="max-width: 550px; text-align: left;">
+            <img src="/branding/logo.png" alt="PolyPress Logo" class="login-logo" style="margin-left: auto; margin-right: auto;" onerror="this.src='https://raw.githubusercontent.com/FortAwesome/Font-Awesome/master/svgs/solid/newspaper.svg'">
+            <h1 class="login-title" style="text-align: center; margin-bottom: 5px;">Welcome to PolyPress</h1>
+            <p class="login-subtitle" style="text-align: center; margin-bottom: 25px;">Self-Hosted Newsletter System Setup Wizard</p>
+            
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <div style="border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
+                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">1. Brand Settings</h3>
+                    <div class="field">
+                        <label>Application / System Name</label>
+                        <input type="text" x-model="setupForm.app_name" placeholder="PolyPress">
+                    </div>
+                    <div class="field" style="margin-top: 10px;">
+                        <label>Public System URL</label>
+                        <input type="url" x-model="setupForm.public_url" placeholder="https://newsletter.yourdomain.com">
+                        <span style="font-size: 11px; color: var(--text-secondary);">Used to compile absolute links in emails (tracking, unsubscribe, opt-in).</span>
+                    </div>
+                </div>
+
+                <div style="border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
+                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">2. Super Admin Profile</h3>
+                    <div class="field" style="margin-bottom: 10px;">
+                        <label>Admin Full Name</label>
+                        <input type="text" x-model="setupForm.admin_name" placeholder="System Administrator">
+                    </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="field">
+                            <label>Admin Email</label>
+                            <input type="email" x-model="setupForm.admin_email" placeholder="admin@domain.com" required>
+                        </div>
+                        <div class="field">
+                            <label>Admin Password</label>
+                            <input type="password" x-model="setupForm.admin_password" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
+                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">3. Email Transport</h3>
+                    <div class="toggle-field" style="margin-bottom: 12px;">
+                        <input type="checkbox" id="setup_direct_send" x-model="setupForm.direct_send" style="display:none;">
+                        <div class="toggle-switch" @click="setupForm.direct_send = !setupForm.direct_send"></div>
+                        <span>Direct Send (Internal MTA with DKIM)</span>
+                    </div>
+
+                    <div x-show="setupForm.direct_send">
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="field">
+                                <label>Sending Domain</label>
+                                <input type="text" x-model="setupForm.dkim_domain" placeholder="e.g. domain.com">
+                            </div>
+                            <div class="field">
+                                <label>DKIM Selector</label>
+                                <input type="text" x-model="setupForm.dkim_selector" placeholder="polypress">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div x-show="!setupForm.direct_send">
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="field">
+                                <label>SMTP Host</label>
+                                <input type="text" x-model="setupForm.smtp_host" placeholder="smtp.mailgun.org">
+                            </div>
+                            <div class="field">
+                                <label>SMTP Port</label>
+                                <input type="number" x-model="setupForm.smtp_port" placeholder="587">
+                            </div>
+                        </div>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-top:10px;">
+                            <div class="field">
+                                <label>SMTP Username</label>
+                                <input type="text" x-model="setupForm.smtp_username" placeholder="user@domain.com">
+                            </div>
+                            <div class="field">
+                                <label>SMTP Password</label>
+                                <input type="password" x-model="setupForm.smtp_password" placeholder="••••••••">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">4. Bounce Handler (IMAP)</h3>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="field">
+                            <label>IMAP Host</label>
+                            <input type="text" x-model="setupForm.imap_host" placeholder="imap.domain.com">
+                        </div>
+                        <div class="field">
+                            <label>IMAP Port</label>
+                            <input type="number" x-model="setupForm.imap_port" placeholder="993">
+                        </div>
+                    </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-top:10px;">
+                        <div class="field">
+                            <label>IMAP Username</label>
+                            <input type="text" x-model="setupForm.imap_username" placeholder="bounce@domain.com">
+                        </div>
+                        <div class="field">
+                            <label>IMAP Password</label>
+                            <input type="password" x-model="setupForm.imap_password" placeholder="••••••••">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button @click="submitSetupWizard()" class="btn btn-primary" style="width: 100%; margin-top: 30px;">
+                Complete Onboarding Setup
+            </button>
+        </div>
+    </div>
+
+    <!-- Login Page -->
+    <div x-show="setupCompleted && !authenticated" class="login-container" style="display: none;">
+        <div class="login-card">
+            <img src="/branding/logo.png" alt="PolyPress Logo" class="login-logo" onerror="this.src='https://raw.githubusercontent.com/FortAwesome/Font-Awesome/master/svgs/solid/newspaper.svg'">
+            <h1 class="login-title" x-text="globalSettings.app_name || 'PolyPress'"></h1>
+            <p class="login-subtitle">Email newsletter management</p>
+            
+            <!-- Standard Login Form -->
+            <form x-show="!totpRequired" @submit.prevent="handleLogin()">
+                <div class="form-grid" style="grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
+                    <div class="field" style="text-align: left;">
+                        <label>Email Address</label>
+                        <input type="email" x-model="loginForm.email" required placeholder="admin@polypress.local">
+                    </div>
+                    <div class="field" style="text-align: left;">
+                        <label>Password</label>
+                        <input type="password" x-model="loginForm.password" required placeholder="••••••••">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+            </form>
+            
+            <!-- TOTP Verification Form -->
+            <form x-show="totpRequired" style="display: none;" @submit.prevent="handleTotpVerify()">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.4;">
+                    Two-Factor Authentication is enabled. Please enter the 6-digit code from your authenticator app.
+                </p>
+                <div class="field" style="text-align: left; margin-bottom: 20px;">
+                    <label>Authenticator Code (2FA)</label>
+                    <input type="text" x-model="totpForm.code" required placeholder="123456" maxlength="6" style="text-align: center; font-size: 18px; letter-spacing: 4px;">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Verify & Login</button>
+                <button type="button" @click="totpRequired = false" class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 10px;">Back to Login</button>
+            </form>
+            
+            <div x-show="globalSettings.oidc_enabled && !totpRequired" style="display: none;">
+                <div class="login-separator">or</div>
+                <button @click="triggerOidcLogin()" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                    <i data-lucide="shield-check"></i>
+                    Single Sign-On (OIDC)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Shell (Main Screen) -->
+    <div x-show="authenticated" class="app-container" style="display: none;">
+        
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <img src="/branding/logo.png" alt="PolyPress Logo" class="brand-logo" onerror="this.style.display='none'">
+                <span class="brand-name" x-text="globalSettings.app_name || 'PolyPress'"></span>
+            </div>
+            
+            <nav style="flex-grow: 1;">
+                <ul class="nav-menu">
+                    <li class="nav-item" :class="activeTab === 'dashboard' ? 'active' : ''">
+                        <button @click="switchTab('dashboard')">
+                            <i data-lucide="layout-dashboard"></i> Dashboard
+                        </button>
+                    </li>
+                    <li class="nav-item" :class="activeTab === 'campaigns' || activeTab === 'editor' ? 'active' : ''">
+                        <button @click="switchTab('campaigns')">
+                            <i data-lucide="mail"></i> Campaigns
+                        </button>
+                    </li>
+                    <li class="nav-item" :class="activeTab === 'lists' ? 'active' : ''">
+                        <button @click="switchTab('lists')">
+                            <i data-lucide="users"></i> Subscriber Lists
+                        </button>
+                    </li>
+                    <li class="nav-item" :class="activeTab === 'settings' ? 'active' : ''">
+                        <button @click="switchTab('settings')">
+                            <i data-lucide="settings"></i> Sending Settings
+                        </button>
+                    </li>
+                    <li x-show="user.role === 'super_admin'" class="nav-item" :class="activeTab === 'admin' ? 'active' : ''" style="display: none;">
+                        <button @click="switchTab('admin')">
+                            <i data-lucide="sliders"></i> Global Admin
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="user-avatar" x-text="user.name ? user.name.charAt(0).toUpperCase() : 'U'"></div>
+                    <div class="user-details">
+                        <div class="user-name" x-text="user.name || user.email"></div>
+                        <div class="user-role" x-text="user.role === 'super_admin' ? 'Super Admin' : (user.tenant_name || 'Tenant Admin')"></div>
+                    </div>
+                </div>
+                <button @click="handleLogout()" class="btn btn-secondary btn-sm" style="width: 100%; gap: 6px;">
+                    <i data-lucide="log-out" style="width: 14px; height: 14px;"></i> Sign Out
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-wrapper">
+            <!-- Header bar -->
+            <header class="top-nav">
+                <div class="top-nav-title" x-text="tenant.name || 'PolyPress Console'"></div>
+                <div class="top-nav-actions">
+                    <div class="badge badge-info" x-text="user.role === 'super_admin' ? 'Host Admin Mode' : 'Domain Isolation'"></div>
+                </div>
+            </header>
+
+            <!-- Dashboard body contents -->
+            <div class="content-body">
+                
+                <!-- DASHBOARD VIEW -->
+                <div x-show="activeTab === 'dashboard'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Welcome back, <span x-text="user.name || 'User'"></span></h1>
+                            <p class="page-subtitle">Here is what's happening with your newsletters today.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Grid -->
+                    <div class="stat-card-grid">
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Total Subscribers</span>
+                                <i data-lucide="users" style="color: var(--color-primary);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.totalSubscribers">0</div>
+                            <div class="card-trend trend-up">
+                                <i data-lucide="trending-up" style="width: 12px; height: 12px;"></i> Active contacts
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Campaigns Sent</span>
+                                <i data-lucide="send" style="color: var(--color-accent);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.campaignsSent">0</div>
+                            <div class="card-trend trend-up">
+                                Historical broadcasts
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Avg Open Rate</span>
+                                <i data-lucide="eye" style="color: var(--color-success);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.avgOpenRate + '%'">0%</div>
+                            <div class="card-trend trend-up">
+                                Click-through ratio
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Bounce / Spam Rate</span>
+                                <i data-lucide="alert-triangle" style="color: var(--color-danger);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.avgBounceRate + '%'">0%</div>
+                            <div class="card-trend trend-down" :class="stats.avgBounceRate > 5 ? 'trend-down' : 'trend-up'">
+                                Target: under 3%
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Performance Chart & Recent Campaigns -->
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 30px; margin-top: 30px;">
+                        <div class="card" style="min-height: 380px;">
+                            <h2 style="font-size: 16px; margin-bottom: 20px;">Open & Click Dynamics</h2>
+                            <div style="height: 300px; position: relative;">
+                                <canvas id="dashboardChart"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="card" style="overflow-y: auto;">
+                            <h2 style="font-size: 16px; margin-bottom: 20px;">Recent Campaigns</h2>
+                            <div style="display: flex; flex-direction: column; gap: 16px;" class="nav-menu">
+                                <template x-for="c in campaigns.slice(0, 5)" :key="c.id">
+                                    <div style="padding: 12px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size: 14px;" x-text="c.name"></div>
+                                            <div style="font-size: 12px; color: var(--text-secondary);" x-text="c.subject"></div>
+                                        </div>
+                                        <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status"></span>
+                                    </div>
+                                </template>
+                                <div x-show="campaigns.length === 0" style="text-align: center; color: var(--text-muted); padding: 30px 0;">
+                                    No campaigns sent yet.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CAMPAIGNS VIEW -->
+                <div x-show="activeTab === 'campaigns'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Campaigns</h1>
+                            <p class="page-subtitle">Design, send, and analyze your email newsletters.</p>
+                        </div>
+                        <button @click="openCreateCampaignModal()" class="btn btn-primary">
+                            <i data-lucide="plus"></i> Create Campaign
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Campaign Name</th>
+                                        <th>Subject</th>
+                                        <th>Status</th>
+                                        <th>Delivered</th>
+                                        <th>Opens</th>
+                                        <th>Clicks</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="c in campaigns" :key="c.id">
+                                        <tr>
+                                            <td style="font-weight: 600;" x-text="c.name"></td>
+                                            <td x-text="c.subject"></td>
+                                            <td>
+                                                <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status"></span>
+                                            </td>
+                                            <td x-text="c.sent_count + '/' + c.total_recipients"></td>
+                                            <td x-text="c.open_count + ' (' + calculatePercentage(c.open_count, c.sent_count) + '%)'"></td>
+                                            <td x-text="c.click_count + ' (' + calculatePercentage(c.click_count, c.sent_count) + '%)'"></td>
+                                            <td>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <button x-show="c.status === 'draft'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Content">
+                                                        <i data-lucide="edit-3"></i> Design
+                                                    </button>
+                                                    <button @click="duplicateCampaign(c.id)" class="btn btn-secondary btn-sm" title="Duplicate/Clone">
+                                                        <i data-lucide="copy"></i> Duplicate
+                                                    </button>
+                                                    <button @click="openStatsModal(c.id)" class="btn btn-secondary btn-sm" title="View Metrics">
+                                                        <i data-lucide="bar-chart-2"></i> Stats
+                                                    </button>
+                                                    <button x-show="c.status === 'draft'" @click="deleteCampaign(c.id)" class="btn btn-danger btn-sm" title="Delete">
+                                                        <i data-lucide="trash-2"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="campaigns.length === 0">
+                                        <td colspan="7" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                                            No campaigns found. Create one to get started!
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- EMAIL VISUAL EDITOR VIEW -->
+                <div x-show="activeTab === 'editor'">
+                    <div class="page-header" style="margin-bottom: 20px;">
+                        <div>
+                            <span style="font-size: 13px; color: var(--text-muted); cursor: pointer;" @click="switchTab('campaigns')">← Back to campaigns</span>
+                            <h1 class="page-title" style="font-size: 22px; margin-top: 4px;" x-text="'Design: ' + editingCampaign.name"></h1>
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button @click="saveCampaignDraft()" class="btn btn-secondary">
+                                <i data-lucide="save"></i> Save Draft
+                            </button>
+                            <button @click="openPreviewModal()" class="btn btn-secondary">
+                                <i data-lucide="eye"></i> Live Preview
+                            </button>
+                            <button @click="openLaunchModal()" class="btn btn-primary">
+                                <i data-lucide="send"></i> Queue & Send
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Editor Workspace -->
+                    <div class="editor-layout">
+                        <!-- Left Panel: Blocks to Add -->
+                        <div class="editor-sidebar">
+                            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 15px;">Blocks</h3>
+                            <div class="block-item" @click="addEditorBlock('heading')">
+                                <i data-lucide="heading"></i> Heading Block
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('paragraph')">
+                                <i data-lucide="text"></i> Paragraph Text
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('button')">
+                                <i data-lucide="mouse-pointer"></i> Button / Call Action
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('image')">
+                                <i data-lucide="image"></i> Image Asset
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('divider')">
+                                <i data-lucide="minus"></i> Divider Line
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('spacer')">
+                                <i data-lucide="space"></i> Vertical Spacer
+                            </div>
+                            
+                            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-top: 25px; margin-bottom: 10px;">Merge Tags</h3>
+                            <div style="font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                                <code>{{name}}</code>
+                                <code>{{email}}</code>
+                                <template x-for="f in getActiveListFields()" :key="f.key">
+                                    <code x-text="'{{' + f.key + '}}'"></code>
+                                </template>
+                                <code>{{unsubscribe_url}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Center Panel: Live Preview Canvas -->
+                        <div class="editor-canvas-container">
+                            <div class="editor-canvas" id="emailCanvas">
+                                <template x-for="(b, idx) in editorBlocks" :key="idx">
+                                    <div class="canvas-block" :class="selectedBlockIndex === idx ? 'active' : ''" @click.stop="selectedBlockIndex = idx">
+                                        
+                                        <!-- Actions Overlay -->
+                                        <div class="canvas-block-actions">
+                                            <button @click.stop="moveBlockUp(idx)" class="action-icon-btn" title="Move Up"><i data-lucide="chevron-up" style="width: 14px; height: 14px;"></i></button>
+                                            <button @click.stop="moveBlockDown(idx)" class="action-icon-btn" title="Move Down"><i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i></button>
+                                            <button @click.stop="deleteBlock(idx)" class="action-icon-btn" title="Delete" style="color: var(--color-danger);"><i data-lucide="trash" style="width: 14px; height: 14px;"></i></button>
+                                        </div>
+
+                                        <!-- Block Renderings -->
+                                        <div style="pointer-events: none;">
+                                            <template x-if="b.type === 'heading'">
+                                                <h1 :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding" x-text="b.text"></h1>
+                                            </template>
+                                            <template x-if="b.type === 'paragraph'">
+                                                <p :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding; white-space: pre-line;" x-text="b.text"></p>
+                                            </template>
+                                            <template x-if="b.type === 'button'">
+                                                <div :style="'text-align:' + b.align + '; padding: 12px 0;'">
+                                                    <span :style="'display:inline-block; padding:' + b.padding + '; background-color:' + b.bg_color + '; color:' + b.text_color + '; font-weight:bold; border-radius:' + b.border_radius + '; text-decoration:none; font-size:14px;'" x-text="b.text"></span>
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'image'">
+                                                <div style="text-align: center; width: 100%;">
+                                                    <img :src="b.url" :alt="b.alt" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'divider'">
+                                                <div :style="'padding:' + b.padding">
+                                                    <hr :style="'border:none; border-top:' + b.height + ' solid ' + b.color">
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'spacer'">
+                                                <div :style="'height:' + b.height"></div>
+                                            </template>
+                                        </div>
+
+                                    </div>
+                                </template>
+                                <div x-show="editorBlocks.length === 0" style="text-align: center; padding: 60px 20px; color: #94a3b8; font-style: italic;">
+                                    Canvas is empty. Click elements on the left side to build your newsletter layout.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Block Customization Properties -->
+                        <div class="editor-properties">
+                            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 15px;">Properties</h3>
+                            <template x-if="selectedBlockIndex === null">
+                                <div style="color: var(--text-muted); font-size: 13px; font-style: italic;">
+                                    Click a block on the preview canvas to configure its settings.
+                                </div>
+                            </template>
+                            <template x-if="selectedBlockIndex !== null">
+                                <div style="display: flex; flex-direction: column; gap: 14px;">
+                                    <!-- Dynamic fields depending on active block type -->
+                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="field">
+                                            <label>Text Content</label>
+                                            <textarea x-model="editorBlocks[selectedBlockIndex].text" @input="reRenderCanvas()"></textarea>
+                                        </div>
+                                    </template>
+                                    
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'button'">
+                                        <div class="field">
+                                            <label>Redirect URL</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].url">
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'image'">
+                                        <div>
+                                            <div class="field" style="margin-bottom: 10px;">
+                                                <label>Image Source URL</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].url" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Alt Text</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].alt">
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="field">
+                                            <label>Alignment</label>
+                                            <select x-model="editorBlocks[selectedBlockIndex].align" @change="reRenderCanvas()">
+                                                <option value="left">Left</option>
+                                                <option value="center">Center</option>
+                                                <option value="right">Right</option>
+                                            </select>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="['heading', 'paragraph'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label>Font Size</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].size" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Text Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].color" @input="reRenderCanvas()">
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'button'">
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label>BG Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].bg_color" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Text Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].text_color" @input="reRenderCanvas()">
+                                            </div>
+                                        </div>
+                                        <div class="field">
+                                            <label>Corner Radius</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].border_radius" @input="reRenderCanvas()">
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'divider'">
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label>Height (px)</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].height" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Line Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].color" @input="reRenderCanvas()">
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'spacer'">
+                                        <div class="field">
+                                            <label>Height (px)</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].height" @input="reRenderCanvas()">
+                                        </div>
+                                    </template>
+
+                                    <template x-if="['heading', 'paragraph', 'divider', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="field">
+                                            <label>Padding (margins)</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].padding" @input="reRenderCanvas()">
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUBSCRIBER LISTS VIEW -->
+                <div x-show="activeTab === 'lists'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Lists & Contacts</h1>
+                            <p class="page-subtitle">Import CSV databases and setup web subscribe iframes.</p>
+                        </div>
+                        <button @click="openCreateListModal()" class="btn btn-primary">
+                            <i data-lucide="plus"></i> Create List
+                        </button>
+                    </div>
+
+                    <div class="card-grid">
+                        <template x-for="l in lists" :key="l.id">
+                            <div class="card">
+                                <h3 style="font-size: 18px; margin-bottom: 8px;" x-text="l.name"></h3>
+                                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;" x-text="l.description || 'No description provided.'"></p>
+                                
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button @click="browseListSubscribers(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="users" style="width: 14px;"></i> View Subscribers
+                                    </button>
+                                    <button @click="openCsvImportModal(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="upload" style="width: 14px;"></i> CSV Import
+                                    </button>
+                                    <button @click="openEmbedCodeModal(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="code" style="width: 14px;"></i> Embed Form
+                                    </button>
+                                    <button @click="openEditListFieldsModal(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="settings" style="width: 14px;"></i> Fields Schema
+                                    </button>
+                                    <button @click="deleteList(l.id)" class="btn btn-danger btn-sm" style="width: 32px; padding: 0;">
+                                        <i data-lucide="trash-2" style="width: 14px;"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="lists.length === 0" style="grid-column: 1 / -1; text-align: center; padding: 45px;" class="card">
+                            <p style="color: var(--text-muted); font-style: italic;">No subscriber lists exist yet.</p>
+                        </div>
+                    </div>
+
+                    <!-- Subscribers Browser Table (Visible if listSelected is loaded) -->
+                    <div x-show="listSelected !== null" class="card" style="margin-top: 30px;">
+                        <div class="page-header" style="margin-bottom: 20px;">
+                            <div>
+                                <h3 style="font-size: 18px;" x-text="'Contacts inside: ' + listSelectedName"></h3>
+                                <p style="font-size: 13px; color: var(--text-secondary);" x-text="'Total: ' + subscribersCount"></p>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" x-model="subscribersSearch" @input.debounce.300ms="fetchSubscribers()" placeholder="Search contacts..." style="max-width: 250px;">
+                                <button @click="openAddSubscriberModal()" class="btn btn-primary btn-sm">
+                                    <i data-lucide="user-plus"></i> Add Contact
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Email Address</th>
+                                        <th>Name</th>
+                                        <th>Status</th>
+                                        <th>Origin Source</th>
+                                        <!-- Dynamic custom field headers -->
+                                        <template x-for="f in listSelectedFields" :key="f.key">
+                                            <th x-text="f.label"></th>
+                                        </template>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="s in subscribers" :key="s.id">
+                                        <tr>
+                                            <td style="font-weight: 500;" x-text="s.email"></td>
+                                            <td x-text="s.name || '-'"></td>
+                                            <td>
+                                                <div>
+                                                    <span class="badge" :class="getSubscriberBadgeClass(s.status)" x-text="s.status"></span>
+                                                    <template x-if="s.status === 'bounced' || s.status === 'spam' || s.status === 'deferred' || s.status === 'failed'">
+                                                        <div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; max-width: 180px; line-height: 1.3;" 
+                                                             :title="(s.status === 'spam' ? s.complaint_reason : s.bounce_reason) + '\\nSource: ' + (s.bounce_source_email || 'Unknown')">
+                                                            <span style="font-weight: 600; color: var(--color-accent);">Reason:</span> 
+                                                            <span x-text="s.status === 'spam' ? (s.complaint_reason || 'Spam report received') : (s.bounce_reason || 'Unknown failure')"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                            <td x-text="s.source_tag || '-'"></td>
+                                            <!-- Dynamic Custom Fields data mapping -->
+                                            <template x-for="f in listSelectedFields" :key="f.key">
+                                                <td x-text="s.custom_data[f.key] || '-'"></td>
+                                            </template>
+                                            <td>
+                                                <button @click="deleteSubscriber(s.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px;">
+                                                    <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="subscribers.length === 0">
+                                        <td :colspan="5 + listSelectedFields.length" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                                            No subscribers found.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination panel -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
+                            <span style="font-size: 13px; color: var(--text-secondary);" x-text="'Showing page ' + subscribersPage + ' of ' + Math.ceil(subscribersCount/50)"></span>
+                            <div style="display: flex; gap: 8px;">
+                                <button @click="subscribersPage > 1 ? (subscribersPage--, fetchSubscribers()) : null" class="btn btn-secondary btn-sm" :disabled="subscribersPage === 1">Prev</button>
+                                <button @click="subscribersPage * 50 < subscribersCount ? (subscribersPage++, fetchSubscribers()) : null" class="btn btn-secondary btn-sm" :disabled="subscribersPage * 50 >= subscribersCount">Next</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SENDING SETTINGS VIEW -->
+                <div x-show="activeTab === 'settings'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Mailing Configurations</h1>
+                            <p class="page-subtitle">Setup SMTP delivery, generate DKIM domain DNS, and map IMAP bounce processors.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                        
+                        <!-- Sending MTA config -->
+                        <div class="card">
+                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="send" style="color: var(--color-primary);"></i>
+                                SMTP / Outbound Settings
+                            </h2>
+                            
+                            <div class="toggle-field" style="margin-bottom: 20px;">
+                                <input type="checkbox" id="direct_send" x-model="tenant.direct_send" style="display:none;">
+                                <div class="toggle-switch" @click="tenant.direct_send = !tenant.direct_send; saveTenantSettings()"></div>
+                                <div>
+                                    <div style="font-weight:600;">Direct Send Mode (Internal MTA)</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">Query recipient MX domains directly and sign messages with DKIM.</div>
+                                </div>
+                            </div>
+
+                            <!-- If SMTP relay is configured -->
+                            <div x-show="!tenant.direct_send">
+                                <div style="display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label>SMTP Host</label>
+                                            <input type="text" x-model="tenant.smtp_host">
+                                        </div>
+                                        <div class="field">
+                                            <label>SMTP Port</label>
+                                            <input type="number" x-model="tenant.smtp_port">
+                                        </div>
+                                    </div>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label>SMTP Username</label>
+                                            <input type="text" x-model="tenant.smtp_username">
+                                        </div>
+                                        <div class="field">
+                                            <label>SMTP Password</label>
+                                            <input type="password" x-model="tenant.smtp_password" placeholder="••••••••">
+                                        </div>
+                                    </div>
+                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                                        <div class="toggle-field">
+                                            <input type="checkbox" x-model="tenant.smtp_use_ssl" style="display:none;">
+                                            <div class="toggle-switch" @click="tenant.smtp_use_ssl = !tenant.smtp_use_ssl"></div>
+                                            <span>Use SSL (Port 465)</span>
+                                        </div>
+                                        <div class="toggle-field">
+                                            <input type="checkbox" x-model="tenant.smtp_use_tls" style="display:none;">
+                                            <div class="toggle-switch" @click="tenant.smtp_use_tls = !tenant.smtp_use_tls"></div>
+                                            <span>Use STARTTLS (587)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Direct Send Settings & DKIM Info -->
+                            <div x-show="tenant.direct_send">
+                                <div style="display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="field">
+                                        <label>Sending Mail Domain (DKIM Domain)</label>
+                                        <input type="text" x-model="tenant.dkim_domain" placeholder="e.g. yourdomain.com">
+                                    </div>
+                                    <div class="field">
+                                        <label>DKIM Selector</label>
+                                        <input type="text" x-model="tenant.dkim_selector" placeholder="polypress">
+                                    </div>
+                                    
+                                    <!-- DKIM Keys rendering block -->
+                                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-glass); border-radius: 8px; padding: 16px;">
+                                        <h3 style="font-size: 13px; margin-bottom: 8px; color:#fff;">DNS TXT Record Setup</h3>
+                                        <template x-if="!tenant.dkim_public_key">
+                                            <div>
+                                                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">Configure your keys to display the TXT layout.</p>
+                                                <button @click="generateTenantDkimKeys()" class="btn btn-secondary btn-sm">Generate Key Pair</button>
+                                            </div>
+                                        </template>
+                                        <template x-if="tenant.dkim_public_key">
+                                            <div>
+                                                <div style="font-size: 11px; margin-bottom: 8px;">
+                                                    <span style="font-weight: bold; color: var(--color-accent);">Host/Name:</span>
+                                                    <code style="background: rgba(255,255,255,0.05); padding: 2px 4px; border-radius: 3px;" x-text="tenant.dkim_selector + '._domainkey.' + (tenant.dkim_domain || 'yourdomain.com')"></code>
+                                                </div>
+                                                <div style="font-size: 11px;">
+                                                    <span style="font-weight: bold; color: var(--color-accent);">Value:</span>
+                                                    <div style="background: rgba(255,255,255,0.05); padding: 6px; border-radius: 4px; font-family: monospace; word-break: break-all; margin-top: 4px;" x-text="tenant.dkim_public_key"></div>
+                                                </div>
+                                                <button @click="generateTenantDkimKeys()" class="btn btn-secondary btn-sm" style="margin-top: 12px;">Regenerate Keys</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Speed settings -->
+                            <div class="field" style="margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                                <label>Queue Sending Speed (Emails per Hour)</label>
+                                <input type="number" x-model="tenant.speed_emails_per_hour" placeholder="500">
+                                <span style="font-size: 11px; color: var(--text-muted);">Set to 0 for unlimited speed. Slow sending reduces host IP blocks.</span>
+                            </div>
+
+                            <!-- Double Opt-In settings -->
+                            <div class="toggle-field" style="margin-top: 15px; border-top: 1px solid var(--border-glass); padding-top: 15px;">
+                                <input type="checkbox" id="double_opt_in" x-model="tenant.double_opt_in" style="display:none;">
+                                <div class="toggle-switch" @click="tenant.double_opt_in = !tenant.double_opt_in"></div>
+                                <div>
+                                    <div style="font-weight:600;">Double Opt-In Required</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">Send verification email link when user subscribes via embedded forms.</div>
+                                </div>
+                            </div>
+
+                            <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save Outbound & Speed Settings</button>
+                        </div>
+
+                        <!-- Bounce handler config (IMAP) -->
+                        <div class="card">
+                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="inbox" style="color: var(--color-accent);"></i>
+                                Bounce Handling (IMAP)
+                            </h2>
+                            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                                Connects to a dedicated email inbox via IMAP, automatically processing bounces and spam complaint reports (ARF).
+                            </p>
+
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div class="field">
+                                    <label>Bounce/Reply Envelope Email Address</label>
+                                    <input type="email" x-model="tenant.bounce_email" placeholder="bounce@yourdomain.com">
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label>IMAP Host</label>
+                                        <input type="text" x-model="tenant.imap_host">
+                                    </div>
+                                    <div class="field">
+                                        <label>IMAP Port</label>
+                                        <input type="number" x-model="tenant.imap_port" placeholder="993">
+                                    </div>
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label>IMAP Username</label>
+                                        <input type="text" x-model="tenant.imap_username">
+                                    </div>
+                                    <div class="field">
+                                        <label>IMAP Password</label>
+                                        <input type="password" x-model="tenant.imap_password" placeholder="••••••••">
+                                    </div>
+                                </div>
+                                <div class="toggle-field">
+                                    <input type="checkbox" x-model="tenant.imap_use_ssl" style="display:none;">
+                                    <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
+                                    <span>Use SSL (Default Port 993)</span>
+                                </div>
+                            </div>
+
+                            <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save IMAP Bounce settings</button>
+                        </div>
+                    </div>
+
+                    <!-- DNS & Security Config Section -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px;">
+                        
+                        <!-- DNS Verification Checklist -->
+                        <div class="card">
+                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="shield-alert" style="color: var(--color-accent);"></i>
+                                Domain DNS Diagnostics
+                            </h2>
+                            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                                Verify that your domain DNS settings are correctly configured for optimal inbox delivery.
+                            </p>
+                            
+                            <template x-if="!tenant.dkim_domain">
+                                <div style="color: var(--text-muted); font-size: 13px; font-style: italic; padding: 20px; text-align: center;">
+                                    Please save a sending domain name in SMTP/Outbound Settings first to run DNS diagnostics.
+                                </div>
+                            </template>
+                            
+                            <template x-if="tenant.dkim_domain">
+                                <div style="display: flex; flex-direction: column; gap: 16px;">
+                                    <!-- MX Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">1. MX (Mail Exchange) Record</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Points bounce replies to your bounce email IMAP handler.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;" x-text="'Target Domain: ' + tenant.dkim_domain"></div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.mx.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.mx.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;" x-text="dnsTestResults.mx.records.join(', ') || 'No records resolved'"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- SPF Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">2. SPF (Sender Policy Framework)</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Authorizes PolyPress servers or your SMTP relay to send on behalf of this domain.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;">Expected TXT value contains: v=spf1</div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.spf.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.spf.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="dnsTestResults.spf.records.join(', ')" x-text="dnsTestResults.spf.records.join(', ') || 'No TXT resolves'"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- DKIM Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">3. DKIM Public Key</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Validates email cryptographic header integrity.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;" x-text="'Target Host: ' + tenant.dkim_selector + '._domainkey.' + tenant.dkim_domain"></div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.dkim.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.dkim.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- DMARC Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">4. DMARC Policy</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Instructs recipient servers how to handle alignment failures.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;" x-text="'Target Host: _dmarc.' + tenant.dkim_domain"></div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.dmarc.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.dmarc.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                        </div>
+                                    </div>
+
+                                    <button @click="runDnsDiagnostics()" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" :disabled="dnsTesting">
+                                        <i data-lucide="refresh-cw" :class="dnsTesting ? 'animate-spin' : ''" style="width: 16px; height: 16px;"></i>
+                                        <span x-text="dnsTesting ? 'Testing DNS Records...' : 'Verify DNS Records Live'"></span>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                        
+                        <!-- Account Security & 2FA (TOTP) Card -->
+                        <div class="card">
+                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="key-round" style="color: var(--color-primary);"></i>
+                                Account Security (2FA)
+                            </h2>
+                            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                                Secure your account using Time-based One-Time Passwords (TOTP). Compatible with Google Authenticator, Authy, or Bitwarden.
+                            </p>
+
+                            <!-- If 2FA enabled -->
+                            <div x-show="user.totp_enabled">
+                                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 15px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px;">
+                                    <i data-lucide="shield-check" style="color: var(--color-success); width: 24px; height: 24px; flex-shrink: 0;"></i>
+                                    <div>
+                                        <div style="font-weight: 600; color: #fff; font-size:14px;">Two-Factor Authentication is Active</div>
+                                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Your local login credentials now require a 6-digit TOTP verification code.</div>
+                                    </div>
+                                </div>
+                                <div class="field" style="margin-bottom: 15px;">
+                                    <label>Enter 2FA Code to Disable</label>
+                                    <input type="text" x-model="totpSetup.code" placeholder="123456" maxlength="6" style="text-align: center; font-size: 18px; letter-spacing: 2px;">
+                                </div>
+                                <button @click="disableTotp()" class="btn btn-danger" style="width: 100%;">Disable 2FA / TOTP protection</button>
+                            </div>
+
+                            <!-- If 2FA disabled -->
+                            <div x-show="!user.totp_enabled">
+                                <div x-show="totpSetup.step === 1">
+                                    <button @click="initiateTotpSetup()" class="btn btn-primary" style="width: 100%;">Set Up Two-Factor Authentication</button>
+                                </div>
+                                
+                                <div x-show="totpSetup.step === 2" style="display: none;">
+                                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                                        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                                            1. Scan the connection string or backup key in your Authenticator app.
+                                        </div>
+                                        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; font-family: monospace; text-align: center; word-break: break-all;">
+                                            <span style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">Authenticator Backup Secret</span>
+                                            <span style="font-size: 15px; font-weight: 700; color: var(--color-accent);" x-text="totpSetup.secret"></span>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-muted); line-height: 1.4; word-break: break-all; background: rgba(255,255,255,0.02); padding: 8px; border-radius: 4px;">
+                                            <strong>Key Link:</strong> <span x-text="totpSetup.uri"></span>
+                                        </div>
+                                        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                                            2. Enter the generated 6-digit verification code below to confirm setup:
+                                        </div>
+                                        <div class="field">
+                                            <label>Verification Code</label>
+                                            <input type="text" x-model="totpSetup.code" placeholder="123456" maxlength="6" style="text-align: center; font-size: 18px; letter-spacing: 2px;">
+                                        </div>
+                                        <div style="display: flex; gap: 10px;">
+                                            <button @click="totpSetup.step = 1" class="btn btn-secondary" style="flex:1;">Cancel</button>
+                                            <button @click="enableTotp()" class="btn btn-primary" style="flex:1;">Enable 2FA</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Outbox Queue Board -->
+                    <div class="card" style="margin-top: 30px;">
+                        <div class="page-header" style="margin-bottom: 20px;">
+                            <div>
+                                <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                                    <i data-lucide="mail" style="color: var(--color-warning);"></i>
+                                    Outbound Email Queue (Deferrals & Diagnostics)
+                                </h2>
+                                <p style="font-size: 13px; color: var(--text-secondary);">
+                                    Inspect deferred, sending, or pending outbound emails, see MX response logs, and clear items.
+                                </p>
+                            </div>
+                            <button @click="fetchOutboxQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px;">
+                                <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Refresh Queue
+                            </button>
+                        </div>
+
+                        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Recipient</th>
+                                        <th>Subject</th>
+                                        <th>Status</th>
+                                        <th>Attempts</th>
+                                        <th>Next Retry</th>
+                                        <th>Last SMTP/MX Response</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-if="outboxQueue.length === 0">
+                                        <tr>
+                                            <td colspan="7" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 30px;">
+                                                No emails currently in the outbox queue.
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <template x-for="item in outboxQueue" :key="item.id">
+                                        <tr>
+                                            <td style="font-weight: 600;" x-text="item.email"></td>
+                                            <td x-text="item.subject"></td>
+                                            <td>
+                                                <span class="badge" 
+                                                      :class="item.status === 'deferred' ? 'badge-warning' : (item.status === 'sending' ? 'badge-info' : 'badge-muted')" 
+                                                      x-text="item.status"></span>
+                                            </td>
+                                            <td x-text="item.retries"></td>
+                                            <td x-text="item.status === 'deferred' ? new Date(item.next_attempt + 'Z').toLocaleTimeString() : 'Immediate'"></td>
+                                            <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                                                :title="item.last_mx_response || item.error_message || 'None'" 
+                                                x-text="item.last_mx_response || item.error_message || 'None'"></td>
+                                            <td>
+                                                <button @click="purgeQueueItem(item.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px;">
+                                                    Purge
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GLOBAL HOST ADMIN VIEW (Visible if user.role === 'super_admin') -->
+                <div x-show="activeTab === 'admin' && user.role === 'super_admin'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Global Host Settings</h1>
+                            <p class="page-subtitle">Manage tenants, globally map OIDC providers, and customize brand styles.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 3fr 2fr; gap: 30px;">
+                        
+                        <!-- Tenants Table -->
+                        <div class="card">
+                            <div class="page-header" style="margin-bottom: 20px;">
+                                <h3 style="font-size: 18px;">Registered Tenants</h3>
+                                <button @click="openCreateTenantModal()" class="btn btn-secondary btn-sm">+ Add Tenant</button>
+                            </div>
+                            <div class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Tenant Name</th>
+                                            <th>Sending Domain</th>
+                                            <th>Direct Send</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="t in tenants" :key="t.id">
+                                            <tr>
+                                                <td style="font-weight:600;" x-text="t.name"></td>
+                                                <td x-text="t.dkim_domain || 'SMTP Relay'"></td>
+                                                <td x-text="t.direct_send ? 'Yes (MTA)' : 'No'"></td>
+                                                <td>
+                                                    <button @click="deleteTenant(t.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px;">
+                                                        <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- OIDC / System configuration -->
+                        <div class="card">
+                            <h3 style="font-size: 18px; margin-bottom: 20px;">Identity & Styling Control</h3>
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div class="field">
+                                    <label>App Name</label>
+                                    <input type="text" x-model="globalSettings.app_name">
+                                </div>
+                                <div class="field">
+                                    <label>Public System URL</label>
+                                    <input type="url" x-model="globalSettings.public_url" placeholder="https://newsletter.yourdomain.com">
+                                    <span style="font-size: 11px; color: var(--text-muted);">Required for outbound tracking and opt-in validation links.</span>
+                                </div>
+                                
+                                <div class="toggle-field" style="margin-top: 10px;">
+                                    <input type="checkbox" x-model="globalSettings.oidc_enabled" style="display:none;">
+                                    <div class="toggle-switch" @click="globalSettings.oidc_enabled = !globalSettings.oidc_enabled"></div>
+                                    <span>Enable OpenID Connect Login</span>
+                                </div>
+                                
+                                <div x-show="globalSettings.oidc_enabled">
+                                    <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
+                                        <div class="field">
+                                            <label>OIDC Provider Issuer URI</label>
+                                            <input type="text" x-model="globalSettings.oidc_issuer" placeholder="https://keycloak.local/realms/master">
+                                        </div>
+                                        <div class="field">
+                                            <label>Client ID</label>
+                                            <input type="text" x-model="globalSettings.oidc_client_id">
+                                        </div>
+                                        <div class="field">
+                                            <label>Client Secret</label>
+                                            <input type="password" x-model="globalSettings.oidc_client_secret" placeholder="••••••••">
+                                        </div>
+                                        <div class="field">
+                                            <label>Redirect URI</label>
+                                            <input type="text" x-model="globalSettings.oidc_redirect_url" placeholder="http://localhost:8000/api/auth/oidc/callback">
+                                        </div>
+                                        <div class="field">
+                                            <label>Restricted Domains (comma-separated)</label>
+                                            <input type="text" x-model="globalSettings.allowed_domains" placeholder="company.com, org.net">
+                                            <span style="font-size:11px; color:var(--text-muted);">Leave empty to allow all OIDC domains.</span>
+                                        </div>
+                                        <div class="toggle-field">
+                                            <input type="checkbox" x-model="globalSettings.auto_create_tenants" style="display:none;">
+                                            <div class="toggle-switch" @click="globalSettings.auto_create_tenants = !globalSettings.auto_create_tenants"></div>
+                                            <span>Auto-Create Tenant per Email Domain</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button @click="saveGlobalSettings()" class="btn btn-primary" style="width: 100%; margin-top: 25px;">Save Global Admin Configuration</button>
+                        </div>
+                    </div>
+
+                    <!-- GUI ACME Let's Encrypt SSL Generator -->
+                    <div class="card" style="margin-top: 30px;">
+                        <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="shield-check" style="color: var(--color-success);"></i>
+                            Let's Encrypt SSL/TLS Certificate Provisioning (ACME)
+                        </h2>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                            Request and configure Let's Encrypt SSL certificates automatically. The system will handle validation in-process. 
+                            <strong>Note:</strong> Port 80 (HTTP) must be open and forwarded to this app during validation.
+                        </p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                            <div>
+                                <div style="display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="field">
+                                        <label>Domain Name</label>
+                                        <input type="text" x-model="sslForm.domain" placeholder="e.g. newsletter.domain.com">
+                                    </div>
+                                    <div class="field">
+                                        <label>Contact Email Address</label>
+                                        <input type="email" x-model="sslForm.email" placeholder="e.g. admin@domain.com">
+                                    </div>
+                                    <div class="toggle-field" style="margin-top: 10px;">
+                                        <input type="checkbox" x-model="sslForm.use_staging" style="display:none;">
+                                        <div class="toggle-switch" @click="sslForm.use_staging = !sslForm.use_staging"></div>
+                                        <div>
+                                            <div style="font-weight:600;">Use Let's Encrypt Staging Environment</div>
+                                            <div style="font-size: 11px; color: var(--text-muted);">Recommended for testing validation before requesting official certificates.</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <button @click="generateSslCertificate()" class="btn btn-success" style="margin-top: 15px;" :disabled="sslGenerating">
+                                        <span x-show="sslGenerating">Generating Certificate...</span>
+                                        <span x-show="!sslGenerating">Request Let's Encrypt Certificate</span>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h4 style="font-size: 14px; margin-bottom: 10px; color: var(--color-accent);">Current SSL Certificate Status</h4>
+                                <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px; font-size: 13px;">
+                                    <template x-if="!sslStatus.configured">
+                                        <div style="color: var(--color-warning); font-weight: 600;">
+                                            • No custom SSL/TLS certificates detected in backend/certs/.
+                                        </div>
+                                    </template>
+                                    <template x-if="sslStatus.configured">
+                                        <div>
+                                            <p style="margin: 4px 0; color: var(--color-success); font-weight: 600;">✓ SSL Certificate Active</p>
+                                            <p style="margin: 4px 0;">• <strong>Domain/Subject:</strong> <span x-text="sslStatus.subject"></span></p>
+                                            <p style="margin: 4px 0;">• <strong>Issuer:</strong> <span x-text="sslStatus.issuer"></span></p>
+                                            <p style="margin: 4px 0;">• <strong>Expires:</strong> <span x-text="new Date(sslStatus.expiry).toLocaleString()"></span></p>
+                                        </div>
+                                    </template>
+                                </div>
+                                
+                                <h4 style="font-size: 14px; margin-bottom: 10px; color: var(--color-accent);">ACME Protocol Execution Logs</h4>
+                                <div id="acme-console" style="background: #000; border: 1px solid #334155; font-family: monospace; font-size: 11px; padding: 12px; border-radius: 6px; height: 160px; overflow-y: auto; color: #10b981; line-height: 1.4;">
+                                    <template x-if="acmeLogs.length === 0">
+                                        <span style="color: var(--text-muted);">Console idle. Ready to request certificate.</span>
+                                    </template>
+                                    <template x-for="log in acmeLogs">
+                                        <div x-text="log"></div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL OVERLAYS -->
+
+    <!-- Create Campaign Modal -->
+    <div x-show="modals.createCampaign" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Campaign</h3>
+                <button @click="modals.createCampaign = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <div class="field">
+                        <label>Campaign Name (Internal)</label>
+                        <input type="text" x-model="campaignForm.name" placeholder="e.g. July 2026 Updates">
+                    </div>
+                    <div class="field">
+                        <label>Email Subject Line</label>
+                        <input type="text" x-model="campaignForm.subject" placeholder="Important Updates!">
+                    </div>
+                    <div class="field">
+                        <label>Target Subscriber List</label>
+                        <select x-model="campaignForm.list_id">
+                            <option value="">-- Choose a subscriber list --</option>
+                            <template x-for="l in lists" :key="l.id">
+                                <option :value="l.id" x-text="l.name"></option>
+                            </template>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.createCampaign = false" class="btn btn-secondary">Cancel</button>
+                <button @click="submitCreateCampaign()" class="btn btn-primary">Create & Design</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create List Modal -->
+    <div x-show="modals.createList" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create Subscriber List</h3>
+                <button @click="modals.createList = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <div class="field">
+                        <label>List Name</label>
+                        <input type="text" x-model="listForm.name" placeholder="Customers, Leads, etc.">
+                    </div>
+                    <div class="field">
+                        <label>Description</label>
+                        <input type="text" x-model="listForm.description" placeholder="A brief summary.">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.createList = false" class="btn btn-secondary">Cancel</button>
+                <button @click="submitCreateList()" class="btn btn-primary">Create List</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Custom Fields Modal -->
+    <div x-show="modals.editFields" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 x-text="'Custom Fields: ' + fieldsListTarget.name"></h3>
+                <button @click="modals.editFields = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                    Create subscriber attributes that vary domain-to-domain (e.g. City, Age, Gender).
+                </p>
+                <div style="max-height: 250px; overflow-y: auto; margin-bottom: 20px;">
+                    <template x-for="(f, idx) in fieldsListTarget.custom_fields" :key="idx">
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
+                            <input type="text" x-model="f.label" placeholder="Label (e.g. City)" style="flex: 2;">
+                            <input type="text" x-model="f.key" placeholder="Key (e.g. city)" style="flex: 2;" disabled>
+                            <button @click="fieldsListTarget.custom_fields.splice(idx, 1)" class="btn btn-danger btn-sm" style="padding: 6px;"><i data-lucide="trash-2" style="width: 14px;"></i></button>
+                        </div>
+                    </template>
+                    <div x-show="!fieldsListTarget.custom_fields || fieldsListTarget.custom_fields.length === 0" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                        No custom fields configured yet.
+                    </div>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px;">
+                    <h4 style="font-size:13px; margin-bottom: 10px;">Add Custom Attribute</h4>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" x-model="newField.label" placeholder="Label (e.g. Gender)" style="flex:1;">
+                        <input type="text" x-model="newField.key" placeholder="Database key (e.g. gender)" style="flex:1;">
+                        <button @click="addCustomFieldToListSchema()" class="btn btn-secondary btn-sm">Add</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.editFields = false" class="btn btn-secondary">Close</button>
+                <button @click="saveCustomFieldsSchema()" class="btn btn-primary">Save Attributes Schema</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Embed Code Modal -->
+    <div x-show="modals.embedCode" class="modal-overlay" style="display: none;">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h3>Subscribe Form Embed Code</h3>
+                <button @click="modals.embedCode = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="field" style="margin-bottom: 20px;">
+                    <label>Source Tracking Tag</label>
+                    <input type="text" x-model="embedCodeTag" @input="updateEmbedCodeString()" placeholder="e.g. blog-sidebar">
+                    <span style="font-size: 11px; color: var(--text-muted);">Attaches a tracking tag to subscribers registering via this form.</span>
+                </div>
+                
+                <div class="field">
+                    <label>IFrame Snippet (HTML)</label>
+                    <textarea x-model="embedCodeString" readonly style="height: 120px; font-family: monospace; font-size:12px;"></textarea>
+                </div>
+                
+                <h4 style="font-size:14px; margin-top:20px; margin-bottom:10px;">Interactive Preview</h4>
+                <div style="border: 1px solid var(--border-glass); border-radius: 8px; overflow: hidden; background: #0f172a; height: 350px;">
+                    <iframe :src="embedIframeSrc" width="100%" height="100%" style="border: none;"></iframe>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.embedCode = false" class="btn btn-primary">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Single Subscriber Contact Modal -->
+    <div x-show="modals.addSubscriber" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add New Contact</h3>
+                <button @click="modals.addSubscriber = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <div class="field">
+                        <label>Email Address *</label>
+                        <input type="email" x-model="subscriberForm.email" required placeholder="name@domain.com">
+                    </div>
+                    <div class="field">
+                        <label>Subscriber Name</label>
+                        <input type="text" x-model="subscriberForm.name" placeholder="John Doe">
+                    </div>
+                    
+                    <!-- Dynamic custom inputs depending on selected list fields -->
+                    <template x-for="f in listSelectedFields" :key="f.key">
+                        <div class="field">
+                            <label x-text="f.label"></label>
+                            <input type="text" x-model="subscriberForm.custom_data[f.key]" :placeholder="'Enter ' + f.label.lower()">
+                        </div>
+                    </template>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.addSubscriber = false" class="btn btn-secondary">Cancel</button>
+                <button @click="submitAddSubscriber()" class="btn btn-primary">Save Contact</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Tenant Modal (Super Admin only) -->
+    <div x-show="modals.createTenant" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Tenant Profile</h3>
+                <button @click="modals.createTenant = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <div class="field">
+                        <label>Tenant/Company Name</label>
+                        <input type="text" x-model="tenantForm.name" placeholder="HatsThings LLC">
+                    </div>
+                    <div class="toggle-field">
+                        <input type="checkbox" x-model="tenantForm.generate_dkim" style="display:none;">
+                        <div class="toggle-switch" @click="tenantForm.generate_dkim = !tenantForm.generate_dkim"></div>
+                        <span>Generate DKIM Key Pair on Create</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.createTenant = false" class="btn btn-secondary">Cancel</button>
+                <button @click="submitCreateTenant()" class="btn btn-primary">Create Tenant</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CSV Import modal -->
+    <div x-show="modals.csvImport" class="modal-overlay" style="display: none;">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h3>Import CSV Contacts Database</h3>
+                <button @click="modals.csvImport = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                
+                <!-- Step 1: Upload File -->
+                <div x-show="csvImportStep === 1">
+                    <div style="border: 2px dashed var(--border-glass); border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.01);"
+                         @click="$refs.csvFileInput.click()">
+                        <i data-lucide="upload-cloud" style="width: 48px; height: 48px; margin: 0 auto 15px; color: var(--color-primary); display:block;"></i>
+                        <span style="font-weight: 600; font-size:15px; display:block; margin-bottom:5px;">Select subscriber database CSV file</span>
+                        <span style="font-size:12px; color:var(--text-secondary);">Columns should include Email, Name, and custom attributes.</span>
+                        <input x-ref="csvFileInput" type="file" accept=".csv" style="display:none;" @change="handleCsvFileSelected">
+                    </div>
+                </div>
+
+                <!-- Step 2: Map Headers -->
+                <div x-show="csvImportStep === 2">
+                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                        Map database CSV columns to PolyPress fields. Ensure the Email mapping is correct.
+                    </p>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 12px; max-height: 300px; overflow-y: auto; padding-right: 5px;">
+                        <!-- Email Mapping -->
+                        <div class="mapping-row">
+                            <div style="font-weight:600; font-size:14px; color: #fff;">Email Address *</div>
+                            <div class="mapping-arrow">→</div>
+                            <select x-model="csvMapping.email">
+                                <option value="">-- Choose Column --</option>
+                                <template x-for="h in csvHeaders" :key="h">
+                                    <option :value="h" x-text="h"></option>
+                                </template>
+                            </select>
+                        </div>
+                        
+                        <!-- Name Mapping -->
+                        <div class="mapping-row">
+                            <div style="font-weight:600; font-size:14px;">Contact Name</div>
+                            <div class="mapping-arrow">→</div>
+                            <select x-model="csvMapping.name">
+                                <option value="">-- Choose Column --</option>
+                                <template x-for="h in csvHeaders" :key="h">
+                                    <option :value="h" x-text="h"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Custom fields maps -->
+                        <template x-for="f in csvListTarget.custom_fields" :key="f.key">
+                            <div class="mapping-row">
+                                <div style="font-weight:600; font-size:14px;" x-text="f.label"></div>
+                                <div class="mapping-arrow">→</div>
+                                <select x-model="csvMapping.custom_fields[f.key]">
+                                    <option value="">-- Choose Column (Optional) --</option>
+                                    <template x-for="h in csvHeaders" :key="h">
+                                        <option :value="h" x-text="h"></option>
+                                    </template>
+                                </select>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Step 3: Importing loader -->
+                <div x-show="csvImportStep === 3" style="text-align: center; padding: 40px 0;">
+                    <i data-lucide="loader" class="animate-spin" style="width: 48px; height: 48px; margin: 0 auto 15px; display:block; color: var(--color-primary);"></i>
+                    <p style="font-weight: 500;">Importing subscribers database...</p>
+                    <p style="font-size:12px; color: var(--text-muted); margin-top:5px;">This may take a moment depending on the size of the database.</p>
+                </div>
+            </div>
+            <div class="modal-footer" x-show="csvImportStep !== 3">
+                <button @click="modals.csvImport = false" class="btn btn-secondary">Cancel</button>
+                <button x-show="csvImportStep === 2" @click="submitCsvImport()" class="btn btn-primary">Start Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Launch Modal -->
+    <div x-show="modals.confirmLaunch" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Launch Campaign</h3>
+                <button @click="modals.confirmLaunch = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 14px; line-height: 1.5; color: var(--text-secondary); text-align: center;">
+                    Are you sure you want to broadcast the campaign <strong style="color: #fff;" x-text="editingCampaign.name"></strong> to the subscriber database?
+                </p>
+                <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px; margin-top: 15px; text-align: left; font-size: 13px;">
+                    <p>• <strong>Subject:</strong> <span x-text="editingCampaign.subject"></span></p>
+                    <p>• <strong>Rate limit:</strong> <span x-text="tenant.speed_emails_per_hour ? tenant.speed_emails_per_hour + ' emails/hour' : 'Unlimited'"></span></p>
+                    <p>• <strong>Send strategy:</strong> <span x-text="tenant.direct_send ? 'Direct MTA + DKIM Signature' : 'External SMTP Relay'"></span></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.confirmLaunch = false" class="btn btn-secondary">Cancel</button>
+                <button @click="submitLaunchCampaign()" class="btn btn-primary">Launch Broadcast</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Campaign Preview Modal -->
+    <div x-show="modals.campaignPreview" class="modal-overlay" style="display: none;">
+        <div class="modal-content large" style="width: 800px; max-width: 95%;">
+            <div class="modal-header">
+                <h3>Live Newsletter Campaign Preview</h3>
+                <button @click="modals.campaignPreview = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">
+                    Mock variables dynamically to inspect responsive layout rendering on desktop and mobile clients.
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                    <div class="field">
+                        <label style="font-size:11px;">Mock Subscriber Name ({{name}})</label>
+                        <input type="text" x-model="mockPreviewFields.name" @input="updatePreviewIframe()" placeholder="John Doe">
+                    </div>
+                    <div class="field">
+                        <label style="font-size:11px;">Mock Subscriber Email ({{email}})</label>
+                        <input type="email" x-model="mockPreviewFields.email" @input="updatePreviewIframe()" placeholder="john@example.com">
+                    </div>
+                </div>
+                
+                <div style="border: 1px solid var(--border-glass); border-radius: 8px; overflow: hidden; background: #fff; height: 500px; position: relative;">
+                    <iframe :src="previewIframeSrc" style="width: 100%; height: 100%; border: none;"></iframe>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.campaignPreview = false" class="btn btn-secondary">Close Preview</button>
+            </div>
+        </div>
+    </div>
+    <div x-show="modals.stats" class="modal-overlay" style="display: none;">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h3 x-text="'Metrics: ' + campaignStats.name"></h3>
+                <button @click="modals.stats = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <!-- Mini Stats panel -->
+                <div class="stat-card-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
+                    <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align:center;">
+                        <div style="font-size: 12px; color: var(--text-secondary);">Sent</div>
+                        <div style="font-size: 20px; font-weight:700; color: #fff;" x-text="campaignStats.sent">0</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align:center;">
+                        <div style="font-size: 12px; color: var(--text-secondary);">Opens</div>
+                        <div style="font-size: 20px; font-weight:700; color: var(--color-success);" x-text="campaignStats.opens + ' (' + calculatePercentage(campaignStats.opens, campaignStats.sent) + '%)'">0</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align:center;">
+                        <div style="font-size: 12px; color: var(--text-secondary);">Clicks</div>
+                        <div style="font-size: 20px; font-weight:700; color: var(--color-primary);" x-text="campaignStats.clicks + ' (' + calculatePercentage(campaignStats.clicks, campaignStats.sent) + '%)'">0</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align:center;">
+                        <div style="font-size: 12px; color: var(--text-secondary);">Bounces</div>
+                        <div style="font-size: 20px; font-weight:700; color: var(--color-danger);" x-text="campaignStats.bounces">0</div>
+                    </div>
+                </div>
+
+                <h4 style="font-size: 14px; margin-bottom: 10px;">Link Click Distribution</h4>
+                <div class="table-container" style="max-height: 200px; overflow-y: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Target URL</th>
+                                <th>Clicks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="cs in campaignStats.click_stats" :key="cs.link">
+                                <tr>
+                                    <td style="font-family: monospace; font-size:12px; word-break: break-all;" x-text="cs.link"></td>
+                                    <td style="font-weight: 600;" x-text="cs.clicks"></td>
+                                </tr>
+                            </template>
+                            <tr x-show="!campaignStats.click_stats || campaignStats.click_stats.length === 0">
+                                <td colspan="2" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                                    No click tracking entries recorded.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.stats = false" class="btn btn-primary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripting Business Logic -->
+    <script>
+        function compileBlocksToHtml(blocks) {
+            let rowsHtml = '';
+            for (let block of blocks) {
+                if (block.type === 'heading') {
+                    rowsHtml += `
+                    <tr>
+                        <td align="${block.align || 'center'}" style="padding: ${block.padding || '10px 0'};">
+                            <h1 style="margin: 0; font-family: sans-serif; font-size: ${block.size || '28px'}; color: ${block.color || '#111827'}; font-weight: bold; line-height: 1.3;">
+                                ${block.text}
+                            </h1>
+                        </td>
+                    </tr>`;
+                } else if (block.type === 'paragraph') {
+                    rowsHtml += `
+                    <tr>
+                        <td align="${block.align || 'left'}" style="padding: ${block.padding || '10px 0'};">
+                            <p style="margin: 0; font-family: sans-serif; font-size: ${block.size || '16px'}; color: ${block.color || '#374151'}; line-height: 1.6;">
+                                ${block.text.replace(/\n/g, '<br>')}
+                            </p>
+                        </td>
+                    </tr>`;
+                } else if (block.type === 'button') {
+                    rowsHtml += `
+                    <tr>
+                        <td align="${block.align || 'center'}" style="padding: 15px 0;">
+                            <table border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto; border-collapse: separate;">
+                                <tr>
+                                    <td align="center" bgcolor="${block.bg_color || '#4f46e5'}" style="border-radius: ${block.border_radius || '6px'};">
+                                        <a href="${block.url || '#'}" target="_blank" style="display: inline-block; padding: ${block.padding || '12px 24px'}; font-family: sans-serif; font-size: 15px; font-weight: bold; color: ${block.text_color || '#ffffff'}; text-decoration: none; border-radius: ${block.border_radius || '6px'};">
+                                            ${block.text}
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>`;
+                } else if (block.type === 'image') {
+                    rowsHtml += `
+                    <tr>
+                        <td align="center" style="padding: ${block.padding || '10px 0'};">
+                            <img src="${block.url || 'https://picsum.photos/600/300'}" alt="${block.alt || 'Image'}" style="display: block; width: 100%; max-width: 600px; height: auto; border: 0;" />
+                        </td>
+                    </tr>`;
+                } else if (block.type === 'divider') {
+                    rowsHtml += `
+                    <tr>
+                        <td style="padding: ${block.padding || '20px 0'};">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td height="${block.height || '1px'}" bgcolor="${block.color || '#e5e7eb'}" style="font-size: 1px; line-height: 1px;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>`;
+                } else if (block.type === 'spacer') {
+                    rowsHtml += `
+                    <tr>
+                        <td height="${block.height || '20px'}" style="font-size: 1px; line-height: 1px;">&nbsp;</td>
+                    </tr>`;
+                }
+            }
+            
+            return `<!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Newsletter</title>
+                <style>
+                    body { margin: 0; padding: 0; background-color: #f3f4f6; -webkit-font-smoothing: antialiased; }
+                    img { max-width: 100%; height: auto; display: block; border: 0; }
+                </style>
+            </head>
+            <body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: sans-serif;">
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#f3f4f6" style="table-layout: fixed;">
+                    <tr>
+                        <td align="center" style="padding: 40px 10px;">
+                            <!--[if mso]>
+                            <table align="center" border="0" cellspacing="0" cellpadding="0" width="600">
+                            <tr>
+                            <td align="center" valign="top" width="600">
+                            <![endif]-->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08); padding: 40px;">
+                                ${rowsHtml}
+                                <tr>
+                                    <td style="padding-top: 40px;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td height="1" bgcolor="#e5e7eb" style="font-size:1px; line-height:1px;">&nbsp;</td>
+                                            </tr>
+                                            <tr>
+                                                <td align="center" style="padding-top: 20px; font-family: sans-serif; font-size: 12px; color: #9ca3af; line-height: 1.5;">
+                                                    You are receiving this email because you subscribed to our newsletter list.<br>
+                                                    <a href="{{unsubscribe_url}}" style="color: #6366f1; text-decoration: underline;">Unsubscribe</a> from this list.
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            <!--[if mso]>
+                            </td>
+                            </tr>
+                            </table>
+                            <![endif]-->
+                        </td>
+                    </tr>
+                </table>
+            </body>
+            </html>`;
+        }
+
+        function polyPressApp() {
+            return {
+                authenticated: false,
+                activeTab: 'dashboard',
+                token: null,
+                toasts: [],
+                dashboardChart: null,
+                
+                // Onboarding & 2FA controls
+                setupCompleted: true,
+                setupForm: {
+                    app_name: 'PolyPress',
+                    public_url: '',
+                    admin_name: 'System Administrator',
+                    admin_email: '',
+                    admin_password: '',
+                    direct_send: false,
+                    dkim_domain: '',
+                    dkim_selector: 'polypress',
+                    smtp_host: '',
+                    smtp_port: 587,
+                    smtp_username: '',
+                    smtp_password: '',
+                    smtp_use_ssl: false,
+                    smtp_use_tls: true,
+                    imap_host: '',
+                    imap_port: 993,
+                    imap_username: '',
+                    imap_password: '',
+                    imap_use_ssl: true
+                },
+                totpRequired: false,
+                totpForm: { email: '', code: '' },
+                totpSetup: { secret: '', uri: '', code: '', step: 1 },
+                dnsTestResults: {
+                    mx: { status: 'missing', records: [] },
+                    spf: { status: 'missing', records: [] },
+                    dkim: { status: 'missing', records: [] },
+                    dmarc: { status: 'missing', records: [] }
+                },
+                dnsTesting: false,
+                outboxQueue: [],
+                mockPreviewFields: { name: 'John Doe', email: 'john@example.com' },
+                previewIframeSrc: '',
+
+                // Form payloads
+                loginForm: { email: '', password: '' },
+                campaignForm: { name: '', subject: '', list_id: '' },
+                listForm: { name: '', description: '' },
+                tenantForm: { name: '', generate_dkim: true },
+                subscriberForm: { email: '', name: '', custom_data: {} },
+                
+                // Session details
+                user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
+                tenant: { id: null, name: '', direct_send: false, speed_emails_per_hour: 500 },
+                globalSettings: { app_name: 'PolyPress', public_url: '', oidc_enabled: false },
+                sslForm: { domain: '', email: '', use_staging: true },
+                sslStatus: { configured: false, expiry: '', issuer: '', subject: '' },
+                acmeLogs: [],
+                sslGenerating: false,
+                
+                // Content lists
+                campaigns: [],
+                lists: [],
+                tenants: [],
+                
+                // Modals
+                modals: {
+                    createCampaign: false,
+                    createList: false,
+                    editFields: false,
+                    embedCode: false,
+                    addSubscriber: false,
+                    createTenant: false,
+                    csvImport: false,
+                    confirmLaunch: false,
+                    stats: false
+                },
+                
+                // Subscriber sub list bindings
+                listSelected: null,
+                listSelectedName: '',
+                listSelectedFields: [],
+                subscribers: [],
+                subscribersCount: 0,
+                subscribersPage: 1,
+                subscribersSearch: '',
+
+                // Custom fields mapping
+                fieldsListTarget: { name: '', custom_fields: [] },
+                newField: { label: '', key: '' },
+                
+                // Embed code helpers
+                embedCodeTag: 'Website',
+                embedCodeString: '',
+                embedIframeSrc: '',
+                
+                // CSV upload state
+                csvListTarget: { name: '', custom_fields: [] },
+                csvFile: null,
+                csvHeaders: [],
+                csvMapping: { email: '', name: '', custom_fields: {} },
+                csvImportStep: 1,
+                
+                // Visual block editor state
+                editingCampaign: { id: null, name: '', subject: '' },
+                editorBlocks: [],
+                selectedBlockIndex: null,
+                
+                // Stats popup
+                campaignStats: { name: '', sent: 0, opens: 0, clicks: 0, bounces: 0, click_stats: [] },
+                
+                // Dashboard summary
+                stats: { totalSubscribers: 0, campaignsSent: 0, avgOpenRate: 0, avgBounceRate: 0 },
+
+                async initApp() {
+                    // Check if setup completed
+                    try {
+                        const statusRes = await fetch('/api/auth/setup/status');
+                        const statusData = await statusRes.json();
+                        this.setupCompleted = statusData.setup_completed;
+                    } catch(e) {
+                        this.setupCompleted = true;
+                    }
+
+                    this.token = localStorage.getItem('polypress_token');
+                    await this.loadGlobalConfig();
+                    
+                    // Look for OIDC tokens in URL query params
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const oidcToken = urlParams.get('token');
+                    if (oidcToken) {
+                        this.token = oidcToken;
+                        localStorage.setItem('polypress_token', oidcToken);
+                        // Clean url
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                    
+                    if (this.token) {
+                        await this.verifySession();
+                    }
+                },
+                
+                async submitSetupWizard() {
+                    if (!this.setupForm.admin_email || !this.setupForm.admin_password) {
+                        this.showToast('Administrator email and password required', 'error');
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/auth/setup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.setupForm)
+                        });
+                        
+                        if (!res.ok) {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Setup onboarding failed');
+                        }
+                        
+                        const data = await res.json();
+                        this.token = data.access_token;
+                        localStorage.setItem('polypress_token', this.token);
+                        this.setupCompleted = true;
+                        await this.verifySession();
+                        this.showToast('PolyPress setup completed! Welcome aboard.');
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async loadGlobalConfig() {
+                    try {
+                        // Open endpoint doesn't require token
+                        const res = await fetch('/api/auth/me'); // Just to verify connection
+                        // Actually global settings logic
+                    } catch(e) {}
+                },
+                
+                showToast(message, type = 'success') {
+                    const id = Date.now();
+                    this.toasts.push({ id, message, type });
+                    setTimeout(() => {
+                        this.toasts = this.toasts.filter(t => t.id !== id);
+                    }, 3000);
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async handleLogin() {
+                    try {
+                        const res = await fetch('/api/auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.loginForm)
+                        });
+                        
+                        if (!res.ok) {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Authentication failed');
+                        }
+                        
+                        const data = await res.json();
+                        if (data.status === 'totp_required') {
+                            this.totpRequired = true;
+                            this.totpForm.email = data.email;
+                            this.totpForm.code = '';
+                            this.showToast('2FA verification code required');
+                        } else {
+                            this.token = data.access_token;
+                            localStorage.setItem('polypress_token', this.token);
+                            await this.verifySession();
+                            this.showToast('Login successful!');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async handleTotpVerify() {
+                    try {
+                        const res = await fetch('/api/auth/totp-verify', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                email: this.totpForm.email,
+                                code: this.totpForm.code
+                            })
+                        });
+                        
+                        if (!res.ok) {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Invalid 2FA code');
+                        }
+                        
+                        const data = await res.json();
+                        this.token = data.access_token;
+                        localStorage.setItem('polypress_token', this.token);
+                        this.totpRequired = false;
+                        await this.verifySession();
+                        this.showToast('2FA Verification successful!');
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async initiateTotpSetup() {
+                    try {
+                        const res = await fetch('/api/auth/totp/setup', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        const data = await res.json();
+                        this.totpSetup.secret = data.secret;
+                        this.totpSetup.uri = data.uri;
+                        this.totpSetup.code = '';
+                        this.totpSetup.step = 2;
+                    } catch(e) {
+                        this.showToast('Failed to start 2FA setup', 'error');
+                    }
+                },
+                
+                async enableTotp() {
+                    try {
+                        const res = await fetch('/api/auth/totp/enable', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                secret: this.totpSetup.secret,
+                                code: this.totpSetup.code
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Two-Factor Authentication is active!');
+                            this.user.totp_enabled = true;
+                            this.totpSetup.step = 1;
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Invalid verification code');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async disableTotp() {
+                    try {
+                        const res = await fetch('/api/auth/totp/disable', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                code: this.totpSetup.code
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Two-Factor Authentication has been disabled.');
+                            this.user.totp_enabled = false;
+                            this.totpSetup.code = '';
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Invalid verification code');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async runDnsDiagnostics() {
+                    this.dnsTesting = true;
+                    try {
+                        const res = await fetch('/api/tenants/my/dns-test', {
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.dnsTestResults = await res.json();
+                            this.showToast('DNS diagnostics complete');
+                        }
+                    } catch(e) {
+                        this.showToast('DNS diagnostics query failed', 'error');
+                    } finally {
+                        this.dnsTesting = false;
+                    }
+                },
+                
+                async fetchOutboxQueue() {
+                    try {
+                        const res = await fetch('/api/tenants/my/queue', { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.outboxQueue = await res.json();
+                        }
+                    } catch(e) {}
+                },
+                
+                async purgeQueueItem(id) {
+                    if (!confirm('Remove this message from the outbound sending queue?')) return;
+                    try {
+                        const res = await fetch(`/api/tenants/my/queue/${id}`, {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Queue item purged');
+                            await this.fetchOutboxQueue();
+                        }
+                    } catch(e) {}
+                },
+                
+                async openPreviewModal() {
+                    await this.saveCampaignDraft();
+                    this.modals.campaignPreview = true;
+                    this.updatePreviewIframe();
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                updatePreviewIframe() {
+                    this.previewIframeSrc = `/api/campaigns/${this.editingCampaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}`;
+                },
+                
+                async fetchSslStatus() {
+                    try {
+                        const res = await fetch('/api/ssl/status', { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.sslStatus = await res.json();
+                        }
+                    } catch(e) {}
+                },
+                
+                async generateSslCertificate() {
+                    if (!this.sslForm.domain || !this.sslForm.email) {
+                        this.showToast('Domain name and email address are required', 'error');
+                        return;
+                    }
+                    
+                    this.sslGenerating = true;
+                    this.acmeLogs = ['[Console] Starting ACME SSL request...'];
+                    
+                    let pollInterval = setInterval(async () => {
+                        try {
+                            const res = await fetch('/api/ssl/logs', { headers: this.getAuthHeaders() });
+                            if (res.ok) {
+                                this.acmeLogs = await res.json();
+                                setTimeout(() => {
+                                    const consoleEl = document.getElementById('acme-console');
+                                    if (consoleEl) consoleEl.scrollTop = consoleEl.scrollHeight;
+                                }, 50);
+                            }
+                        } catch(e) {}
+                    }, 1000);
+                    
+                    try {
+                        const res = await fetch('/api/ssl/generate', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.sslForm)
+                        });
+                        
+                        clearInterval(pollInterval);
+                        
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.acmeLogs = data.logs;
+                            if (data.status === 'success') {
+                                this.showToast('SSL Certificate generated successfully!');
+                            } else {
+                                this.showToast('SSL Certificate generation failed', 'error');
+                            }
+                        } else {
+                            this.showToast('SSL Request failed', 'error');
+                        }
+                    } catch(e) {
+                        clearInterval(pollInterval);
+                        this.showToast(e.message, 'error');
+                    } finally {
+                        this.sslGenerating = false;
+                        await this.fetchSslStatus();
+                    }
+                },
+                
+                async triggerOidcLogin() {
+                    try {
+                        const res = await fetch('/api/auth/oidc/url');
+                        const data = await res.json();
+                        window.location.href = data.url;
+                    } catch(e) {
+                        this.showToast('Failed to start OIDC redirect', 'error');
+                    }
+                },
+                
+                handleLogout() {
+                    localStorage.removeItem('polypress_token');
+                    this.token = null;
+                    this.authenticated = false;
+                    this.user = {};
+                    this.tenant = {};
+                    this.showToast('Signed out successfully.');
+                },
+                
+                async verifySession() {
+                    try {
+                        const res = await fetch('/api/auth/me', {
+                            headers: { 'Authorization': `Bearer ${this.token}` }
+                        });
+                        
+                        if (!res.ok) throw new Error('Session expired');
+                        
+                        const data = await res.json();
+                        this.user = data;
+                        this.authenticated = true;
+                        
+                        // Load primary datasets
+                        await this.fetchTenant();
+                        await this.fetchCampaigns();
+                        await this.fetchLists();
+                        if (this.user.role === 'super_admin') {
+                            await this.fetchTenants();
+                            await this.fetchGlobalSettings();
+                        }
+                        
+                        await this.loadDashboardMetrics();
+                        this.switchTab('dashboard');
+                    } catch(e) {
+                        this.handleLogout();
+                    }
+                },
+                
+                getAuthHeaders() {
+                    return {
+                        'Authorization': `Bearer ${this.token}`,
+                        'Content-Type': 'application/json'
+                    };
+                },
+                
+                async fetchTenant() {
+                    try {
+                        const res = await fetch('/api/tenants/my', { headers: this.getAuthHeaders() });
+                        if (res.ok) this.tenant = await res.json();
+                    } catch(e) {}
+                },
+                
+                async fetchCampaigns() {
+                    try {
+                        const res = await fetch('/api/campaigns', { headers: this.getAuthHeaders() });
+                        if (res.ok) this.campaigns = await res.json();
+                    } catch(e) {}
+                },
+                
+                async fetchLists() {
+                    try {
+                        const res = await fetch('/api/lists', { headers: this.getAuthHeaders() });
+                        if (res.ok) this.lists = await res.json();
+                    } catch(e) {}
+                },
+                
+                async fetchTenants() {
+                    try {
+                        const res = await fetch('/api/tenants', { headers: this.getAuthHeaders() });
+                        if (res.ok) this.tenants = await res.json();
+                    } catch(e) {}
+                },
+                
+                async fetchGlobalSettings() {
+                    try {
+                        const res = await fetch('/api/tenants/global-settings', { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data) this.globalSettings = data;
+                        }
+                    } catch(e) {}
+                },
+                
+                async saveGlobalSettings() {
+                    try {
+                        const res = await fetch('/api/tenants/global-settings', {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.globalSettings)
+                        });
+                        if (res.ok) {
+                            this.showToast('Global settings updated');
+                            await this.fetchGlobalSettings();
+                        } else {
+                            throw new Error('Failed to save');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async saveTenantSettings() {
+                    try {
+                        const res = await fetch('/api/tenants/my', {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.tenant)
+                        });
+                        if (res.ok) {
+                            this.showToast('Settings saved successfully');
+                            await this.fetchTenant();
+                        } else {
+                            throw new Error('Save error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async generateTenantDkimKeys() {
+                    try {
+                        const res = await fetch('/api/tenants/my/dkim', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.tenant.dkim_public_key = data.dkim_public_key;
+                            this.showToast('DKIM keys generated');
+                        }
+                    } catch(e) {}
+                },
+                
+                // Navigation Tabs control
+                switchTab(tab) {
+                    this.activeTab = tab;
+                    setTimeout(() => lucide.replace(), 50);
+                    
+                    if (tab === 'dashboard') {
+                        this.loadDashboardMetrics();
+                    } else if (tab === 'settings') {
+                        this.fetchOutboxQueue();
+                    } else if (tab === 'admin') {
+                        this.fetchSslStatus();
+                    }
+                },
+
+                // Dashboard Metrics calculator
+                async loadDashboardMetrics() {
+                    // Summarize totals from local data arrays
+                    this.stats.totalSubscribers = 0;
+                    
+                    // Fetch all lists count
+                    let sumSubs = 0;
+                    for (let l of this.lists) {
+                        // Normally fetch actual count, let's query lists to approximate
+                        try {
+                            const res = await fetch(`/api/lists/${l.id}/subscribers?limit=1`, { headers: this.getAuthHeaders() });
+                            const data = await res.json();
+                            sumSubs += data.total;
+                        } catch(e) {}
+                    }
+                    this.stats.totalSubscribers = sumSubs;
+                    
+                    let sentCampaigns = this.campaigns.filter(c => c.status === 'sent' || c.status === 'sending');
+                    this.stats.campaignsSent = sentCampaigns.length;
+                    
+                    let totalSentCount = 0;
+                    let totalOpens = 0;
+                    let totalBounces = 0;
+                    
+                    for (let c of sentCampaigns) {
+                        totalSentCount += c.sent_count;
+                        totalOpens += c.open_count;
+                        totalBounces += c.bounce_count;
+                    }
+                    
+                    this.stats.avgOpenRate = totalSentCount > 0 ? Math.round((totalOpens / totalSentCount) * 100) : 0;
+                    this.stats.avgBounceRate = totalSentCount > 0 ? Math.round((totalBounces / totalSentCount) * 100) : 0;
+                    
+                    this.renderMetricsChart(sentCampaigns);
+                },
+                
+                renderMetricsChart(sentCampaigns) {
+                    const ctx = document.getElementById('dashboardChart');
+                    if (!ctx) return;
+                    
+                    if (this.dashboardChart) {
+                        this.dashboardChart.destroy();
+                    }
+                    
+                    // Prepare data coordinates
+                    const reversed = [...sentCampaigns].reverse().slice(-7);
+                    const labels = reversed.map(c => c.name);
+                    const opensData = reversed.map(c => c.open_count);
+                    const clicksData = reversed.map(c => c.click_count);
+                    
+                    this.dashboardChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels.length ? labels : ['No Data'],
+                            datasets: [
+                                {
+                                    label: 'Email Opens',
+                                    data: opensData.length ? opensData : [0],
+                                    borderColor: '#10b981',
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    tension: 0.3,
+                                    fill: true
+                                },
+                                {
+                                    label: 'Link Clicks',
+                                    data: clicksData.length ? clicksData : [0],
+                                    borderColor: '#6366f1',
+                                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                                    tension: 0.3,
+                                    fill: true
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    labels: { color: '#94a3b8' }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                    ticks: { color: '#94a3b8' }
+                                },
+                                x: {
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                    ticks: { color: '#94a3b8' }
+                                }
+                            }
+                        }
+                    });
+                },
+                
+                // Create Campaign Actions
+                openCreateCampaignModal() {
+                    this.campaignForm = { name: '', subject: '', list_id: '' };
+                    this.modals.createCampaign = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async submitCreateCampaign() {
+                    try {
+                        const res = await fetch('/api/campaigns', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.campaignForm)
+                        });
+                        if (res.ok) {
+                            const newCamp = await res.json();
+                            this.modals.createCampaign = false;
+                            await this.fetchCampaigns();
+                            this.startVisualEditor(newCamp);
+                        } else {
+                            throw new Error('Failed to create campaign');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async duplicateCampaign(id) {
+                    try {
+                        const res = await fetch(`/api/campaigns/${id}/duplicate`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Campaign duplicated successfully');
+                            await this.fetchCampaigns();
+                        }
+                    } catch(e) {}
+                },
+                
+                async deleteCampaign(id) {
+                    if (!confirm('Are you sure you want to delete this campaign permanently?')) return;
+                    try {
+                        const res = await fetch(`/api/campaigns/${id}`, {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Campaign deleted');
+                            await this.fetchCampaigns();
+                        }
+                    } catch(e) {}
+                },
+
+                // List management
+                openCreateListModal() {
+                    this.listForm = { name: '', description: '' };
+                    this.modals.createList = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async submitCreateList() {
+                    try {
+                        const res = await fetch('/api/lists', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.listForm)
+                        });
+                        if (res.ok) {
+                            this.modals.createList = false;
+                            this.showToast('Subscriber list created');
+                            await this.fetchLists();
+                        }
+                    } catch(e) {}
+                },
+                
+                async deleteList(id) {
+                    if (!confirm('Delete this subscriber list and all containing contacts permanently?')) return;
+                    try {
+                        const res = await fetch(`/api/lists/${id}`, {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Subscriber list deleted');
+                            await this.fetchLists();
+                            this.listSelected = null;
+                        }
+                    } catch(e) {}
+                },
+
+                // Schema control
+                openEditListFieldsModal(list) {
+                    this.fieldsListTarget = JSON.parse(JSON.stringify(list)); // deep clone
+                    this.newField = { label: '', key: '' };
+                    this.modals.editFields = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                addCustomFieldToListSchema() {
+                    const label = this.newField.label.trim();
+                    const key = this.newField.key.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+                    if (!label || !key) return;
+                    
+                    if (!this.fieldsListTarget.custom_fields) {
+                        this.fieldsListTarget.custom_fields = [];
+                    }
+                    
+                    // Verify uniqueness
+                    if (this.fieldsListTarget.custom_fields.find(f => f.key === key)) {
+                        this.showToast('Key already exists', 'error');
+                        return;
+                    }
+                    
+                    this.fieldsListTarget.custom_fields.push({ key, label, type: 'text' });
+                    this.newField = { label: '', key: '' };
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async saveCustomFieldsSchema() {
+                    try {
+                        const res = await fetch(`/api/lists/${this.fieldsListTarget.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                name: this.fieldsListTarget.name,
+                                description: this.fieldsListTarget.description,
+                                custom_fields: this.fieldsListTarget.custom_fields
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Schema saved successfully');
+                            this.modals.editFields = false;
+                            await this.fetchLists();
+                            if (this.listSelected && this.listSelected.id === this.fieldsListTarget.id) {
+                                // refresh open browser
+                                const updatedList = this.lists.find(l => l.id === this.listSelected.id);
+                                this.browseListSubscribers(updatedList);
+                            }
+                        }
+                    } catch(e) {}
+                },
+
+                // Contacts browser
+                browseListSubscribers(list) {
+                    this.listSelected = list.id;
+                    this.listSelectedName = list.name;
+                    this.listSelectedFields = list.custom_fields || [];
+                    this.subscribersPage = 1;
+                    this.subscribersSearch = '';
+                    this.fetchSubscribers();
+                },
+                
+                async fetchSubscribers() {
+                    if (this.listSelected === null) return;
+                    try {
+                        const res = await fetch(`/api/lists/${this.listSelected}/subscribers?page=${this.subscribersPage}&search=${encodeURIComponent(this.subscribersSearch)}`, {
+                            headers: this.getAuthHeaders()
+                        });
+                        const data = await res.json();
+                        this.subscribers = data.subscribers;
+                        this.subscribersCount = data.total;
+                        setTimeout(() => lucide.replace(), 50);
+                    } catch(e) {}
+                },
+                
+                openAddSubscriberModal() {
+                    this.subscriberForm = { email: '', name: '', custom_data: {} };
+                    for (let f of this.listSelectedFields) {
+                        this.subscriberForm.custom_data[f.key] = '';
+                    }
+                    this.modals.addSubscriber = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async submitAddSubscriber() {
+                    try {
+                        const res = await fetch(`/api/lists/${this.listSelected}/subscribers`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.subscriberForm)
+                        });
+                        if (res.ok) {
+                            this.modals.addSubscriber = false;
+                            this.showToast('Contact added/updated');
+                            await this.fetchSubscribers();
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Failed');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async deleteSubscriber(subId) {
+                    if (!confirm('Remove this subscriber from the list?')) return;
+                    try {
+                        const res = await fetch(`/api/lists/${this.listSelected}/subscribers/${subId}`, {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Contact removed');
+                            await this.fetchSubscribers();
+                        }
+                    } catch(e) {}
+                },
+
+                // Embed codes
+                openEmbedCodeModal(list) {
+                    this.fieldsListTarget = list;
+                    this.embedCodeTag = 'Website Embed';
+                    this.updateEmbedCodeString();
+                    this.modals.embedCode = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                updateEmbedCodeString() {
+                    const host = window.location.origin;
+                    this.embedIframeSrc = `${host}/api/embed/subscribe/${this.fieldsListTarget.id}?tag=${encodeURIComponent(this.embedCodeTag)}`;
+                    this.embedCodeString = `<iframe src="${this.embedIframeSrc}" width="100%" height="450" style="border:1px solid rgba(255,255,255,0.08); border-radius:12px; background:#0f172a;" title="Newsletter Signup"></iframe>`;
+                },
+
+                // CSV Database Importer
+                openCsvImportModal(list) {
+                    this.csvListTarget = list;
+                    this.csvFile = null;
+                    this.csvHeaders = [];
+                    this.csvMapping = { email: '', name: '', custom_fields: {} };
+                    this.csvImportStep = 1;
+                    this.modals.csvImport = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async handleCsvFileSelected(e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    
+                    this.csvFile = file;
+                    
+                    // Parse headers
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    try {
+                        const res = await fetch(`/api/lists/${this.csvListTarget.id}/parse-headers`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${this.token}` },
+                            body: formData
+                        });
+                        
+                        if (!res.ok) {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Failed parsing headers');
+                        }
+                        
+                        const data = await res.json();
+                        this.csvHeaders = data.headers;
+                        
+                        // Prefill matches if names align
+                        this.csvHeaders.forEach(h => {
+                            const lower = h.toLowerCase();
+                            if (lower === 'email' || lower === 'email address' || lower === 'email_address') {
+                                this.csvMapping.email = h;
+                            }
+                            if (lower === 'name' || lower === 'fullname' || lower === 'full name' || lower === 'contact name') {
+                                this.csvMapping.name = h;
+                            }
+                            
+                            // custom attributes
+                            if (this.csvListTarget.custom_fields) {
+                                this.csvListTarget.custom_fields.forEach(f => {
+                                    if (lower === f.key.toLowerCase() || lower === f.label.toLowerCase()) {
+                                        this.csvMapping.custom_fields[f.key] = h;
+                                    }
+                                });
+                            }
+                        });
+                        
+                        this.csvImportStep = 2;
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async submitCsvImport() {
+                    if (!this.csvMapping.email) {
+                        this.showToast('Please select the email column mapping', 'error');
+                        return;
+                    }
+                    
+                    this.csvImportStep = 3;
+                    
+                    const formData = new FormData();
+                    formData.append('file', this.csvFile);
+                    formData.append('mapping', JSON.stringify(this.csvMapping));
+                    
+                    try {
+                        const res = await fetch(`/api/lists/${this.csvListTarget.id}/import`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${this.token}` },
+                            body: formData
+                        });
+                        
+                        if (!res.ok) throw new Error('Import execution failed');
+                        
+                        const data = await res.json();
+                        this.showToast(`Import finished! Added/updated: ${data.imported}. Skipped: ${data.skipped}`);
+                        this.modals.csvImport = false;
+                        await this.fetchLists();
+                        if (this.listSelected === this.csvListTarget.id) {
+                            await this.fetchSubscribers();
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                        this.csvImportStep = 2;
+                    }
+                },
+
+                // Visual newsletter block editor logic
+                startVisualEditor(campaign) {
+                    this.editingCampaign = campaign;
+                    this.editorBlocks = campaign.body_blocks || [];
+                    this.selectedBlockIndex = null;
+                    this.switchTab('editor');
+                },
+                
+                getActiveListFields() {
+                    const l = this.lists.find(x => x.id === this.editingCampaign.list_id);
+                    return l ? (l.custom_fields || []) : [];
+                },
+                
+                addEditorBlock(type) {
+                    let block = { type };
+                    if (type === 'heading') {
+                        block = { type, text: 'Heading Text', align: 'center', color: '#1e293b', size: '28px', padding: '12px 0px' };
+                    } else if (type === 'paragraph') {
+                        block = { type, text: 'Write your content body here. Double curly tags like {{name}} will auto-inject values.', align: 'left', color: '#334155', size: '16px', padding: '10px 0px' };
+                    } else if (type === 'button') {
+                        block = { type, text: 'Click Link', url: 'https://example.com', align: 'center', bg_color: '#6366f1', text_color: '#ffffff', padding: '12px 24px', border_radius: '6px' };
+                    } else if (type === 'image') {
+                        block = { type, url: 'https://picsum.photos/600/300', alt: 'Marketing Banner' };
+                    } else if (type === 'divider') {
+                        block = { type, color: '#e2e8f0', height: '2px', padding: '20px 0px' };
+                    } else if (type === 'spacer') {
+                        block = { type, height: '25px' };
+                    }
+                    
+                    this.editorBlocks.push(block);
+                    this.selectedBlockIndex = this.editorBlocks.length - 1;
+                    this.reRenderCanvas();
+                },
+                
+                moveBlockUp(idx) {
+                    if (idx === 0) return;
+                    const temp = this.editorBlocks[idx];
+                    this.editorBlocks[idx] = this.editorBlocks[idx - 1];
+                    this.editorBlocks[idx - 1] = temp;
+                    this.selectedBlockIndex = idx - 1;
+                    this.reRenderCanvas();
+                },
+                
+                moveBlockDown(idx) {
+                    if (idx === this.editorBlocks.length - 1) return;
+                    const temp = this.editorBlocks[idx];
+                    this.editorBlocks[idx] = this.editorBlocks[idx + 1];
+                    this.editorBlocks[idx + 1] = temp;
+                    this.selectedBlockIndex = idx + 1;
+                    this.reRenderCanvas();
+                },
+                
+                deleteBlock(idx) {
+                    this.editorBlocks.splice(idx, 1);
+                    this.selectedBlockIndex = null;
+                    this.reRenderCanvas();
+                },
+                
+                reRenderCanvas() {
+                    // Forces Alpine to refresh layouts
+                    this.editorBlocks = [...this.editorBlocks];
+                    setTimeout(() => lucide.replace(), 10);
+                },
+                
+                async saveCampaignDraft() {
+                    const html = compileBlocksToHtml(this.editorBlocks);
+                    try {
+                        const res = await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                name: this.editingCampaign.name,
+                                subject: this.editingCampaign.subject,
+                                body_blocks: this.editorBlocks,
+                                body_html: html
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Campaign draft saved successfully');
+                            await this.fetchCampaigns();
+                        }
+                    } catch(e) {}
+                },
+                
+                openLaunchModal() {
+                    this.modals.confirmLaunch = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async submitLaunchCampaign() {
+                    this.modals.confirmLaunch = false;
+                    // First save draft
+                    const html = compileBlocksToHtml(this.editorBlocks);
+                    try {
+                        await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                name: this.editingCampaign.name,
+                                subject: this.editingCampaign.subject,
+                                body_blocks: this.editorBlocks,
+                                body_html: html
+                            })
+                        });
+                        
+                        const res = await fetch(`/api/campaigns/${this.editingCampaign.id}/launch`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        
+                        if (res.ok) {
+                            this.showToast('Broadcast queue initiated!');
+                            await this.fetchCampaigns();
+                            this.switchTab('campaigns');
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Launch failed');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                // Stats logs
+                async openStatsModal(campaignId) {
+                    try {
+                        const res = await fetch(`/api/campaigns/${campaignId}/stats`, { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.campaignStats = await res.json();
+                            this.modals.stats = true;
+                            setTimeout(() => lucide.replace(), 50);
+                        }
+                    } catch(e) {}
+                },
+                
+                // Super Admin settings for Tenant registrations
+                openCreateTenantModal() {
+                    this.tenantForm = { name: '', generate_dkim: true };
+                    this.modals.createTenant = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async submitCreateTenant() {
+                    try {
+                        const res = await fetch('/api/tenants', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.tenantForm)
+                        });
+                        if (res.ok) {
+                            this.modals.createTenant = false;
+                            this.showToast('Tenant created successfully');
+                            await this.fetchTenants();
+                        }
+                    } catch(e) {}
+                },
+                
+                async deleteTenant(id) {
+                    if (!confirm('WARNING: Remove this tenant permanently? All lists, campaigns, and subscriber contacts will be lost.')) return;
+                    try {
+                        const res = await fetch(`/api/tenants/${id}`, {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Tenant deleted');
+                            await this.fetchTenants();
+                        }
+                    } catch(e) {}
+                },
+                
+                // Badge color mappings
+                getCampaignBadgeClass(status) {
+                    if (status === 'sent') return 'badge-success';
+                    if (status === 'sending') return 'badge-info';
+                    if (status === 'queued') return 'badge-warning';
+                    if (status === 'cancelled') return 'badge-muted';
+                    return 'badge-muted'; // draft
+                },
+                
+                getSubscriberBadgeClass(status) {
+                    if (status === 'active') return 'badge-success';
+                    if (status === 'unsubscribed') return 'badge-muted';
+                    if (status === 'bounced') return 'badge-warning';
+                    if (status === 'spam') return 'badge-danger';
+                    if (status === 'deferred') return 'badge-warning';
+                    if (status === 'failed') return 'badge-danger';
+                    if (status === 'pending') return 'badge-info';
+                    return 'badge-muted';
+                },
+                
+                calculatePercentage(num, total) {
+                    if (!total || total === 0) return 0;
+                    return Math.round((num / total) * 100);
+                }
+            };
+        }
+    </script>
+</body>
+</html>
