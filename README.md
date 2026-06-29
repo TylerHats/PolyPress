@@ -92,4 +92,14 @@ Navigate to **Sending Settings** to configure your outbound strategy:
 ## Verification & Testing
 
 Verify mail transport, open/click counts, and bounce workers using mock configs.
-For questions or issues, consult the logs generated in the standard server output.
+For questions or issues, consult the logs generated in the standard server output (or view service logs with `journalctl -u polypress -f` if running as a systemd service).
+
+---
+
+## Clean Uninstallation
+
+To cleanly stop the background service, delete python dependencies, and optionally wipe database tables and local TLS certificates, run:
+```bash
+./uninstall.sh
+```
+This leaves your system completely clean.
