@@ -87,7 +87,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ### 3. Docker Deployment (Recommended)
-You can deploy PolyPress using Docker and Docker Compose. This packages the application and its dependencies (including `git` for update tracking) in a clean container.
+You can deploy PolyPress using Docker and Docker Compose. This packages the application and its dependencies (including `git` for update tracking) in a clean container. The default `docker-compose.yml` file is located in the root of this repository.
 
 Make sure you have [Docker and Docker Compose](https://docs.docker.com/engine/install/) installed, then run:
 
@@ -103,6 +103,10 @@ If you manage your server using Portainer:
 2. Name the stack (e.g. `polypress`).
 3. Paste the contents of the `docker-compose.yml` file into the web editor.
 4. Click **Deploy the stack**.
+
+> [!IMPORTANT]
+> **Portainer Volume Paths**: When using relative bind mounts (like `./data` or `./backups`) in Portainer, Docker resolves them relative to Portainer's internal stack database directory (typically `/var/lib/portainer/data/compose/<stack-id>/data`).
+> To make your database and backup ZIP files easy to access on your host server, it is highly recommended to change the relative paths in your Portainer stack configuration to absolute paths (for example: `/home/ubuntu/polypress/data:/app/backend`).
 
 ### 5. First Open Setup Wizard
 When you open http://localhost:8000 in your browser for the first time, PolyPress will guide you through an interactive setup wizard to configure:
