@@ -106,7 +106,7 @@ If you manage your server using Portainer:
 
 > [!IMPORTANT]
 > **Portainer Volume Paths**: When using relative bind mounts (like `./data` or `./backups`) in Portainer, Docker resolves them relative to Portainer's internal stack database directory (typically `/var/lib/portainer/data/compose/<stack-id>/data`).
-> To make your database and backup ZIP files easy to access on your host server, it is highly recommended to change the relative paths in your Portainer stack configuration to absolute paths (for example: `/home/ubuntu/polypress/data:/app/backend`).
+> To make your database, branding assets, and backup ZIP files easy to access on your host server, it is highly recommended to change the relative paths in your Portainer stack configuration to absolute paths (for example: `/home/ubuntu/polypress/data:/app/backend` or `/etc/PolyPress/branding:/app/branding`). Ensure the host folders exist on the server before deploying to prevent potential permission issues.
 
 ### 5. First Open Setup Wizard
 When you open http://localhost:8000 in your browser for the first time, PolyPress will guide you through an interactive setup wizard to configure:
