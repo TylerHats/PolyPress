@@ -86,7 +86,25 @@ cd backend
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### 3. First Open Setup Wizard
+### 3. Docker Deployment (Recommended)
+You can deploy PolyPress using Docker and Docker Compose. This packages the application and its dependencies (including `git` for update tracking) in a clean container.
+
+Make sure you have [Docker and Docker Compose](https://docs.docker.com/engine/install/) installed, then run:
+
+```bash
+docker compose up -d
+```
+
+This will automatically build/pull the image, forward port `8000`, and set up persistent data mapping directories (`./data`, `./backups`, `./certs`, `./branding`) on your host machine.
+
+### 4. Deploying via Portainer
+If you manage your server using Portainer:
+1. Navigate to **Stacks** -> **Add stack**.
+2. Name the stack (e.g. `polypress`).
+3. Paste the contents of the `docker-compose.yml` file into the web editor.
+4. Click **Deploy the stack**.
+
+### 5. First Open Setup Wizard
 When you open http://localhost:8000 in your browser for the first time, PolyPress will guide you through an interactive setup wizard to configure:
 - **Branding Name**: The custom name of your PolyPress installation.
 - **Super Admin Credentials**: The email and secure password for your host administrator account.
