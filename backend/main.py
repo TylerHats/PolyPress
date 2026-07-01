@@ -12,9 +12,10 @@ from database import init_db, SessionLocal, User, Tenant, GlobalSettings
 from auth import hash_password
 from sending_worker import process_queue
 from bounce_worker import bounce_worker_loop
+from update_worker import auto_update_worker_loop
 
 # Import routers
-from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes
+from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("polypress")
@@ -52,14 +53,18 @@ async def lifespan(app: FastAPI):
     logger.info("Launching background IMAP bounce processing worker...")
     bounce_task = asyncio.create_task(bounce_worker_loop())
     
+    logger.info("Launching background auto-update worker...")
+    update_task = asyncio.create_task(auto_update_worker_loop())
+    
     yield
     
     # Shutdown actions
     logger.info("Shutting down background workers...")
     sending_task.cancel()
     bounce_task.cancel()
+    update_task.cancel()
     try:
-        await asyncio.gather(sending_task, bounce_task, return_exceptions=True)
+        await asyncio.gather(sending_task, bounce_task, update_task, return_exceptions=True)
     except Exception as e:
         logger.warning(f"Error while cleaning background tasks: {e}")
     logger.info("Shutdown complete.")
@@ -89,6 +94,7 @@ app.include_router(embed_routes.router)
 app.include_router(ssl_routes.router)
 app.include_router(developer_routes.router)
 app.include_router(backup_routes.router)
+app.include_router(update_routes.router)
 
 # Mount branding folder for custom assets
 BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))

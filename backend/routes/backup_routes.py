@@ -3,11 +3,12 @@ import sqlite3
 import zipfile
 import shutil
 import glob
+import requests
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, BackgroundTasks, Header
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from database import get_db, User, engine
+from database import get_db, User, engine, GlobalSettings
 import auth
 
 router = APIRouter(prefix="/api/admin/backups", tags=["backups"])
@@ -46,8 +47,22 @@ def get_backups_list():
 def list_backups(current_user: User = Depends(auth.require_super_admin)):
     return get_backups_list()
 
+def push_backup_to_external(zip_path: str, url: str, auth_header: str = None):
+    try:
+        headers = {}
+        if auth_header:
+            headers["Authorization"] = auth_header
+        
+        with open(zip_path, "rb") as f:
+            files = {"file": (os.path.basename(zip_path), f, "application/zip")}
+            response = requests.post(url, files=files, headers=headers, timeout=300)
+            response.raise_for_status()
+            print(f"Successfully pushed backup to external URL: {url}")
+    except Exception as e:
+        print(f"Failed to push backup to external URL: {e}")
+
 @router.post("/create")
-def create_backup(current_user: User = Depends(auth.require_super_admin)):
+def create_backup(background_tasks: BackgroundTasks, current_user: User = Depends(auth.require_super_admin), db: Session = Depends(get_db)):
     try:
         os.makedirs(BACKUP_DIR, exist_ok=True)
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -74,9 +89,70 @@ def create_backup(current_user: User = Depends(auth.require_super_admin)):
         if os.path.exists(temp_db):
             os.remove(temp_db)
             
+        # Trigger external backup push if configured
+        settings = db.query(GlobalSettings).first()
+        if settings and settings.external_backup_url:
+            background_tasks.add_task(
+                push_backup_to_external, 
+                zip_path, 
+                settings.external_backup_url, 
+                settings.external_backup_auth_header
+            )
+            
         return {"detail": "Backup created successfully", "backups": get_backups_list()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create backup: {e}")
+
+@router.get("/export")
+def export_backup(
+    background_tasks: BackgroundTasks,
+    token: str = None, 
+    x_polypress_backup_token: str = Header(None), 
+    db: Session = Depends(get_db)
+):
+    settings = db.query(GlobalSettings).first()
+    configured_token = settings.backup_token if settings else None
+    
+    provided_token = token or x_polypress_backup_token
+    if not configured_token or not provided_token or provided_token != configured_token:
+        raise HTTPException(status_code=401, detail="Unauthorized backup token")
+        
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"polypress_backup_{timestamp}.zip"
+        zip_path = os.path.join(BACKUP_DIR, zip_filename)
+        
+        temp_db = os.path.join(BACKUP_DIR, "temp_db_backup.db")
+        if os.path.exists(temp_db):
+            os.remove(temp_db)
+            
+        run_sqlite_backup(DB_PATH, temp_db)
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(temp_db, "polypress.db")
+            if os.path.exists(BRANDING_DIR):
+                for root, dirs, files in os.walk(BRANDING_DIR):
+                    for file in files:
+                        full_p = os.path.join(root, file)
+                        rel_p = os.path.relpath(full_p, os.path.dirname(BRANDING_DIR))
+                        zipf.write(full_p, rel_p)
+                        
+        if os.path.exists(temp_db):
+            os.remove(temp_db)
+            
+        # Trigger external backup push if configured
+        if settings and settings.external_backup_url:
+            background_tasks.add_task(
+                push_backup_to_external, 
+                zip_path, 
+                settings.external_backup_url, 
+                settings.external_backup_auth_header
+            )
+            
+        return FileResponse(zip_path, media_type="application/zip", filename=zip_filename)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export backup: {e}")
 
 @router.get("/download/{filename}")
 def download_backup(filename: str, current_user: User = Depends(auth.require_super_admin)):

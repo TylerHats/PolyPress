@@ -60,7 +60,9 @@ backend/*.db-wal
 certs/
 
 # IDE / System files
-.vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Backups folder
+backups/

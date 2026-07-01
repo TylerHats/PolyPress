@@ -109,6 +109,13 @@ def update_global_settings(payload: dict, db: Session = Depends(get_db), current
     settings.allowed_domains = payload.get("allowed_domains", settings.allowed_domains)
     settings.auto_create_tenants = payload.get("auto_create_tenants", settings.auto_create_tenants)
     
+    # Auto-updates and Backups API
+    settings.auto_update = payload.get("auto_update", settings.auto_update)
+    settings.update_channel = payload.get("update_channel", settings.update_channel)
+    settings.backup_token = payload.get("backup_token", settings.backup_token)
+    settings.external_backup_url = payload.get("external_backup_url", settings.external_backup_url)
+    settings.external_backup_auth_header = payload.get("external_backup_auth_header", settings.external_backup_auth_header)
+    
     db.commit()
     db.refresh(settings)
     return settings

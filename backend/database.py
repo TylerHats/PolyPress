@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, text, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 BASE_DIR = os.path.realpath(os.path.dirname(__file__))
@@ -31,6 +31,13 @@ class GlobalSettings(Base):
     # Access controls
     allowed_domains = Column(String, nullable=True) # Comma-separated domains (e.g. "company.com,org.net")
     auto_create_tenants = Column(Boolean, default=True) # Automatically create a tenant for a new OIDC domain
+    
+    # Auto-updates and Backups API
+    auto_update = Column(Boolean, default=False)
+    update_channel = Column(String, default="stable")
+    backup_token = Column(String, nullable=True)
+    external_backup_url = Column(String, nullable=True)
+    external_backup_auth_header = Column(String, nullable=True)
     
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -249,24 +256,48 @@ def get_db():
 def init_db():
     Base.metadata.create_all(bind=engine)
     
-    # Auto-migration queries for SQLite databases
+    # Dynamic schema reconciliation to handle updates/migrations automatically
     try:
         with engine.begin() as conn:
-            # Check subscribers table
-            res = conn.execute(text("PRAGMA table_info(subscribers)")).fetchall()
-            cols = [r[1] for r in res]
-            if "engagement_score" not in cols:
-                conn.execute(text("ALTER TABLE subscribers ADD COLUMN engagement_score INTEGER DEFAULT 3"))
-            if "tags" not in cols:
-                conn.execute(text("ALTER TABLE subscribers ADD COLUMN tags JSON DEFAULT '[]'"))
+            inspector = inspect(engine)
+            for table_name, table_obj in Base.metadata.tables.items():
+                if not inspector.has_table(table_name):
+                    continue
                 
-            # Check campaigns table
-            res = conn.execute(text("PRAGMA table_info(campaigns)")).fetchall()
-            cols = [r[1] for r in res]
-            if "target_rules" not in cols:
-                conn.execute(text("ALTER TABLE campaigns ADD COLUMN target_rules JSON DEFAULT '{}'"))
+                existing_cols = {col["name"].lower(): col for col in inspector.get_columns(table_name)}
+                
+                for col_name, col_obj in table_obj.columns.items():
+                    if col_name.lower() not in existing_cols:
+                        col_type_str = str(col_obj.type).split('(')[0]
+                        if "VARCHAR" in col_type_str.upper() or "STRING" in col_type_str.upper():
+                            col_type_str = "VARCHAR"
+                        elif "BOOLEAN" in col_type_str.upper():
+                            col_type_str = "BOOLEAN"
+                        elif "INTEGER" in col_type_str.upper():
+                            col_type_str = "INTEGER"
+                        elif "TEXT" in col_type_str.upper():
+                            col_type_str = "TEXT"
+                        elif "JSON" in col_type_str.upper():
+                            col_type_str = "JSON"
+                        elif "DATETIME" in col_type_str.upper():
+                            col_type_str = "DATETIME"
+                        
+                        default_clause = ""
+                        if col_obj.default is not None:
+                            if hasattr(col_obj.default, 'arg') and not callable(col_obj.default.arg):
+                                arg = col_obj.default.arg
+                                if isinstance(arg, bool):
+                                    default_clause = f" DEFAULT {1 if arg else 0}"
+                                elif isinstance(arg, (int, float)):
+                                    default_clause = f" DEFAULT {arg}"
+                                elif isinstance(arg, str):
+                                    default_clause = f" DEFAULT '{arg}'"
+                        
+                        alter_query = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type_str}{default_clause}"
+                        print(f"Migrating schema: Running query '{alter_query}'")
+                        conn.execute(text(alter_query))
     except Exception as migration_error:
-        print(f"Database migration note: {migration_error}")
+        print(f"Database migration error: {migration_error}")
 
     db = SessionLocal()
     try:
