@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  polypress:
+    build: .
+    image: polypress:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # Keep your database, certs, branding, and backups safe on the host machine
+      - ./data:/app/backend
+      - ./backups:/app/backups
+      - ./certs:/app/certs
+      - ./branding:/app/branding
+    environment:
+      - INVOCATION_ID=docker  # Let PolyPress know it's managed, enabling systemd-like auto-restart warnings
+    restart: unless-stopped
