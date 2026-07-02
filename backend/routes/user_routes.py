@@ -27,7 +27,8 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(auth.
             "is_active": u.is_active,
             "tenant_id": u.tenant_id,
             "tenant_name": tenant_name,
-            "totp_enabled": u.totp_enabled
+            "totp_enabled": u.totp_enabled,
+            "allowed_tenants": u.allowed_tenants or []
         })
     return result
 
@@ -48,11 +49,24 @@ def create_user(payload: dict, db: Session = Depends(get_db), current_user: User
         raise HTTPException(status_code=400, detail="A user with this email address already exists")
         
     # Enforce scoping rules
+    allowed_tenants = payload.get("allowed_tenants", [])
     if current_user.role != "super_admin":
         # Tenant admins can only create users within their own tenant context
         tenant_id = current_user.tenant_id
+        allowed_tenants = [tenant_id]
         if role not in ["tenant_admin", "tenant_user"]:
             role = "tenant_user"
+    else:
+        if role == "super_admin":
+            tenant_id = None
+            allowed_tenants = []
+        else:
+            if allowed_tenants:
+                tenant_id = allowed_tenants[0]
+            else:
+                tenant_id = payload.get("tenant_id")
+                if tenant_id:
+                    allowed_tenants = [tenant_id]
             
     user = User(
         email=email,
@@ -60,6 +74,7 @@ def create_user(payload: dict, db: Session = Depends(get_db), current_user: User
         password_hash=auth.hash_password(password),
         role=role,
         tenant_id=tenant_id,
+        allowed_tenants=allowed_tenants,
         is_active=payload.get("is_active", True)
     )
     db.add(user)
@@ -99,8 +114,18 @@ def update_user(user_id: int, payload: dict, db: Session = Depends(get_db), curr
                 raise HTTPException(status_code=403, detail="Invalid role modification permissions")
             user.role = new_role
             
-    if "tenant_id" in payload and current_user.role == "super_admin":
+    if "allowed_tenants" in payload and current_user.role == "super_admin":
+        user.allowed_tenants = payload["allowed_tenants"]
+        if payload["allowed_tenants"]:
+            user.tenant_id = payload["allowed_tenants"][0]
+        else:
+            user.tenant_id = None
+    elif "tenant_id" in payload and current_user.role == "super_admin":
         user.tenant_id = payload["tenant_id"]
+        if payload["tenant_id"]:
+            user.allowed_tenants = [payload["tenant_id"]]
+        else:
+            user.allowed_tenants = []
         
     if "is_active" in payload:
         # Don't let users deactivate themselves

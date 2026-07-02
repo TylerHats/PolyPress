@@ -66,21 +66,26 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: 
     return campaign
 
 @router.post("")
-def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
-    list_id = payload.get("list_id")
-    if not list_id:
-        raise HTTPException(status_code=400, detail="Subscriber list ID required")
+    list_ids = payload.get("list_ids") or []
+    if not list_ids and payload.get("list_id"):
+        list_ids = [payload.get("list_id")]
         
-    sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
-    if not sub_list:
-        raise HTTPException(status_code=404, detail="Subscriber list not found")
+    if not list_ids:
+        raise HTTPException(status_code=400, detail="Subscriber list ID(s) required")
+        
+    for lid in list_ids:
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == lid, SubscriberList.tenant_id == current_user.tenant_id).first()
+        if not sub_list:
+            raise HTTPException(status_code=404, detail=f"Subscriber list ID {lid} not found")
         
     campaign = Campaign(
         tenant_id=current_user.tenant_id,
-        list_id=list_id,
+        list_id=list_ids[0] if list_ids else None,
+        list_ids=list_ids,
         name=payload.get("name", "Untitled Campaign"),
         subject=payload.get("subject", "No Subject"),
         preheader=payload.get("preheader", ""),
@@ -95,7 +100,7 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
     return campaign
 
 @router.put("/{campaign_id}")
-def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -113,18 +118,30 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
     campaign.body_html = payload.get("body_html", campaign.body_html)
     campaign.target_rules = payload.get("target_rules", campaign.target_rules)
     
-    if "list_id" in payload:
-        sub_list = db.query(SubscriberList).filter(SubscriberList.id == payload["list_id"], SubscriberList.tenant_id == current_user.tenant_id).first()
+    if "list_ids" in payload:
+        list_ids = payload["list_ids"]
+        if not list_ids:
+            raise HTTPException(status_code=400, detail="At least one subscriber list required")
+        for lid in list_ids:
+            sub_list = db.query(SubscriberList).filter(SubscriberList.id == lid, SubscriberList.tenant_id == current_user.tenant_id).first()
+            if not sub_list:
+                raise HTTPException(status_code=404, detail=f"Subscriber list ID {lid} not found")
+        campaign.list_ids = list_ids
+        campaign.list_id = list_ids[0]
+    elif "list_id" in payload:
+        list_id = payload["list_id"]
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
         if not sub_list:
             raise HTTPException(status_code=404, detail="Subscriber list not found")
-        campaign.list_id = payload["list_id"]
+        campaign.list_id = list_id
+        campaign.list_ids = [list_id]
         
     db.commit()
     db.refresh(campaign)
     return campaign
 
 @router.delete("/{campaign_id}")
-def delete_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def delete_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
@@ -136,7 +153,7 @@ def delete_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
     return {"detail": "Campaign deleted"}
 
 @router.post("/{campaign_id}/duplicate")
-def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -147,6 +164,7 @@ def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_
     new_campaign = Campaign(
         tenant_id=current_user.tenant_id,
         list_id=campaign.list_id,
+        list_ids=campaign.list_ids,
         name=f"Copy of {campaign.name}",
         subject=campaign.subject,
         preheader=campaign.preheader,
@@ -160,7 +178,7 @@ def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_
     return new_campaign
 
 @router.post("/{campaign_id}/launch")
-def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -186,8 +204,9 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
             raise HTTPException(status_code=400, detail=f"Invalid scheduled date format: {e}")
             
     # Get subscribers matching list constraints and targeting rules
+    target_lists = campaign.list_ids or [campaign.list_id] if (campaign.list_ids or campaign.list_id) else []
     query = db.query(Subscriber).filter(
-        Subscriber.list_id == campaign.list_id,
+        Subscriber.list_id.in_(target_lists),
         Subscriber.tenant_id == current_user.tenant_id,
         Subscriber.status.in_(["active", "deferred"])
     )
@@ -219,6 +238,12 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
                 pass
                 
     subscribers = query.all()
+    # De-duplicate by email address
+    unique_subs = {}
+    for sub in subscribers:
+        if sub.email.lower() not in unique_subs:
+            unique_subs[sub.email.lower()] = sub
+    subscribers = list(unique_subs.values())
     
     if not subscribers:
         raise HTTPException(status_code=400, detail="Cannot send campaign to an empty list")

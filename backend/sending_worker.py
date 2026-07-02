@@ -37,12 +37,21 @@ def generate_dkim_signature(msg_bytes: bytes, tenant: Tenant) -> bytes:
         return msg_bytes
         
     try:
+        # RFC 8058 requires List-Unsubscribe and List-Unsubscribe-Post to be signed by DKIM if present
+        include_headers = [b'To', b'From', b'Subject', b'Content-Type']
+        
+        header_part = msg_bytes.split(b'\n\n', 1)[0]
+        if b'list-unsubscribe:' in header_part.lower():
+            include_headers.append(b'List-Unsubscribe')
+        if b'list-unsubscribe-post:' in header_part.lower():
+            include_headers.append(b'List-Unsubscribe-Post')
+            
         sig = dkim.sign(
             message=msg_bytes,
             selector=tenant.dkim_selector.encode('utf-8'),
             domain=tenant.dkim_domain.encode('utf-8'),
             privkey=tenant.dkim_private_key.encode('utf-8'),
-            include_headers=[b'To', b'From', b'Subject', b'Content-Type']
+            include_headers=include_headers
         )
         return sig + msg_bytes
     except Exception as e:

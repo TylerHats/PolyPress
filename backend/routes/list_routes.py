@@ -25,7 +25,7 @@ def get_subscriber_list(list_id: int, db: Session = Depends(get_db), current_use
     return sub_list
 
 @router.post("")
-def create_subscriber_list(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def create_subscriber_list(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -46,7 +46,7 @@ def create_subscriber_list(payload: dict, db: Session = Depends(get_db), current
     return sub_list
 
 @router.put("/{list_id}")
-def update_subscriber_list(list_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def update_subscriber_list(list_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -64,7 +64,7 @@ def update_subscriber_list(list_id: int, payload: dict, db: Session = Depends(ge
     return sub_list
 
 @router.delete("/{list_id}")
-def delete_subscriber_list(list_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def delete_subscriber_list(list_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
     sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
@@ -116,7 +116,7 @@ def list_subscribers(
     return {"total": total, "page": page, "limit": limit, "subscribers": subscribers}
 
 @router.post("/{list_id}/subscribers")
-def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -160,7 +160,7 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
     return subscriber
 
 @router.delete("/{list_id}/subscribers/{sub_id}")
-def remove_subscriber(list_id: int, sub_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def remove_subscriber(list_id: int, sub_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -180,7 +180,7 @@ def remove_subscriber(list_id: int, sub_id: int, db: Session = Depends(get_db), 
 # CSV PARSING & IMPORT
 
 @router.post("/{list_id}/parse-headers")
-async def parse_csv_headers(list_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+async def parse_csv_headers(list_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -206,7 +206,7 @@ async def import_csv_subscribers(
     file: UploadFile = File(...),
     mapping: str = Form(...), # JSON mapping: {"email": "Email", "name": "Name", "custom_fields": {"city": "CityCol"}}
     db: Session = Depends(get_db),
-    current_user: User = Depends(auth.get_current_user)
+    current_user: User = Depends(auth.require_tenant_write_access)
 ):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")

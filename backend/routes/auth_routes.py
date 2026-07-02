@@ -310,5 +310,6 @@ def get_me(current_user: User = Depends(auth.get_current_user), db: Session = De
         "role": current_user.role,
         "tenant_id": current_user.tenant_id,
         "tenant_name": tenant_name,
-        "totp_enabled": current_user.totp_enabled
+        "totp_enabled": current_user.totp_enabled,
+        "allowed_tenants": current_user.allowed_tenants or []
     }

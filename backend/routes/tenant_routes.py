@@ -35,6 +35,19 @@ def generate_dkim_keypair():
 def list_tenants(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
     return db.query(Tenant).all()
 
+@router.get("/accessible")
+def list_accessible_tenants(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+    if current_user.role == "super_admin":
+        return db.query(Tenant).all()
+        
+    if current_user.allowed_tenants:
+        return db.query(Tenant).filter(Tenant.id.in_(current_user.allowed_tenants)).all()
+        
+    if current_user.tenant_id:
+        return db.query(Tenant).filter(Tenant.id == current_user.tenant_id).all()
+        
+    return []
+
 @router.post("")
 def create_tenant(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
     name = payload.get("name")
@@ -72,6 +85,37 @@ def create_tenant(payload: dict, db: Session = Depends(get_db), current_user: Us
         tenant.dkim_public_key = pub
         
     db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return tenant
+
+@router.put("/{tenant_id}")
+def update_tenant(tenant_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    name = payload.get("name")
+    if name and name != tenant.name:
+        existing = db.query(Tenant).filter(Tenant.name == name).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Tenant name already exists")
+        tenant.name = name
+        
+    if "dkim_domain" in payload:
+        tenant.dkim_domain = payload["dkim_domain"]
+    if "direct_send" in payload:
+        tenant.direct_send = payload["direct_send"]
+        
+    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email"]:
+        if field in payload:
+            setattr(tenant, field, payload[field])
+            
+    if payload.get("smtp_password"):
+        tenant.smtp_password = payload["smtp_password"]
+    if payload.get("imap_password"):
+        tenant.imap_password = payload["imap_password"]
+        
     db.commit()
     db.refresh(tenant)
     return tenant
@@ -222,7 +266,12 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     domain = tenant.dkim_domain
     if not domain:
-        return {"detail": "No domain configured for DKIM/MTA"}
+        return {
+            "mx": {"status": "missing", "records": [], "detail": "No domain configured for DKIM/MTA"},
+            "spf": {"status": "missing", "records": []},
+            "dkim": {"status": "missing", "records": []},
+            "dmarc": {"status": "missing", "records": []}
+        }
         
     results = {
         "mx": {"status": "missing", "records": []},

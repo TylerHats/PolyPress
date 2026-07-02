@@ -22,6 +22,7 @@ async def schedule_restart():
 
 @router.get("/status")
 def get_update_status(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    import database
     settings = db.query(GlobalSettings).first()
     channel = settings.update_channel if settings else "stable"
     auto_update = settings.auto_update if settings else False
@@ -29,22 +30,9 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
     current_commit = run_git_command(["rev-parse", "--short", "HEAD"]) or "unknown"
     current_tag = run_git_command(["describe", "--tags", "--abbrev=0"]) or ""
     
+    update_available, latest_tag = check_for_updates_internal(channel)
     latest_commit = ""
-    latest_tag = ""
-    update_available = False
     
-    if channel == "beta":
-        branch = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"]) or "main"
-        latest_commit = run_git_command(["rev-parse", "--short", f"origin/{branch}"]) or ""
-        if latest_commit and latest_commit != current_commit:
-            update_available = True
-    else:
-        release = get_latest_github_release()
-        if release:
-            latest_tag = release.get("tag_name", "")
-            if latest_tag and latest_tag != current_tag:
-                update_available = True
-                
     is_systemd = "INVOCATION_ID" in os.environ
     
     is_docker = False
@@ -62,12 +50,13 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
         "current_commit": current_commit,
         "current_tag": current_tag,
         "latest_commit": latest_commit,
-        "latest_tag": latest_tag,
+        "latest_tag": latest_tag or "",
         "update_available": update_available,
         "update_channel": channel,
         "auto_update": auto_update,
         "is_systemd": is_systemd,
-        "is_docker": is_docker
+        "is_docker": is_docker,
+        "db_schema_version": database.DB_SCHEMA_VERSION
     }
 
 @router.post("/check")

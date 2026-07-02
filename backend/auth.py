@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
-from fastapi import Depends, HTTPException, status, Security, Request
+from fastapi import Depends, HTTPException, status, Security, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db, User, GlobalSettings, Tenant
@@ -16,7 +16,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -50,15 +50,29 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Security(security), db: Session = Depends(get_db)) -> User:
-    token = credentials.credentials
+def get_current_user(
+    request: Request,
+    token: Optional[str] = Query(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security),
+    db: Session = Depends(get_db)
+) -> User:
+    jwt_token = None
+    if credentials and credentials.credentials:
+        jwt_token = credentials.credentials
+    elif token:
+        jwt_token = token
+        
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    if not jwt_token:
+        raise credentials_exception
+        
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(jwt_token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
@@ -73,8 +87,30 @@ def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials
     if user.role == "super_admin":
         tenant_id_header = request.headers.get("X-PolyPress-Tenant-Id")
         if tenant_id_header:
+            from sqlalchemy.orm.attributes import set_committed_value
+            if tenant_id_header in ["global", "null", "0", "None", ""]:
+                set_committed_value(user, "tenant_id", None)
+            else:
+                try:
+                    set_committed_value(user, "tenant_id", int(tenant_id_header))
+                except ValueError:
+                    pass
+    # Context switching for Non-Super Admins (Multiple Tenant Access)
+    elif user.role != "super_admin":
+        tenant_id_header = request.headers.get("X-PolyPress-Tenant-Id")
+        if tenant_id_header:
             try:
-                user.tenant_id = int(tenant_id_header)
+                tid = int(tenant_id_header)
+                if user.allowed_tenants and tid in user.allowed_tenants:
+                    from sqlalchemy.orm.attributes import set_committed_value
+                    set_committed_value(user, "tenant_id", tid)
+                elif user.tenant_id == tid:
+                    pass
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied to this tenant"
+                    )
             except ValueError:
                 pass
                 
@@ -103,6 +139,14 @@ def require_tenant_admin(current_user: User = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant admin access required"
+        )
+    return current_user
+
+def require_tenant_write_access(current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["super_admin", "tenant_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access denied: Tenant admin privileges required."
         )
     return current_user
 

@@ -101,6 +101,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     totp_secret = Column(String, nullable=True)
     totp_enabled = Column(Boolean, default=False)
+    allowed_tenants = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     tenant = relationship("Tenant", back_populates="users")
@@ -163,6 +164,7 @@ class Campaign(Base):
     id = Column(Integer, primary_key=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
     list_id = Column(Integer, ForeignKey("subscriber_lists.id"))
+    list_ids = Column(JSON, default=list)
     name = Column(String, index=True)
     subject = Column(String)
     preheader = Column(String, nullable=True)
@@ -310,6 +312,7 @@ def init_db():
             res_val = conn.execute(text("SELECT schema_version FROM global_settings LIMIT 1")).fetchone()
             if res_val is not None and res_val[0] is not None:
                 db_schema_version = int(res_val[0])
+                DB_SCHEMA_VERSION = db_schema_version
     except Exception as e:
         print(f"Error checking DB schema version: {e}")
         
@@ -363,6 +366,7 @@ def init_db():
                         
             # Update schema_version in DB to CURRENT_SCHEMA_VERSION after migrations complete
             conn.execute(text(f"UPDATE global_settings SET schema_version = {CURRENT_SCHEMA_VERSION}"))
+            DB_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
     except Exception as migration_error:
         print(f"Database migration error: {migration_error}")
 
