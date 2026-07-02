@@ -77,6 +77,7 @@ class Tenant(Base):
     imap_use_ssl = Column(Boolean, default=True)
     
     # Speed Limit Configuration
+    mta_from_prefix = Column(String, default="noreply")
     speed_emails_per_hour = Column(Integer, default=500) # 0 means unlimited
     max_sending_threads = Column(Integer, default=10)
     double_opt_in = Column(Boolean, default=False)

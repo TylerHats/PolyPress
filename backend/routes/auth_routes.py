@@ -30,7 +30,9 @@ def run_setup(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Administrator email and password required")
         
     domain = admin_email.split("@")[-1]
-    tenant_name = domain.split(".")[0].capitalize() if "." in domain else "Primary Tenant"
+    tenant_name = payload.get("tenant_name")
+    if not tenant_name or not tenant_name.strip():
+        tenant_name = domain.capitalize() if domain else "Primary Tenant"
     
     # Create Tenant
     tenant = Tenant(
@@ -42,8 +44,9 @@ def run_setup(payload: dict, db: Session = Depends(get_db)):
         smtp_use_ssl=payload.get("smtp_use_ssl", False),
         smtp_use_tls=payload.get("smtp_use_tls", True),
         direct_send=payload.get("direct_send", False),
-        dkim_domain=payload.get("dkim_domain" or domain),
+        dkim_domain=payload.get("dkim_domain") or domain,
         dkim_selector=payload.get("dkim_selector", "polypress"),
+        mta_from_prefix=payload.get("mta_from_prefix", "noreply"),
         imap_host=payload.get("imap_host"),
         imap_port=payload.get("imap_port"),
         imap_username=payload.get("imap_username"),

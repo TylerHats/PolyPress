@@ -85,6 +85,11 @@
                         <input type="text" x-model="setupForm.app_name" placeholder="PolyPress">
                     </div>
                     <div class="field" style="margin-top: 10px;">
+                        <label>Primary Tenant / Workspace Name</label>
+                        <input type="text" x-model="setupForm.tenant_name" placeholder="e.g. My Workspace">
+                        <span style="font-size: 11px; color: var(--text-secondary);">Customize the name of the first/primary tenant environment.</span>
+                    </div>
+                    <div class="field" style="margin-top: 10px;">
                         <label>Public System URL</label>
                         <input type="url" x-model="setupForm.public_url" placeholder="https://newsletter.yourdomain.com">
                         <span style="font-size: 11px; color: var(--text-secondary);">Used to compile absolute links in emails (tracking, unsubscribe, opt-in).</span>
@@ -222,7 +227,7 @@
                     </li>
                 </ul>
 
-                <!-- Domain Workspace Sidebar Menu -->
+                <!-- Tenant Workspace Sidebar Menu -->
                 <ul class="nav-menu" x-show="user.role !== 'super_admin' || !hostAdminMode">
                     <li class="nav-item" :class="activeTab === 'dashboard' ? 'active' : ''">
                         <button @click="switchTab('dashboard')">
@@ -272,11 +277,11 @@
             <!-- Header bar -->
             <header class="top-nav">
                 <div style="display: flex; align-items: center; gap: 15px;">
-                    <div class="top-nav-title" x-text="hostAdminMode ? 'Host Administration' : (tenant.name || 'Domain Workspace')"></div>
+                    <div class="top-nav-title" x-text="hostAdminMode ? 'Host Administration' : (tenant.name || 'Tenant Workspace')"></div>
                     
-                    <!-- Tenant Context Dropdown Selector (for Super Admins in Domain Workspace mode) -->
+                    <!-- Tenant Context Dropdown Selector (for Super Admins in Tenant Workspace mode) -->
                     <div x-show="user.role === 'super_admin' && !hostAdminMode" style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 13px; color: var(--text-secondary);">Switch Domain Context:</span>
+                        <span style="font-size: 13px; color: var(--text-secondary);">Switch Tenant Context:</span>
                         <select x-model="activeTenantId" @change="changeActiveTenantContext()" style="padding: 4px 10px; font-size: 13px; width: 200px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; color: #fff;">
                             <option value="">Select Tenant Context...</option>
                             <template x-for="t in tenants" :key="t.id">
@@ -293,12 +298,12 @@
                              :class="hostAdminMode ? 'badge-info' : 'badge-success'" 
                              @click="toggleHostAdminMode()" 
                              style="cursor: pointer; padding: 6px 12px; border-radius: 8px; font-weight: 700; user-select: none;"
-                             title="Click to toggle between Host Admin and Domain Workspace views">
+                             title="Click to toggle between Host Admin and Tenant Workspace views">
                              <span x-text="hostAdminMode ? '🛡️ HOST ADMIN ACTIVE' : '🌐 WORKSPACE CLIENT ACTIVE'"></span>
                         </div>
                     </template>
                     <template x-if="user.role !== 'super_admin'">
-                        <div class="badge badge-muted" x-text="user.tenant_name || 'Domain Isolation'"></div>
+                        <div class="badge badge-muted" x-text="user.tenant_name || 'Tenant Isolation'"></div>
                     </template>
                 </div>
             </header>
@@ -1183,6 +1188,10 @@
                                     <div class="field">
                                         <label>Sending Mail Domain (DKIM Domain)</label>
                                         <input type="text" x-model="tenant.dkim_domain" placeholder="e.g. yourdomain.com">
+                                    </div>
+                                    <div class="field">
+                                        <label>MTA From Username (Prefix)</label>
+                                        <input type="text" x-model="tenant.mta_from_prefix" placeholder="noreply">
                                     </div>
                                     <div class="field">
                                         <label>DKIM Selector</label>
@@ -2202,6 +2211,9 @@
                                 <option value="unsubscribed">Unsubscribed</option>
                                 <option value="bounced">Bounced</option>
                                 <option value="pending">Pending Opt-In</option>
+                                <option value="spam">Spam Report</option>
+                                <option value="deferred">Deferred</option>
+                                <option value="failed">Failed</option>
                             </select>
                         </div>
                         <div class="field">
@@ -2600,7 +2612,7 @@
                         <label>System/Workspace Role</label>
                         <select x-model="userForm.role">
                             <option value="tenant_user">Tenant User (Standard Access)</option>
-                            <option value="tenant_admin">Tenant Admin (Domain Manager)</option>
+                            <option value="tenant_admin">Tenant Admin (Workspace Manager)</option>
                             <option value="pending">Awaiting Activation (No Access)</option>
                             <template x-if="user.role === 'super_admin'">
                                 <option value="super_admin">Super Admin (Global System Manager)</option>
@@ -2616,7 +2628,7 @@
                     </div>
                     <template x-if="user.role === 'super_admin'">
                         <div class="field">
-                            <label>Domain/Tenant Scope</label>
+                            <label>Tenant Scope</label>
                             <select x-model="userForm.tenant_id">
                                 <option value="">Global/No Tenant Context</option>
                                 <template x-for="t in tenants" :key="t.id">
@@ -2954,11 +2966,13 @@
                 setupCompleted: true,
                 setupForm: {
                     app_name: 'PolyPress',
+                    tenant_name: '',
                     public_url: '',
                     admin_name: 'System Administrator',
                     admin_email: '',
                     admin_password: '',
                     direct_send: false,
+                    mta_from_prefix: 'noreply',
                     dkim_domain: '',
                     dkim_selector: 'polypress',
                     smtp_host: '',
@@ -3007,7 +3021,7 @@
                 
                 // Session details
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
-                tenant: { id: null, name: '', direct_send: false, speed_emails_per_hour: 500 },
+                tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500 },
                 globalSettings: { app_name: 'PolyPress', public_url: '', oidc_enabled: false, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
                 updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
                 schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
@@ -3058,7 +3072,7 @@
                 subscribersFilterTag: '',
 
                 // Custom fields mapping
-                fieldsListTarget: { name: '', custom_fields: [] },
+                fieldsListTarget: { name: '', custom_fields: [], form_settings: { name_required: false } },
                 newField: { label: '', key: '' },
                 
                 // Embed code helpers
@@ -4203,6 +4217,7 @@
                     } else if (tab === 'settings') {
                         this.fetchOutboxQueue();
                         this.fetchDeveloperConsole();
+                        this.runDnsDiagnostics();
                     } else if (tab === 'admin') {
                         this.fetchTenants();
                         this.fetchGlobalSettings();

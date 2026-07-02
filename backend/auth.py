@@ -131,7 +131,7 @@ def process_oidc_user(db: Session, email: str, name: str) -> User:
         return user
         
     # Check if we should auto-create a tenant for this domain
-    tenant_name = domain.split(".")[0].capitalize()
+    tenant_name = domain.capitalize()
     
     # Try to find a matching tenant or create one
     tenant = db.query(Tenant).filter(Tenant.name == tenant_name).first()

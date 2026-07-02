@@ -56,6 +56,7 @@ def create_tenant(payload: dict, db: Session = Depends(get_db), current_user: Us
         direct_send=payload.get("direct_send", False),
         dkim_domain=payload.get("dkim_domain"),
         dkim_selector=payload.get("dkim_selector", "polypress"),
+        mta_from_prefix=payload.get("mta_from_prefix", "noreply"),
         imap_host=payload.get("imap_host"),
         imap_port=payload.get("imap_port"),
         imap_username=payload.get("imap_username"),
@@ -147,6 +148,7 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "dkim_domain": tenant.dkim_domain,
         "dkim_selector": tenant.dkim_selector,
         "dkim_public_key": tenant.dkim_public_key,
+        "mta_from_prefix": tenant.mta_from_prefix,
         "imap_host": tenant.imap_host,
         "imap_port": tenant.imap_port,
         "imap_username": tenant.imap_username,
@@ -180,6 +182,7 @@ def update_my_tenant(payload: dict, db: Session = Depends(get_db), current_user:
     tenant.direct_send = payload.get("direct_send", tenant.direct_send)
     tenant.dkim_domain = payload.get("dkim_domain", tenant.dkim_domain)
     tenant.dkim_selector = payload.get("dkim_selector", tenant.dkim_selector)
+    tenant.mta_from_prefix = payload.get("mta_from_prefix", tenant.mta_from_prefix)
     
     tenant.imap_host = payload.get("imap_host", tenant.imap_host)
     tenant.imap_port = payload.get("imap_port", tenant.imap_port)

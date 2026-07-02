@@ -83,7 +83,9 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = item.subject
-        msg["From"] = f"{tenant.name} <{tenant.bounce_email or f'noreply@{tenant.dkim_domain or tenant.smtp_host}'}>"
+        sender_domain = tenant.dkim_domain or tenant.smtp_host or "localhost"
+        from_email = f"{tenant.mta_from_prefix or 'noreply'}@{sender_domain}"
+        msg["From"] = f"{tenant.name} <{from_email}>"
         msg["To"] = item.email
         
         # Add headers for tracking / bounce correlation
@@ -139,7 +141,8 @@ def send_direct_mta(item: QueueItem, tenant: Tenant) -> tuple:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = item.subject
         sender_domain = tenant.dkim_domain or "localhost"
-        msg["From"] = f"{tenant.name} <{tenant.bounce_email or f'noreply@{sender_domain}'}>"
+        from_email = f"{tenant.mta_from_prefix or 'noreply'}@{sender_domain}"
+        msg["From"] = f"{tenant.name} <{from_email}>"
         msg["To"] = item.email
         
         msg["X-PolyPress-Campaign"] = str(item.campaign_id)
