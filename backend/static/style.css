@@ -222,6 +222,8 @@ body {
 
 .top-nav {
     height: 70px;
+    min-height: 70px;
+    flex-shrink: 0;
     border-bottom: 1px solid var(--border-glass);
     padding: 0 40px;
     display: flex;
@@ -432,6 +434,11 @@ select {
     font-size: 14px;
     font-family: var(--font-sans);
     transition: var(--transition-smooth);
+}
+
+select option {
+    background-color: #0f172a;
+    color: #f8fafc;
 }
 
 input:focus, textarea:focus, select:focus {

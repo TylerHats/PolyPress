@@ -426,7 +426,7 @@
                                             <td x-text="c.open_count + ' (' + calculatePercentage(c.open_count, c.sent_count) + '%)'"></td>
                                             <td x-text="c.click_count + ' (' + calculatePercentage(c.click_count, c.sent_count) + '%)'"></td>
                                             <td>
-                                                <div style="display: flex; gap: 8px;">
+                                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                                     <button x-show="c.status === 'draft'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Content">
                                                         <i data-lucide="edit-3"></i> Design
                                                     </button>
@@ -442,7 +442,10 @@
                                                      <button x-show="c.status === 'paused'" @click="resumeCampaign(c.id)" class="btn btn-secondary btn-sm" title="Resume Broadcast" style="background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); color: var(--color-success); padding: 4px 8px; font-size: 11px;">
                                                          <i data-lucide="play" style="width:12px; height:12px;"></i> Resume
                                                      </button>
-                                                    <button x-show="c.status === 'draft'" @click="deleteCampaign(c.id)" class="btn btn-danger btn-sm" title="Delete">
+                                                     <button x-show="['sending', 'paused', 'queued', 'scheduled'].includes(c.status)" @click="cancelCampaign(c.id)" class="btn btn-danger btn-sm" title="Cancel Broadcast" style="padding: 4px 8px; font-size: 11px;">
+                                                         <i data-lucide="x-circle" style="width:12px; height:12px;"></i> Cancel
+                                                     </button>
+                                                    <button x-show="!['sending', 'queued'].includes(c.status)" @click="deleteCampaign(c.id)" class="btn btn-danger btn-sm" title="Delete">
                                                         <i data-lucide="trash-2"></i>
                                                     </button>
                                                 </div>
@@ -534,7 +537,7 @@
                                         <div class="canvas-block-actions">
                                             <button @click.stop="moveBlockUp(idx)" class="action-icon-btn" title="Move Up"><i data-lucide="chevron-up" style="width: 14px; height: 14px;"></i></button>
                                             <button @click.stop="moveBlockDown(idx)" class="action-icon-btn" title="Move Down"><i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i></button>
-                                            <button @click.stop="deleteBlock(idx)" class="action-icon-btn" title="Delete" style="color: var(--color-danger);"><i data-lucide="trash" style="width: 14px; height: 14px;"></i></button>
+                                            <button @click.stop="deleteBlock(idx)" class="action-icon-btn" title="Delete" style="color: var(--color-danger);"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i></button>
                                         </div>
 
                                         <!-- Block Renderings -->
@@ -556,36 +559,36 @@
                                                 </div>
                                             </template>
                                             <template x-if="b.type === 'columns'">
-                                                <div style="display: flex; width: 100%;" :style="'gap:' + b.gap">
-                                                    <div :style="b.layout === '50-50' ? 'width:50%' : (b.layout === '70-30' ? 'width:70%' : 'width:30%')" style="flex: 1; border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px;">
+                                                <div style="display: flex; width: 100%; justify-content: space-between; align-items: stretch;">
+                                                    <div :style="(b.layout === '70-30' ? 'flex:0 0 68%; width:68%;' : (b.layout === '30-70' ? 'flex:0 0 28%; width:28%;' : 'flex:0 0 48%; width:48%;')) + '; align-self: ' + (b.left.valign === 'middle' ? 'center' : (b.left.valign === 'bottom' ? 'flex-end' : 'flex-start'))" style="border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; box-sizing: border-box;">
                                                         <template x-if="b.left.type === 'paragraph'">
-                                                            <div :style="'text-align:' + b.left.align + '; color:' + b.left.color + '; font-size:' + b.left.size" x-text="b.left.text"></div>
+                                                            <div :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#334155') + '; font-size:' + (b.left.size || '15px')" x-text="b.left.text"></div>
                                                         </template>
                                                         <template x-if="b.left.type === 'heading'">
-                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + b.left.color + '; font-size:' + b.left.size" x-text="b.left.text"></h3>
+                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#1e293b') + '; font-size:' + (b.left.size || '22px'); margin: 0 0 10px 0;" x-text="b.left.text"></h3>
                                                         </template>
                                                         <template x-if="b.left.type === 'image'">
-                                                            <img :src="b.left.url" :alt="b.left.alt" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                            <img :src="b.left.url || 'https://picsum.photos/300/150'" :alt="b.left.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
                                                         </template>
                                                         <template x-if="b.left.type === 'button'">
                                                             <div :style="'text-align:' + b.left.align">
-                                                                <span class="btn btn-sm" :style="'background-color:' + b.left.bg_color + '; color:' + b.left.text_color" x-text="b.left.text"></span>
+                                                                <span class="btn btn-sm" :style="'background-color:' + (b.left.bg_color || '#6366f1') + '; color:' + (b.left.text_color || '#ffffff')" x-text="b.left.text"></span>
                                                             </div>
                                                         </template>
                                                     </div>
-                                                    <div :style="b.layout === '50-50' ? 'width:50%' : (b.layout === '70-30' ? 'width:30%' : 'width:70%')" style="flex: 1; border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px;">
+                                                    <div :style="(b.layout === '70-30' ? 'flex:0 0 28%; width:28%;' : (b.layout === '30-70' ? 'flex:0 0 68%; width:68%;' : 'flex:0 0 48%; width:48%;')) + '; align-self: ' + (b.right.valign === 'middle' ? 'center' : (b.right.valign === 'bottom' ? 'flex-end' : 'flex-start'))" style="border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; box-sizing: border-box;">
                                                         <template x-if="b.right.type === 'paragraph'">
-                                                            <div :style="'text-align:' + b.right.align + '; color:' + b.right.color + '; font-size:' + b.right.size" x-text="b.right.text"></div>
+                                                            <div :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#334155') + '; font-size:' + (b.right.size || '15px')" x-text="b.right.text"></div>
                                                         </template>
                                                         <template x-if="b.right.type === 'heading'">
-                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + b.right.color + '; font-size:' + b.right.size" x-text="b.right.text"></h3>
+                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#1e293b') + '; font-size:' + (b.right.size || '22px'); margin: 0 0 10px 0;" x-text="b.right.text"></h3>
                                                         </template>
                                                         <template x-if="b.right.type === 'image'">
-                                                            <img :src="b.right.url" :alt="b.right.alt" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                            <img :src="b.right.url || 'https://picsum.photos/300/150'" :alt="b.right.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
                                                         </template>
                                                         <template x-if="b.right.type === 'button'">
                                                             <div :style="'text-align:' + b.right.align">
-                                                                <span class="btn btn-sm" :style="'background-color:' + b.right.bg_color + '; color:' + b.right.text_color" x-text="b.right.text"></span>
+                                                                <span class="btn btn-sm" :style="'background-color:' + (b.right.bg_color || '#6366f1') + '; color:' + (b.right.text_color || '#ffffff')" x-text="b.right.text"></span>
                                                             </div>
                                                         </template>
                                                     </div>
@@ -683,7 +686,7 @@
                                                 </div>
                                             </div>
                                             
-                                            <div style="border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
+                                            <div style="border: 1px solid var(--border-glass); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
                                                 <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--color-accent);">Left Column</h4>
                                                 <div class="field" style="margin-bottom: 8px;">
                                                     <label>Type</label>
@@ -715,9 +718,64 @@
                                                         <input type="text" x-model="editorBlocks[selectedBlockIndex].left.url" @input="reRenderCanvas()">
                                                     </div>
                                                 </template>
+
+                                                <!-- Style Configurations for Left Column Content -->
+                                                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                    <div class="field">
+                                                        <label>Horiz. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].left.align" @change="reRenderCanvas()">
+                                                            <option value="left">Left</option>
+                                                            <option value="center">Center</option>
+                                                            <option value="right">Right</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="field">
+                                                        <label>Vert. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].left.valign" @change="reRenderCanvas()">
+                                                            <option value="top">Top</option>
+                                                            <option value="middle">Middle</option>
+                                                            <option value="bottom">Bottom</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <template x-if="['paragraph', 'heading'].includes(editorBlocks[selectedBlockIndex].left.type)">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].left.color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Size</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].left.size" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                        </div>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="editorBlocks[selectedBlockIndex].left.type === 'button'">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Bg Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].left.bg_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.bg_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Text Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].left.text_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.text_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </template>
                                             </div>
 
-                                            <div style="border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
+                                            <div style="border: 1px solid var(--border-glass); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
                                                 <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--color-accent);">Right Column</h4>
                                                 <div class="field" style="margin-bottom: 8px;">
                                                     <label>Type</label>
@@ -747,6 +805,61 @@
                                                     <div class="field" style="margin-bottom: 8px;">
                                                         <label>Link URL</label>
                                                         <input type="text" x-model="editorBlocks[selectedBlockIndex].right.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+
+                                                <!-- Style Configurations for Right Column Content -->
+                                                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                    <div class="field">
+                                                        <label>Horiz. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].right.align" @change="reRenderCanvas()">
+                                                            <option value="left">Left</option>
+                                                            <option value="center">Center</option>
+                                                            <option value="right">Right</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="field">
+                                                        <label>Vert. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].right.valign" @change="reRenderCanvas()">
+                                                            <option value="top">Top</option>
+                                                            <option value="middle">Middle</option>
+                                                            <option value="bottom">Bottom</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <template x-if="['paragraph', 'heading'].includes(editorBlocks[selectedBlockIndex].right.type)">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].right.color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Size</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].right.size" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                        </div>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="editorBlocks[selectedBlockIndex].right.type === 'button'">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Bg Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].right.bg_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.bg_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Text Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].right.text_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.text_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </template>
                                             </div>
@@ -2712,11 +2825,11 @@
                         <td style="padding: 15px 0;">
                             <table border="0" cellpadding="0" cellspacing="0" width="100%">
                                 <tr>
-                                    <td width="${leftPct}" valign="top">
+                                    <td width="${leftPct}" valign="${block.left.valign || 'top'}">
                                         ${leftHtml}
                                     </td>
                                     <td width="${gapPct}">&nbsp;</td>
-                                    <td width="${rightPct}" valign="top">
+                                    <td width="${rightPct}" valign="${block.right.valign || 'top'}">
                                         ${rightHtml}
                                     </td>
                                 </tr>
@@ -2981,11 +3094,20 @@
                 },
 
                 refreshIcons() {
-                    setTimeout(() => {
+                    const run = () => {
                         if (window.lucide) {
-                            this.refreshIcons();
+                            if (typeof window.lucide.createIcons === 'function') {
+                                window.lucide.createIcons();
+                            } else if (typeof window.lucide.replace === 'function') {
+                                window.lucide.replace();
+                            }
                         }
-                    }, 80);
+                    };
+                    run();
+                    setTimeout(run, 50);
+                    setTimeout(run, 150);
+                    setTimeout(run, 350);
+                    setTimeout(run, 700);
                 },
 
                 async initApp() {
@@ -4045,6 +4167,13 @@
                     this.activeTab = tab;
                     this.refreshIcons();
                     
+                    if (this.dashboardChart && tab !== 'dashboard') {
+                        try {
+                            this.dashboardChart.destroy();
+                        } catch(e) {}
+                        this.dashboardChart = null;
+                    }
+                    
                     if (tab === 'dashboard') {
                         this.loadDashboardMetrics();
                     } else if (tab === 'settings') {
@@ -4058,6 +4187,7 @@
                         this.fetchUpdateStatus();
                     } else if (tab === 'users') {
                         this.fetchUsers();
+                        this.fetchTenants();
                     }
                 },
 
@@ -4331,7 +4461,7 @@
                 },
                 
                 openAddSubscriberModal() {
-                    this.subscriberForm = { email: '', name: '', custom_data: {} };
+                    this.subscriberForm = { id: null, email: '', name: '', status: 'active', tags: '', custom_data: {} };
                     for (let f of this.listSelectedFields) {
                         this.subscriberForm.custom_data[f.key] = '';
                     }
@@ -4339,16 +4469,43 @@
                     this.refreshIcons();
                 },
                 
+                openEditSubscriberModal(s) {
+                    this.subscriberForm = {
+                        id: s.id,
+                        email: s.email,
+                        name: s.name,
+                        status: s.status || 'active',
+                        tags: s.tags ? s.tags.join(', ') : '',
+                        custom_data: { ...s.custom_data }
+                    };
+                    for (let f of this.listSelectedFields) {
+                        if (this.subscriberForm.custom_data[f.key] === undefined) {
+                            this.subscriberForm.custom_data[f.key] = '';
+                        }
+                    }
+                    this.modals.addSubscriber = true;
+                    this.refreshIcons();
+                },
+                
                 async submitAddSubscriber() {
                     try {
-                        const res = await fetch(`/api/lists/${this.listSelected}/subscribers`, {
+                        const tagsList = this.subscriberForm.tags ? this.subscriberForm.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+                        const payload = {
+                            email: this.subscriberForm.email,
+                            name: this.subscriberForm.name,
+                            status: this.subscriberForm.status,
+                            tags: tagsList,
+                            custom_data: this.subscriberForm.custom_data
+                        };
+                        const url = this.subscriberForm.id ? `/api/lists/${this.listSelected}/subscribers` : `/api/lists/${this.listSelected}/subscribers`;
+                        const res = await fetch(url, {
                             method: 'POST',
                             headers: this.getAuthHeaders(),
-                            body: JSON.stringify(this.subscriberForm)
+                            body: JSON.stringify(payload)
                         });
                         if (res.ok) {
                             this.modals.addSubscriber = false;
-                            this.showToast('Contact added/updated');
+                            this.showToast(this.subscriberForm.id ? 'Contact updated' : 'Contact added');
                             await this.fetchSubscribers();
                         } else {
                             const err = await res.json();
@@ -4678,6 +4835,25 @@
                         } else {
                             const err = await res.json();
                             this.showToast(err.detail || 'Failed to resume campaign', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async cancelCampaign(id) {
+                    if (!await this.askConfirm('Are you sure you want to cancel sending this campaign? This will delete all unsent messages in the queue.', 'Cancel Broadcast', true)) return;
+                    try {
+                        const res = await fetch(`/api/campaigns/${id}/cancel`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Campaign broadcast cancelled');
+                            await this.fetchCampaigns();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to cancel campaign', 'error');
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');

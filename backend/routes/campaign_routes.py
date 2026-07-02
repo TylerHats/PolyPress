@@ -306,6 +306,7 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
 @router.get("/{campaign_id}/preview", response_class=HTMLResponse)
 def preview_campaign(
     campaign_id: int, 
+    request: Request,
     mock_name: str = "John Doe", 
     mock_email: str = "john@example.com", 
     token: str = Query(None),
@@ -339,10 +340,11 @@ def preview_campaign(
         custom_data={"city": "Metropolis", "company": "Daily Planet"}
     )
     
+    tracking_domain = f"{request.base_url.scheme}://{request.base_url.netloc}".rstrip("/")
     rendered = render_email_template(
         body_html=campaign.body_html,
         subscriber=mock_sub,
-        tracking_domain="https://polypress.local",
+        tracking_domain=tracking_domain,
         campaign_id=campaign.id,
         subscriber_id=0
     )
@@ -379,6 +381,25 @@ def resume_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
     campaign.status = "sending"
     db.commit()
     return {"detail": "Campaign resumed successfully."}
+
+@router.post("/{campaign_id}/cancel")
+def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    if campaign.status not in ["sending", "paused", "queued", "scheduled"]:
+        raise HTTPException(status_code=400, detail="Only queued, scheduled, paused, or sending campaigns can be cancelled")
+        
+    # Delete pending outbox items for this campaign
+    db.query(QueueItem).filter(QueueItem.campaign_id == campaign.id, QueueItem.status == "pending").delete()
+    
+    campaign.status = "cancelled"
+    db.commit()
+    return {"detail": "Campaign broadcast cancelled successfully."}
 
 @router.get("/{campaign_id}/click-map")
 def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
