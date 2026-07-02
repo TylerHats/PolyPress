@@ -225,6 +225,11 @@
                             <i data-lucide="users"></i> User Management
                         </button>
                     </li>
+                    <li class="nav-item" :class="activeTab === 'reports' ? 'active' : ''">
+                        <button @click="switchTab('reports')">
+                            <i data-lucide="bar-chart-2"></i> System Reports
+                        </button>
+                    </li>
                 </ul>
 
                 <!-- Tenant Workspace Sidebar Menu -->
@@ -915,7 +920,7 @@
                         <label>Email Address</label>
                         <input type="email" x-model="userForm.email" placeholder="john@example.com" :disabled="!!userForm.id">
                     </div>
-                    <div class="field" x-show="!userForm.id">
+                    <div class="field">
                         <label>Authentication Type</label>
                         <select x-model="userForm.auth_type">
                             <option value="local">Local Credentials (Password + 2FA)</option>

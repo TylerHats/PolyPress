@@ -448,9 +448,38 @@
                     this.token = localStorage.getItem('polypress_token');
                     await this.loadGlobalConfig();
                     
+                    const urlParams = new URLSearchParams(window.location.search);
+                    // Check for OIDC error in URL query params or hash query params
+                    let urlError = urlParams.get('error');
+                    if (!urlError && window.location.hash.includes('?')) {
+                        const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
+                        urlError = hashParams.get('error');
+                    }
+                    if (urlError) {
+                        this.showToast(decodeURIComponent(urlError), 'error');
+                        // Clean url
+                        let cleanUrl = window.location.pathname;
+                        if (window.location.hash) {
+                            const hashParts = window.location.hash.split('?');
+                            if (hashParts.length > 1) {
+                                const hashParams = new URLSearchParams(hashParts[1]);
+                                hashParams.delete('error');
+                                const remaining = hashParams.toString();
+                                cleanUrl += hashParts[0] + (remaining ? '?' + remaining : '');
+                            } else {
+                                cleanUrl += window.location.hash;
+                            }
+                        } else {
+                            const searchParams = new URLSearchParams(window.location.search);
+                            searchParams.delete('error');
+                            const remaining = searchParams.toString();
+                            cleanUrl += remaining ? '?' + remaining : '';
+                        }
+                        window.history.replaceState({}, document.title, cleanUrl);
+                    }
+
                     // Look for OIDC tokens in URL query params or hash query params
                     let oidcToken = null;
-                    const urlParams = new URLSearchParams(window.location.search);
                     if (urlParams.has('token')) {
                         oidcToken = urlParams.get('token');
                     } else {
@@ -1567,6 +1596,21 @@
                             this.reportsChart.destroy();
                         } catch(e) {}
                         this.reportsChart = null;
+                    }
+                    if (this.reportsChartTimeoutId) {
+                        clearTimeout(this.reportsChartTimeoutId);
+                        this.reportsChartTimeoutId = null;
+                    }
+                    
+                    if (this.dashboardChart && tab !== 'dashboard') {
+                        try {
+                            this.dashboardChart.destroy();
+                        } catch(e) {}
+                        this.dashboardChart = null;
+                    }
+                    if (this.chartTimeoutId) {
+                        clearTimeout(this.chartTimeoutId);
+                        this.chartTimeoutId = null;
                     }
                     
                     if (tab === 'dashboard') {

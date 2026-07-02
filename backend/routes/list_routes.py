@@ -12,6 +12,8 @@ router = APIRouter(prefix="/api/lists", tags=["lists"])
 @router.get("")
 def list_subscriber_lists(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     if not current_user.tenant_id:
+        if current_user.role == "super_admin":
+            return db.query(SubscriberList).all()
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
     return db.query(SubscriberList).filter(SubscriberList.tenant_id == current_user.tenant_id).all()
 

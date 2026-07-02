@@ -20,6 +20,7 @@
                                         <th>Role</th>
                                         <th>Workspace Scope</th>
                                         <th>2FA Security</th>
+                                        <th>Auth Type</th>
                                         <th>Status</th>
                                         <th>Actions</th>
                                     </tr>
@@ -47,6 +48,9 @@
                                                 </div>
                                             </td>
                                             <td>
+                                                <span class="badge" :class="u.auth_type === 'oidc' ? 'badge-info' : 'badge-success'" x-text="u.auth_type === 'oidc' ? 'OIDC SSO' : 'Local'"></span>
+                                            </td>
+                                            <td>
                                                 <button @click="u.is_active = !u.is_active; updateUser(u)" class="btn btn-sm" :class="u.is_active ? 'btn-secondary' : 'btn-danger'" style="padding: 4px 8px;" :disabled="u.id === user.id">
                                                     <span x-text="u.is_active ? 'Deactivate' : 'Activate'"></span>
                                                 </button>
@@ -64,7 +68,7 @@
                                         </tr>
                                     </template>
                                     <tr x-show="usersList.length === 0">
-                                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">
+                                        <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 40px;">
                                             No user accounts loaded.
                                         </td>
                                     </tr>

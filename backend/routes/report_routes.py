@@ -18,10 +18,8 @@ def get_history(
     current_user: User = Depends(auth.get_current_user)
 ):
     # Context logic:
-    if current_user.role != "super_admin":
+    if tenant_id is None:
         tenant_id = current_user.tenant_id
-        if not tenant_id:
-            raise HTTPException(status_code=400, detail="User not associated with a tenant context")
             
     query = history_db.query(HistoricalMetric)
     if tenant_id is not None:
@@ -51,8 +49,8 @@ def get_report_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.get_current_user)
 ):
-    # Return retention settings for the current user's role
-    if current_user.role == "super_admin":
+    # Return retention settings for the current active context
+    if current_user.tenant_id is None:
         from database import GlobalSettings
         settings = db.query(GlobalSettings).first()
         return {
@@ -60,10 +58,7 @@ def get_report_settings(
             "frequency_hours": settings.history_record_frequency_hours if settings else 24
         }
     else:
-        tenant_id = current_user.tenant_id
-        if not tenant_id:
-            raise HTTPException(status_code=400, detail="User not associated with a tenant context")
-        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
         return {
             "retention_days": tenant.history_retention_days if tenant else 30,
             "frequency_hours": tenant.history_record_frequency_hours if tenant else 24
@@ -83,7 +78,9 @@ def update_report_settings(
     if frequency_hours is not None and not isinstance(frequency_hours, int):
         raise HTTPException(status_code=400, detail="frequency_hours must be an integer")
         
-    if current_user.role == "super_admin":
+    if current_user.tenant_id is None:
+        if current_user.role != "super_admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
         from database import GlobalSettings
         settings = db.query(GlobalSettings).first()
         if not settings:
@@ -98,16 +95,12 @@ def update_report_settings(
             "frequency_hours": settings.history_record_frequency_hours
         }}
     else:
-        tenant_id = current_user.tenant_id
-        if not tenant_id:
-            raise HTTPException(status_code=400, detail="User not associated with a tenant context")
-            
         from database import GlobalSettings
         global_settings = db.query(GlobalSettings).first()
         global_ret = global_settings.history_retention_days if global_settings else 30
         global_freq = global_settings.history_record_frequency_hours if global_settings else 24
         
-        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
             

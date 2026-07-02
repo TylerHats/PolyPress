@@ -2,8 +2,8 @@
 <div x-show="activeTab === 'reports'">
     <div class="page-header">
         <div>
-            <h1 class="page-title">Historical Reports</h1>
-            <p class="page-subtitle">Track list growth, campaign engagement, and deliverability trends over time.</p>
+            <h1 class="page-title" x-text="hostAdminMode ? 'System Reports' : 'Historical Reports'"></h1>
+            <p class="page-subtitle" x-text="hostAdminMode ? 'Global aggregated metrics, system-wide settings, and data retention configurations.' : 'Track list growth, campaign engagement, and deliverability trends over time.'"></p>
         </div>
         <div style="display: flex; gap: 10px;">
             <button @click="printReport()" class="btn btn-primary">
@@ -20,11 +20,11 @@
             <div style="display: flex; gap: 20px; align-items: flex-end;">
                 <div class="field" style="margin-bottom:0; flex-grow:1;">
                     <label>Start Date</label>
-                    <input type="date" x-model="reportsFilterStartDate" @change="fetchReportData()">
+                    <input type="date" x-model="reportsFilterStartDate" @change="fetchReportData()" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff; border-radius: 6px; padding: 10px; width: 100%; box-sizing: border-box; color-scheme: dark;">
                 </div>
                 <div class="field" style="margin-bottom:0; flex-grow:1;">
                     <label>End Date</label>
-                    <input type="date" x-model="reportsFilterEndDate" @change="fetchReportData()">
+                    <input type="date" x-model="reportsFilterEndDate" @change="fetchReportData()" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff; border-radius: 6px; padding: 10px; width: 100%; box-sizing: border-box; color-scheme: dark;">
                 </div>
                 <button @click="resetReportsFilters()" class="btn btn-secondary" style="height: 42px;">Reset</button>
             </div>
@@ -37,14 +37,14 @@
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-size:12px; color:var(--text-secondary);">History Retention:</span>
                     <div style="display:flex; align-items:center; gap:5px;">
-                        <input type="number" x-model.number="reportsSettings.retention_days" style="width:60px; padding:2px 5px; text-align:center; height:28px;">
+                        <input type="number" x-model.number="reportsSettings.retention_days" style="width:70px; padding:4px 8px; text-align:center; height:32px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 4px; color: #fff;">
                         <span style="font-size:12px;">days</span>
                     </div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size:12px; color:var(--text-secondary);">Min Interval:</span>
+                    <span style="font-size:12px; color:var(--text-secondary);" x-text="hostAdminMode ? 'Min System Interval:' : 'Recording Interval:'"></span>
                     <div style="display:flex; align-items:center; gap:5px;">
-                        <input type="number" x-model.number="reportsSettings.frequency_hours" style="width:60px; padding:2px 5px; text-align:center; height:28px;">
+                        <input type="number" x-model.number="reportsSettings.frequency_hours" style="width:70px; padding:4px 8px; text-align:center; height:32px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 4px; color: #fff;">
                         <span style="font-size:12px;">hours</span>
                     </div>
                 </div>

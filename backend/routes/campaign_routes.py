@@ -53,6 +53,8 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
 def list_campaigns(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     # Scoped to current tenant
     if not current_user.tenant_id:
+        if current_user.role == "super_admin":
+            return db.query(Campaign).order_by(Campaign.created_at.desc()).all()
         raise HTTPException(status_code=400, detail="User is not associated with a tenant")
     return db.query(Campaign).filter(Campaign.tenant_id == current_user.tenant_id).order_by(Campaign.created_at.desc()).all()
 
