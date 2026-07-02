@@ -1,5 +1,5 @@
 # Use an official lightweight Python runtime based on Alpine
-FROM python:3.11-alpine
+FROM python:3.14-alpine
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
