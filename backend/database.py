@@ -163,7 +163,7 @@ class Campaign(Base):
     list_id = Column(Integer, ForeignKey("subscriber_lists.id"))
     name = Column(String, index=True)
     subject = Column(String)
-    
+    preheader = Column(String, nullable=True)
     # Visual Builder blocks representation (JSON)
     # Format: [{"type": "header", "content": "Welcome"}, ...]
     body_blocks = Column(JSON, default=list)

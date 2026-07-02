@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime
+import zoneinfo
 import re
 import urllib.parse
 import database as db_mod
@@ -81,6 +83,7 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
         list_id=list_id,
         name=payload.get("name", "Untitled Campaign"),
         subject=payload.get("subject", "No Subject"),
+        preheader=payload.get("preheader", ""),
         body_blocks=payload.get("body_blocks", []),
         body_html=payload.get("body_html", ""),
         target_rules=payload.get("target_rules", {}),
@@ -105,6 +108,7 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
         
     campaign.name = payload.get("name", campaign.name)
     campaign.subject = payload.get("subject", campaign.subject)
+    campaign.preheader = payload.get("preheader", campaign.preheader)
     campaign.body_blocks = payload.get("body_blocks", campaign.body_blocks)
     campaign.body_html = payload.get("body_html", campaign.body_html)
     campaign.target_rules = payload.get("target_rules", campaign.target_rules)
@@ -145,6 +149,7 @@ def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_
         list_id=campaign.list_id,
         name=f"Copy of {campaign.name}",
         subject=campaign.subject,
+        preheader=campaign.preheader,
         body_blocks=campaign.body_blocks,
         body_html=campaign.body_html,
         status="draft"
@@ -170,8 +175,13 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
     scheduled_time = None
     if payload and payload.get("scheduled_send_at"):
         try:
-            # Parse ISO date string
-            scheduled_time = datetime.fromisoformat(payload["scheduled_send_at"].replace("Z", ""))
+            # Parse localized date time using ZoneInfo
+            raw_time = datetime.fromisoformat(payload["scheduled_send_at"].replace("Z", ""))
+            tz_name = payload.get("timezone", "UTC")
+            if raw_time.tzinfo is None:
+                local_tz = zoneinfo.ZoneInfo(tz_name)
+                raw_time = raw_time.replace(tzinfo=local_tz)
+            scheduled_time = raw_time.astimezone(zoneinfo.ZoneInfo("UTC")).replace(tzinfo=None)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid scheduled date format: {e}")
             
@@ -273,7 +283,7 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
         raise HTTPException(status_code=404, detail="Campaign not found")
         
     # Get detailed link clicks
-    clicks = db.query(TrackingLog.link_url, db_mod.func.count(TrackingLog.id).label("click_count")).filter(
+    clicks = db.query(TrackingLog.link_url, func.count(TrackingLog.id).label("click_count")).filter(
         TrackingLog.campaign_id == campaign_id,
         TrackingLog.event_type == "click"
     ).group_by(TrackingLog.link_url).all()

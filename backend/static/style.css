@@ -248,9 +248,8 @@ body {
 
 .content-body {
     padding: 40px;
-    max-width: 1400px;
     width: 100%;
-    margin: 0 auto;
+    box-sizing: border-box;
     animation: fadeIn 0.4s ease-out;
 }
 
@@ -842,4 +841,12 @@ input[type="checkbox"]:checked + .toggle-switch::after {
 
 .login-separator:not(:empty)::after {
     margin-left: .5em;
+}
+
+/* Visual drag-and-drop cursors */
+.canvas-block[draggable="true"] {
+    cursor: grab;
+}
+.canvas-block[draggable="true"]:active {
+    cursor: grabbing;
 }
