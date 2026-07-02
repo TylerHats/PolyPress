@@ -2496,10 +2496,17 @@
                 
                 async loadGlobalConfig() {
                     try {
-                        // Open endpoint doesn't require token
-                        const res = await fetch('/api/auth/me'); // Just to verify connection
-                        // Actually global settings logic
-                    } catch(e) {}
+                        const res = await fetch('/api/auth/public-settings');
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.globalSettings.app_name = data.app_name || 'PolyPress';
+                            this.globalSettings.app_logo = data.app_logo;
+                            this.globalSettings.oidc_enabled = data.oidc_enabled;
+                            document.title = this.globalSettings.app_name;
+                        }
+                    } catch(e) {
+                        console.error('Failed to load public settings:', e);
+                    }
                 },
                 
                 showToast(message, type = 'success') {

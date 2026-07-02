@@ -187,6 +187,21 @@ def totp_disable(payload: dict, current_user: User = Depends(auth.get_current_us
     db.commit()
     return {"detail": "TOTP 2FA disabled successfully"}
 
+@router.get("/public-settings")
+def get_public_settings(db: Session = Depends(get_db)):
+    settings = db.query(GlobalSettings).first()
+    if not settings:
+        return {
+            "app_name": "PolyPress",
+            "app_logo": None,
+            "oidc_enabled": False
+        }
+    return {
+        "app_name": settings.app_name,
+        "app_logo": settings.app_logo,
+        "oidc_enabled": settings.oidc_enabled
+    }
+
 @router.get("/oidc/url")
 def get_oidc_url(db: Session = Depends(get_db)):
     settings = db.query(GlobalSettings).first()
@@ -200,10 +215,13 @@ def get_oidc_url(db: Session = Depends(get_db)):
         openid_config = res.json()
         auth_endpoint = openid_config["authorization_endpoint"]
         
+        public_url = settings.public_url or "http://localhost:8000"
+        redirect_uri = settings.oidc_redirect_url or f"{public_url.rstrip('/')}/api/auth/oidc/callback"
+        
         login_url = (
             f"{auth_endpoint}?"
             f"client_id={settings.oidc_client_id}&"
-            f"redirect_uri={settings.oidc_redirect_url}&"
+            f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
             f"response_type=code&"
             f"scope=openid%20profile%20email&"
             f"state=polypress_auth"
@@ -224,10 +242,13 @@ def oidc_callback(code: str = Query(...), state: str = None, db: Session = Depen
         token_endpoint = openid_config["token_endpoint"]
         userinfo_endpoint = openid_config["userinfo_endpoint"]
         
+        public_url = settings.public_url or "http://localhost:8000"
+        redirect_uri = settings.oidc_redirect_url or f"{public_url.rstrip('/')}/api/auth/oidc/callback"
+        
         token_data = {
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": settings.oidc_redirect_url,
+            "redirect_uri": redirect_uri,
             "client_id": settings.oidc_client_id,
             "client_secret": settings.oidc_client_secret
         }
