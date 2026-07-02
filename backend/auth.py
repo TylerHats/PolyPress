@@ -11,9 +11,6 @@ from fastapi import Depends, HTTPException, status, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db, User, GlobalSettings, Tenant
-import auth
-import urllib.parse
-from routes.tenant_routes import generate_dkim_keypair
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
 ALGORITHM = "HS256"
