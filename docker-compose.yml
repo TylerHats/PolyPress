@@ -2,8 +2,7 @@ version: '3.8'
 
 services:
   polypress:
-    build: .
-    image: polypress:latest
+    image: tylerhats/polypress:latest
     ports:
       - "8000:8000"
     volumes:
