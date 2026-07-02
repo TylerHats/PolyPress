@@ -7,10 +7,11 @@ services:
       - "8000:8000"
     volumes:
       # Keep your database, certs, branding, and backups safe on the host machine
-      - ./data:/app/backend
+      - ./data:/app/data
       - ./backups:/app/backups
       - ./certs:/app/certs
       - ./branding:/app/branding
     environment:
       - INVOCATION_ID=docker  # Let PolyPress know it's managed, enabling systemd-like auto-restart warnings
+      - DATABASE_URL=sqlite:////app/data/polypress.db
     restart: unless-stopped
