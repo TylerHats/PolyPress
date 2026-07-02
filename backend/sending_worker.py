@@ -9,6 +9,7 @@ import re
 import socket
 import dns.resolver
 try:
+    # pyrefly: ignore [missing-import]
     import dkim
 except ImportError:
     dkim = None
