@@ -47,6 +47,17 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
                 
     is_systemd = "INVOCATION_ID" in os.environ
     
+    is_docker = False
+    if os.path.exists('/.dockerenv'):
+        is_docker = True
+    else:
+        try:
+            with open('/proc/1/cgroup', 'rt') as f:
+                if 'docker' in f.read():
+                    is_docker = True
+        except Exception:
+            pass
+            
     return {
         "current_commit": current_commit,
         "current_tag": current_tag,
@@ -55,7 +66,8 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
         "update_available": update_available,
         "update_channel": channel,
         "auto_update": auto_update,
-        "is_systemd": is_systemd
+        "is_systemd": is_systemd,
+        "is_docker": is_docker
     }
 
 @router.post("/check")
@@ -97,3 +109,42 @@ def force_beta_update(background_tasks: BackgroundTasks, db: Session = Depends(g
         
     background_tasks.add_task(schedule_restart)
     return {"detail": "Force pull successful. Server is restarting..."}
+
+@router.get("/schema-status")
+def get_schema_status():
+    import database
+    return {
+        "schema_mismatch": database.SCHEMA_MISMATCH,
+        "current_code_version": database.CURRENT_SCHEMA_VERSION,
+        "db_schema_version": database.DB_SCHEMA_VERSION
+    }
+
+@router.post("/bypass-schema-check")
+def bypass_schema_check(payload: dict, background_tasks: BackgroundTasks):
+    import database
+    from sqlalchemy import text
+    from auth import verify_password
+    
+    email = payload.get("email")
+    password = payload.get("password")
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+        
+    db = database.SessionLocal()
+    try:
+        user = db.query(database.User).filter(
+            database.User.email == email,
+            database.User.role == "super_admin"
+        ).first()
+        
+        if not user or not verify_password(password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid admin credentials")
+            
+        with database.engine.begin() as conn:
+            conn.execute(text(f"UPDATE global_settings SET schema_version = {database.CURRENT_SCHEMA_VERSION}"))
+            
+        database.SCHEMA_MISMATCH = False
+        background_tasks.add_task(schedule_restart)
+        return {"detail": "Schema version bypass applied. Rebooting server..."}
+    finally:
+        db.close()

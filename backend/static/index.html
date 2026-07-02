@@ -25,6 +25,49 @@
         </template>
     </div>
 
+    <!-- Database Schema Mismatch Page -->
+    <template x-if="schemaMismatch.active">
+        <div class="login-container" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-main); z-index: 99999; display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: 20px;">
+            <div class="login-card" style="max-width: 500px; text-align: left; background: var(--card-bg-glass); border: 1px solid var(--border-glass); box-shadow: var(--shadow-glass); border-radius: 12px; padding: 30px;">
+                <div style="text-align: center; color: var(--color-danger); margin-bottom: 20px;">
+                    <i data-lucide="shield-alert" style="width: 48px; height: 48px; margin: 0 auto; stroke: var(--color-danger);"></i>
+                </div>
+                <h1 class="login-title" style="text-align: center; margin-bottom: 10px; font-size: 22px;">Database Schema Mismatch</h1>
+                <p class="login-subtitle" style="text-align: center; margin-bottom: 25px; color: var(--text-secondary);">Your database is newer than this running code.</p>
+                
+                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 20px; font-size: 13px; line-height: 1.4;">
+                    <strong>Warning</strong>
+                    <div style="margin-top: 5px; color: var(--text-secondary);">
+                        The connected database is running schema version <span style="font-family: monospace; font-weight: bold; color: var(--text-primary);" x-text="schemaMismatch.db_ver"></span>, but this running code only supports up to version <span style="font-family: monospace; font-weight: bold; color: var(--text-primary);" x-text="schemaMismatch.code_ver"></span>. Running older code on a newer schema could lead to datastore corruption.
+                    </div>
+                </div>
+
+                <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: 20px;">
+                    Please upgrade the PolyPress installation (pull the latest Docker image or git commits) to resolve this issue.
+                </div>
+
+                <div style="border-top: 1px solid var(--border-glass); padding-top: 20px; margin-top: 20px;">
+                    <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--color-warning);">Bypass & Force Downgrade (At Your Own Risk)</h3>
+                    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 15px;">
+                        This will force-write version <span x-text="schemaMismatch.code_ver"></span> into the database's version tracker. The database tables themselves will not be modified.
+                    </p>
+                    <div class="field" style="margin-bottom: 12px;">
+                        <label>Super Admin Email</label>
+                        <input type="email" x-model="schemaBypassForm.email" placeholder="admin@polypress.local" style="width: 100%; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.05); color: var(--text-primary); border-radius: 6px; padding: 8px;">
+                    </div>
+                    <div class="field" style="margin-bottom: 20px;">
+                        <label>Super Admin Password</label>
+                        <input type="password" x-model="schemaBypassForm.password" placeholder="••••••••" style="width: 100%; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.05); color: var(--text-primary); border-radius: 6px; padding: 8px;">
+                    </div>
+                    <button @click="submitSchemaBypass()" class="btn btn-danger" style="width: 100%;" :disabled="schemaBypassing">
+                        <span x-show="!schemaBypassing">Bypass Schema Check & Force Downgrade</span>
+                        <span x-show="schemaBypassing">Processing Bypass...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
     <!-- Setup Wizard Page -->
     <div x-show="!setupCompleted" class="login-container" style="display: none;">
         <div class="login-card" style="max-width: 550px; text-align: left;">
@@ -1432,13 +1475,24 @@
                                             Your system is up to date on the selected channel.
                                         </div>
                                     </template>
-                                    <template x-if="!updateStatus.is_systemd">
+                                    <template x-if="!updateStatus.is_systemd && !updateStatus.is_docker">
                                         <div style="margin-top: 12px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 6px; padding: 10px; display: flex; gap: 8px; align-items: flex-start; color: var(--color-warning);">
                                             <i data-lucide="alert-triangle" style="width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"></i>
                                             <div>
                                                 <strong>Not Running Under Systemd</strong>
                                                 <div style="margin-top: 2px; color: var(--text-secondary); line-height: 1.3; font-size: 11px;">
                                                     Updates will stop the server. You will need to manually restart the process afterwards.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-if="updateStatus.is_docker">
+                                        <div style="margin-top: 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 6px; padding: 10px; display: flex; gap: 8px; align-items: flex-start; color: var(--color-primary);">
+                                            <i data-lucide="info" style="width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+                                            <div>
+                                                <strong>Running in Docker Container</strong>
+                                                <div style="margin-top: 2px; color: var(--text-secondary); line-height: 1.3; font-size: 11px;">
+                                                    UI updates will apply a temporary hot-patch. If the container is recreated (e.g. during a pull or stack update), it will revert back to the base image.
                                                 </div>
                                             </div>
                                         </div>
@@ -2288,7 +2342,10 @@
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
                 tenant: { id: null, name: '', direct_send: false, speed_emails_per_hour: 500 },
                 globalSettings: { app_name: 'PolyPress', public_url: '', oidc_enabled: false, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
-                updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false },
+                updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
+                schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
+                schemaBypassForm: { email: '', password: '' },
+                schemaBypassing: false,
                 updateChecking: false,
                 updateInstalling: false,
                 sslForm: { domain: '', email: '', use_staging: true },
@@ -2365,6 +2422,23 @@
                 stats: { totalSubscribers: 0, campaignsSent: 0, avgOpenRate: 0, avgBounceRate: 0 },
 
                 async initApp() {
+                    // Check schema status first
+                    try {
+                        const statusRes = await fetch('/api/admin/update/schema-status');
+                        if (statusRes.ok) {
+                            const statusData = await statusRes.json();
+                            if (statusData.schema_mismatch) {
+                                this.schemaMismatch.active = true;
+                                this.schemaMismatch.code_ver = statusData.current_code_version;
+                                this.schemaMismatch.db_ver = statusData.db_schema_version;
+                                setTimeout(() => lucide.replace(), 100);
+                                return;
+                            }
+                        }
+                    } catch(e) {
+                        console.error('Error fetching schema status:', e);
+                    }
+
                     // Check if setup completed
                     try {
                         const statusRes = await fetch('/api/auth/setup/status');
@@ -3006,7 +3080,9 @@
                 
                 async installUpdate() {
                     let warn = 'Are you sure you want to install this update?';
-                    if (!this.updateStatus.is_systemd) {
+                    if (this.updateStatus.is_docker) {
+                        warn += '\n\nℹ️ NOTE: Running in Docker. This update will apply a temporary hot-patch to the running container, which will revert if you pull a new image. The container will restart automatically.';
+                    } else if (!this.updateStatus.is_systemd) {
                         warn += '\n\n⚠️ WARNING: PolyPress is not running under systemd. The server will shutdown to update, but will NOT restart automatically. You will need to start the process manually.';
                     } else {
                         warn += '\n\nThe server will restart automatically to apply updates.';
@@ -3031,7 +3107,9 @@
                 
                 async forceBetaUpdate() {
                     let warn = 'Are you sure you want to force-pull the latest commit from the active branch?';
-                    if (!this.updateStatus.is_systemd) {
+                    if (this.updateStatus.is_docker) {
+                        warn += '\n\nℹ️ NOTE: Running in Docker. This will temporarily hot-patch the container with the latest commit from the active branch. Recreating the container will revert this change.';
+                    } else if (!this.updateStatus.is_systemd) {
                         warn += '\n\n⚠️ WARNING: PolyPress is not running under systemd. The server will shutdown, but will NOT restart automatically.';
                     } else {
                         warn += '\n\nThe server will restart automatically.';
@@ -3051,6 +3129,32 @@
                     } catch(e) {
                         this.showToast(e.message, 'error');
                         this.updateInstalling = false;
+                    }
+                },
+
+                async submitSchemaBypass() {
+                    if (!this.schemaBypassForm.email || !this.schemaBypassForm.password) {
+                        this.showToast('Please fill out all fields', 'error');
+                        return;
+                    }
+                    this.schemaBypassing = true;
+                    try {
+                        const res = await fetch('/api/admin/update/bypass-schema-check', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.schemaBypassForm)
+                        });
+                        if (res.ok) {
+                            this.showToast('Bypass successful. Server is restarting...', 'success');
+                            setTimeout(() => window.location.reload(), 5000);
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Authentication failed');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    } finally {
+                        this.schemaBypassing = false;
                     }
                 },
                 

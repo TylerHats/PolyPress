@@ -2,10 +2,10 @@ import os
 import logging
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from acme_helper import active_challenges
 
 from database import init_db, SessionLocal, User, Tenant, GlobalSettings
@@ -83,6 +83,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def check_schema_mismatch(request: Request, call_next):
+    import database
+    if database.SCHEMA_MISMATCH:
+        allowed_paths = [
+            "/api/admin/update/schema-status",
+            "/api/admin/update/bypass-schema-check",
+            "/static/",
+            "/branding/"
+        ]
+        path = request.url.path
+        is_allowed = any(path.startswith(p) for p in allowed_paths) or path == "/"
+        if not is_allowed and path.startswith("/api/"):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "Database schema is newer than the running code. Administration required.",
+                    "schema_mismatch": True,
+                    "code_version": database.CURRENT_SCHEMA_VERSION,
+                    "db_version": database.DB_SCHEMA_VERSION
+                }
+            )
+    return await call_next(request)
 
 # Include routers
 app.include_router(auth_routes.router)

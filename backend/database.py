@@ -15,6 +15,10 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+CURRENT_SCHEMA_VERSION = 1
+SCHEMA_MISMATCH = False
+DB_SCHEMA_VERSION = 0
+
 class GlobalSettings(Base):
     __tablename__ = "global_settings"
     
@@ -38,6 +42,7 @@ class GlobalSettings(Base):
     backup_token = Column(String, nullable=True)
     external_backup_url = Column(String, nullable=True)
     external_backup_auth_header = Column(String, nullable=True)
+    schema_version = Column(Integer, default=CURRENT_SCHEMA_VERSION)
     
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -254,9 +259,38 @@ def get_db():
         db.close()
 
 def init_db():
+    global SCHEMA_MISMATCH, DB_SCHEMA_VERSION
+    
+    # 1. Create tables first (so schema_version column exists on new databases)
     Base.metadata.create_all(bind=engine)
     
-    # Dynamic schema reconciliation to handle updates/migrations automatically
+    # 2. Check if schema_version exists in database
+    db_schema_version = 1
+    try:
+        with engine.begin() as conn:
+            # Check global_settings table columns
+            res = conn.execute(text("PRAGMA table_info(global_settings)")).fetchall()
+            cols = [r[1] for r in res]
+            
+            # If schema_version column doesn't exist, we must create it first
+            if "schema_version" not in cols:
+                conn.execute(text("ALTER TABLE global_settings ADD COLUMN schema_version INTEGER DEFAULT 1"))
+                
+            # Now fetch the schema_version value
+            res_val = conn.execute(text("SELECT schema_version FROM global_settings LIMIT 1")).fetchone()
+            if res_val is not None and res_val[0] is not None:
+                db_schema_version = int(res_val[0])
+    except Exception as e:
+        print(f"Error checking DB schema version: {e}")
+        
+    # 3. Mismatch check
+    if db_schema_version > CURRENT_SCHEMA_VERSION:
+        print(f"CRITICAL ERROR: Database version ({db_schema_version}) is newer than code version ({CURRENT_SCHEMA_VERSION})!")
+        SCHEMA_MISMATCH = True
+        DB_SCHEMA_VERSION = db_schema_version
+        return  # Block migrations and initialization
+        
+    # 4. If compatible, run dynamic column reconciliation
     try:
         with engine.begin() as conn:
             inspector = inspect(engine)
@@ -296,6 +330,9 @@ def init_db():
                         alter_query = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type_str}{default_clause}"
                         print(f"Migrating schema: Running query '{alter_query}'")
                         conn.execute(text(alter_query))
+                        
+            # Update schema_version in DB to CURRENT_SCHEMA_VERSION after migrations complete
+            conn.execute(text(f"UPDATE global_settings SET schema_version = {CURRENT_SCHEMA_VERSION}"))
     except Exception as migration_error:
         print(f"Database migration error: {migration_error}")
 
@@ -304,7 +341,7 @@ def init_db():
         # Seed settings if empty
         settings = db.query(GlobalSettings).first()
         if not settings:
-            settings = GlobalSettings(app_name="PolyPress")
+            settings = GlobalSettings(app_name="PolyPress", schema_version=CURRENT_SCHEMA_VERSION)
             db.add(settings)
             db.commit()
     finally:
