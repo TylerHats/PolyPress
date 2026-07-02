@@ -1,0 +1,172 @@
+                <!-- SUBSCRIBER LISTS VIEW -->
+                <div x-show="activeTab === 'lists'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Lists & Contacts</h1>
+                            <p class="page-subtitle">Import CSV databases and setup web subscribe iframes.</p>
+                        </div>
+                        <button x-show="user.role !== 'tenant_user'" @click="openCreateListModal()" class="btn btn-primary">
+                            <i data-lucide="plus"></i> Create List
+                        </button>
+                    </div>
+
+                    <div class="card-grid">
+                        <template x-for="l in lists" :key="l.id">
+                            <div class="card">
+                                <h3 style="font-size: 18px; margin-bottom: 8px;" x-text="l.name"></h3>
+                                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;" x-text="l.description || 'No description provided.'"></p>
+                                
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button @click="browseListSubscribers(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="users" style="width: 14px;"></i> View Subscribers
+                                    </button>
+                                    <button x-show="user.role !== 'tenant_user'" @click="openCsvImportModal(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="upload" style="width: 14px;"></i> CSV Import
+                                    </button>
+                                    <button @click="openEmbedCodeModal(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="code" style="width: 14px;"></i> Embed Form
+                                    </button>
+                                    <button x-show="user.role !== 'tenant_user'" @click="openEditListFieldsModal(l)" class="btn btn-secondary btn-sm" style="flex-grow: 1;">
+                                        <i data-lucide="settings" style="width: 14px;"></i> Fields Schema
+                                    </button>
+                                    <button x-show="user.role !== 'tenant_user'" @click="deleteList(l.id)" class="btn btn-danger btn-sm" style="width: 32px; padding: 0;">
+                                        <i data-lucide="trash-2" style="width: 14px;"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="lists.length === 0" style="grid-column: 1 / -1; text-align: center; padding: 45px;" class="card">
+                            <p style="color: var(--text-muted); font-style: italic;">No subscriber lists exist yet.</p>
+                        </div>
+                    </div>
+
+                    <!-- Subscribers Browser Table (Visible if listSelected is loaded) -->
+                    <div x-show="listSelected !== null" class="card" style="margin-top: 30px;">
+                        <div class="page-header" style="margin-bottom: 20px;">
+                            <div>
+                                <h3 style="font-size: 18px;" x-text="'Contacts inside: ' + listSelectedName"></h3>
+                                <p style="font-size: 13px; color: var(--text-secondary);" x-text="'Total: ' + subscribersCount"></p>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" x-model="subscribersSearch" @input.debounce.300ms="fetchSubscribers()" placeholder="Search contacts..." style="max-width: 250px;">
+                                <button x-show="user.role !== 'tenant_user'" @click="openAddSubscriberModal()" class="btn btn-primary btn-sm">
+                                    <i data-lucide="user-plus"></i> Add Contact
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Advanced List Filters Row -->
+                        <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Status:</span>
+                                <select x-model="subscribersFilterStatus" @change="fetchSubscribers()" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff;">
+                                    <option value="">All Statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="pending">Pending (Opt-In)</option>
+                                    <option value="unsubscribed">Unsubscribed</option>
+                                    <option value="bounced">Bounced</option>
+                                    <option value="spam">Spam Report</option>
+                                    <option value="deferred">Deferred</option>
+                                    <option value="failed">Failed</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Hygiene Stars:</span>
+                                <select x-model="subscribersFilterEngagement" @change="fetchSubscribers()" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff;">
+                                    <option value="">All Ratings</option>
+                                    <option value="5">★★★★★ (5 Stars)</option>
+                                    <option value="4">★★★★☆ (4 Stars)</option>
+                                    <option value="3">★★★☆☆ (3 Stars)</option>
+                                    <option value="2">★★☆☆☆ (2 Stars)</option>
+                                    <option value="1">★☆☆☆☆ (1 Star)</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Tag:</span>
+                                <input type="text" x-model="subscribersFilterTag" @input.debounce.300ms="fetchSubscribers()" placeholder="e.g. VIP" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; max-width: 120px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff;">
+                            </div>
+                        </div>
+
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Email Address</th>
+                                        <th>Name</th>
+                                        <th>Engagement</th>
+                                        <th>Status</th>
+                                        <th>Origin</th>
+                                        <th>Tags</th>
+                                        <!-- Dynamic custom field headers -->
+                                        <template x-for="f in listSelectedFields" :key="f.key">
+                                            <th x-text="f.label"></th>
+                                        </template>
+                                        <th x-show="user.role !== 'tenant_user'">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="s in subscribers" :key="s.id">
+                                        <tr>
+                                            <td style="font-weight: 500;" x-text="s.email"></td>
+                                            <td x-text="s.name || '-'"></td>
+                                            <td>
+                                                <span style="color: #f59e0b; font-size: 14px; letter-spacing: 1px;" x-text="'★'.repeat(s.engagement_score || 3) + '☆'.repeat(5 - (s.engagement_score || 3))"></span>
+                                            </td>
+                                            <td>
+                                                <div>
+                                                    <span class="badge" :class="getSubscriberBadgeClass(s.status)" x-text="s.status"></span>
+                                                    <template x-if="s.status === 'bounced' || s.status === 'spam' || s.status === 'deferred' || s.status === 'failed'">
+                                                        <div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; max-width: 180px; line-height: 1.3;" 
+                                                             :title="(s.status === 'spam' ? s.complaint_reason : s.bounce_reason) + '\nSource: ' + (s.bounce_source_email || 'Unknown')">
+                                                            <span style="font-weight: 600; color: var(--color-accent);">Reason:</span> 
+                                                            <span x-text="s.status === 'spam' ? (s.complaint_reason || 'Spam report received') : (s.bounce_reason || 'Unknown failure')"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                            <td x-text="s.source_tag || '-'"></td>
+                                            <td>
+                                                <div style="display: flex; flex-wrap: wrap; gap: 4px; max-width: 150px;">
+                                                    <template x-for="tag in (s.tags || [])" :key="tag">
+                                                        <span class="badge badge-muted" style="font-size: 9px; padding: 2px 6px; background: rgba(255,255,255,0.08);" x-text="tag"></span>
+                                                    </template>
+                                                    <template x-if="!(s.tags && s.tags.length)">
+                                                        <span style="color: var(--text-muted); font-size: 11px;">-</span>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                            <!-- Dynamic Custom Fields data mapping -->
+                                            <template x-for="f in listSelectedFields" :key="f.key">
+                                                <td x-text="s.custom_data[f.key] || '-'"></td>
+                                            </template>
+                                            <td x-show="user.role !== 'tenant_user'">
+                                                <div style="display: flex; gap: 6px;">
+                                                    <button @click="openEditSubscriberModal(s)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;" title="Edit Contact">
+                                                        <i data-lucide="edit-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                    <button @click="deleteSubscriber(s.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px;" title="Delete Contact">
+                                                        <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="subscribers.length === 0">
+                                        <td :colspan="7 + listSelectedFields.length" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                                            No subscribers found.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination panel -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
+                            <span style="font-size: 13px; color: var(--text-secondary);" x-text="'Showing page ' + subscribersPage + ' of ' + Math.ceil(subscribersCount/50)"></span>
+                            <div style="display: flex; gap: 8px;">
+                                <button @click="subscribersPage > 1 ? (subscribersPage--, fetchSubscribers()) : null" class="btn btn-secondary btn-sm" :disabled="subscribersPage === 1">Prev</button>
+                                <button @click="subscribersPage * 50 < subscribersCount ? (subscribersPage++, fetchSubscribers()) : null" class="btn btn-secondary btn-sm" :disabled="subscribersPage * 50 >= subscribersCount">Next</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>

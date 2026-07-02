@@ -44,6 +44,10 @@ class GlobalSettings(Base):
     external_backup_auth_header = Column(String, nullable=True)
     schema_version = Column(Integer, default=CURRENT_SCHEMA_VERSION)
     
+    # History logs settings
+    history_retention_days = Column(Integer, default=30)
+    history_record_frequency_hours = Column(Integer, default=24)
+    
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Tenant(Base):
@@ -82,6 +86,10 @@ class Tenant(Base):
     max_sending_threads = Column(Integer, default=10)
     double_opt_in = Column(Boolean, default=False)
     
+    # History logs settings
+    history_retention_days = Column(Integer, default=30)
+    history_record_frequency_hours = Column(Integer, default=24)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     
     users = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
@@ -102,6 +110,7 @@ class User(Base):
     totp_secret = Column(String, nullable=True)
     totp_enabled = Column(Boolean, default=False)
     allowed_tenants = Column(JSON, default=list)
+    auth_type = Column(String, default="local") # local, oidc
     created_at = Column(DateTime, default=datetime.utcnow)
     
     tenant = relationship("Tenant", back_populates="users")
@@ -256,6 +265,44 @@ class WebhookSubscription(Base):
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# History Logs Separate Database Engine
+HISTORY_DATABASE_URL = os.getenv("HISTORY_DATABASE_URL")
+if not HISTORY_DATABASE_URL:
+    if DATABASE_URL.startswith("sqlite:///"):
+        db_path = DATABASE_URL.replace("sqlite:///", "")
+        db_dir = os.path.dirname(db_path)
+        if not db_dir:
+            db_dir = "."
+        HISTORY_DATABASE_URL = f"sqlite:///{os.path.join(db_dir, 'polypress_history.db')}"
+    else:
+        HISTORY_DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'polypress_history.db')}"
+
+history_engine = create_engine(
+    HISTORY_DATABASE_URL,
+    connect_args={"check_same_thread": False} if HISTORY_DATABASE_URL.startswith("sqlite") else {}
+)
+HistorySessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=history_engine)
+HistoryBase = declarative_base()
+
+class HistoricalMetric(HistoryBase):
+    __tablename__ = "historical_metrics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, index=True, nullable=True) # Null for system-wide metrics
+    recorded_at = Column(DateTime, default=datetime.utcnow, index=True)
+    subscriber_count = Column(Integer, default=0)
+    emails_sent = Column(Integer, default=0)
+    email_opens = Column(Integer, default=0)
+    link_clicks = Column(Integer, default=0)
+    bounces = Column(Integer, default=0)
+
+def get_history_db():
+    db = HistorySessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 def get_db():
     db = SessionLocal()
     try:
@@ -295,6 +342,7 @@ def init_db():
             
     # 1. Create tables first (so schema_version column exists on new databases)
     Base.metadata.create_all(bind=engine)
+    HistoryBase.metadata.create_all(bind=history_engine)
     
     # 2. Check if schema_version exists in database
     db_schema_version = 1

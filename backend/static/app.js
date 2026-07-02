@@ -341,6 +341,23 @@
                 
                 // Dashboard summary
                 stats: { totalSubscribers: 0, campaignsSent: 0, avgOpenRate: 0, avgBounceRate: 0 },
+                
+                // Pre-fetched sub-templates
+                templates: {},
+                
+                // Custom logo versioning
+                logoVersion: Date.now(),
+                
+                // Chart timeout identifier
+                chartTimeoutId: null,
+                
+                // Historical Reports state
+                reportsData: [],
+                reportsFilterStartDate: '',
+                reportsFilterEndDate: '',
+                reportsSettings: { retention_days: 30, frequency_hours: 24 },
+                reportsChart: null,
+                reportsChartTimeoutId: null,
 
                 askConfirm(message, title = 'Confirm Action', isDanger = false) {
                     return new Promise((resolve) => {
@@ -388,6 +405,20 @@
                 },
 
                 async initApp() {
+                    // Pre-fetch sub-templates
+                    const templates = ['dashboard', 'campaigns', 'subscribers', 'settings', 'users', 'reports', 'admin'];
+                    this.templates = {};
+                    for (const t of templates) {
+                        try {
+                            const res = await fetch(`/static/templates/${t}.html`);
+                            if (res.ok) {
+                                this.templates[t] = await res.text();
+                            }
+                        } catch(e) {
+                            console.error(`Failed to pre-fetch template ${t}:`, e);
+                        }
+                    }
+
                     // Check schema status first
                     try {
                         const statusRes = await fetch('/api/admin/update/schema-status');
@@ -885,12 +916,12 @@
                             return;
                         }
                         
-                        // Retrieve saved host admin mode preference
-                        const savedHostMode = localStorage.getItem('polypress_host_admin_mode');
-                        if (savedHostMode !== null) {
-                            this.hostAdminMode = savedHostMode === 'true';
+                        // Retrieve saved host admin mode preference (Super Admin only)
+                        if (this.user.role === 'super_admin') {
+                            const savedHostMode = localStorage.getItem('polypress_host_admin_mode');
+                            this.hostAdminMode = savedHostMode !== 'false';
                         } else {
-                            this.hostAdminMode = this.user.role === 'super_admin';
+                            this.hostAdminMode = false;
                         }
                         
                         // Fetch accessible tenants (accessible to all logged-in users)
@@ -946,7 +977,7 @@
                         'Authorization': `Bearer ${this.token}`,
                         'Content-Type': 'application/json'
                     };
-                    if (this.user && !this.hostAdminMode && this.activeTenantId) {
+                    if (this.user && (this.user.role !== 'super_admin' || !this.hostAdminMode) && this.activeTenantId) {
                         headers['X-PolyPress-Tenant-Id'] = String(this.activeTenantId);
                     }
                     return headers;
@@ -997,12 +1028,24 @@
                         this.tenant = { name: 'Client Context' };
                     }
                     
+                    // Clear list selections (Bug 8)
+                    this.listSelected = null;
+                    this.listSelectedName = '';
+                    this.listSelectedFields = [];
+                    this.subscribers = [];
+                    this.subscribersCount = 0;
+                    
                     // Re-load data in selected tenant context
                     await this.fetchCampaigns();
                     await this.fetchLists();
                     await this.loadDashboardMetrics();
                     
-                    this.switchTab('dashboard');
+                    if (this.activeTab === 'reports') {
+                        await this.fetchReportData();
+                        await this.loadReportSettings();
+                    } else {
+                        this.switchTab('dashboard');
+                    }
                     this.refreshIcons();
                 },
 
@@ -1028,7 +1071,8 @@
                         password: '', 
                         role: 'tenant_user', 
                         tenant_id: defaultTid,
-                        allowed_tenants: defaultTid ? [parseInt(defaultTid)] : []
+                        allowed_tenants: defaultTid ? [parseInt(defaultTid)] : [],
+                        auth_type: 'local'
                     };
                     this.userModalOpen = true;
                     this.refreshIcons();
@@ -1042,7 +1086,8 @@
                         password: '', 
                         role: user.role, 
                         tenant_id: user.tenant_id,
-                        allowed_tenants: user.allowed_tenants || (user.tenant_id ? [user.tenant_id] : [])
+                        allowed_tenants: user.allowed_tenants || (user.tenant_id ? [user.tenant_id] : []),
+                        auth_type: user.auth_type || 'local'
                     };
                     this.userModalOpen = true;
                     this.refreshIcons();
@@ -1070,8 +1115,8 @@
                         this.showToast('Name and email are required', 'error');
                         return;
                     }
-                    if (!this.userForm.id && !this.userForm.password) {
-                        this.showToast('Password is required for new users', 'error');
+                    if (!this.userForm.id && this.userForm.auth_type === 'local' && !this.userForm.password) {
+                        this.showToast('Password is required for new local credentials users', 'error');
                         return;
                     }
                     
@@ -1517,11 +1562,11 @@
                     this.activeTab = tab;
                     this.refreshIcons();
                     
-                    if (this.dashboardChart && tab !== 'dashboard') {
+                    if (this.reportsChart && tab !== 'reports') {
                         try {
-                            this.dashboardChart.destroy();
+                            this.reportsChart.destroy();
                         } catch(e) {}
-                        this.dashboardChart = null;
+                        this.reportsChart = null;
                     }
                     
                     if (tab === 'dashboard') {
@@ -1538,7 +1583,9 @@
                         this.fetchUpdateStatus();
                     } else if (tab === 'users') {
                         this.fetchUsers();
-                        this.fetchTenants();
+                    } else if (tab === 'reports') {
+                        this.fetchReportData();
+                        this.loadReportSettings();
                     }
                 },
 
@@ -1579,7 +1626,11 @@
                 },
                 
                 renderMetricsChart(sentCampaigns) {
-                    setTimeout(() => {
+                    if (this.chartTimeoutId) {
+                        clearTimeout(this.chartTimeoutId);
+                    }
+                    this.chartTimeoutId = setTimeout(() => {
+                        this.chartTimeoutId = null;
                         const ctx = document.getElementById('dashboardChart');
                         if (!ctx) return;
                         
@@ -2417,6 +2468,177 @@
                 calculatePercentage(num, total) {
                     if (!total || total === 0) return 0;
                     return Math.round((num / total) * 100);
+                },
+
+                // Reports & Brand Upload additions
+                async fetchReportData() {
+                    let url = '/api/reports/history';
+                    const params = [];
+                    if (this.reportsFilterStartDate) params.push(`start_date=${this.reportsFilterStartDate}`);
+                    if (this.reportsFilterEndDate) params.push(`end_date=${this.reportsFilterEndDate}`);
+                    if (params.length > 0) {
+                        url += '?' + params.join('&');
+                    }
+                    try {
+                        const res = await fetch(url, { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.reportsData = await res.json();
+                            this.renderReportsChart();
+                        }
+                    } catch(e) {
+                        console.error('Failed to fetch reports data:', e);
+                    }
+                },
+                
+                resetReportsFilters() {
+                    this.reportsFilterStartDate = '';
+                    this.reportsFilterEndDate = '';
+                    this.fetchReportData();
+                },
+                
+                async loadReportSettings() {
+                    try {
+                        const res = await fetch('/api/reports/settings', { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.reportsSettings.retention_days = data.retention_days;
+                            this.reportsSettings.frequency_hours = data.frequency_hours;
+                        }
+                    } catch(e) {
+                        console.error('Failed to load reports settings:', e);
+                    }
+                },
+                
+                async saveReportSettings() {
+                    try {
+                        const res = await fetch('/api/reports/settings', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                retention_days: this.reportsSettings.retention_days,
+                                frequency_hours: this.reportsSettings.frequency_hours
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Reports settings updated successfully');
+                            await this.loadReportSettings();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to save settings', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                renderReportsChart() {
+                    if (this.reportsChartTimeoutId) {
+                        clearTimeout(this.reportsChartTimeoutId);
+                    }
+                    this.reportsChartTimeoutId = setTimeout(() => {
+                        this.reportsChartTimeoutId = null;
+                        const ctx = document.getElementById('reportsChart');
+                        if (!ctx) return;
+                        
+                        if (this.reportsChart) {
+                            try {
+                                this.reportsChart.destroy();
+                            } catch(e) {}
+                            this.reportsChart = null;
+                        }
+                        
+                        const labels = this.reportsData.map(r => new Date(r.recorded_at).toLocaleDateString());
+                        const subsData = this.reportsData.map(r => r.subscriber_count);
+                        const sentData = this.reportsData.map(r => r.emails_sent);
+                        const opensData = this.reportsData.map(r => r.email_opens);
+                        
+                        try {
+                            this.reportsChart = new Chart(ctx, {
+                                type: 'line',
+                                data: {
+                                    labels: labels.length ? labels : ['No Data'],
+                                    datasets: [
+                                        {
+                                            label: 'Subscribers',
+                                            data: subsData.length ? subsData : [0],
+                                            borderColor: '#10b981',
+                                            backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                                            tension: 0.2,
+                                            fill: true
+                                        },
+                                        {
+                                            label: 'Emails Sent',
+                                            data: sentData.length ? sentData : [0],
+                                            borderColor: '#6366f1',
+                                            backgroundColor: 'rgba(99, 102, 241, 0.05)',
+                                            tension: 0.2,
+                                            fill: true
+                                        },
+                                        {
+                                            label: 'Opens',
+                                            data: opensData.length ? opensData : [0],
+                                            borderColor: '#f59e0b',
+                                            backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                                            tension: 0.2,
+                                            fill: true
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    scales: {
+                                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+                                    },
+                                    plugins: {
+                                        legend: { labels: { color: '#f8fafc' } }
+                                    }
+                                }
+                            });
+                        } catch(e) {
+                            console.error('Failed to create reports chart:', e);
+                        }
+                    }, 50);
+                },
+                
+                printReport() {
+                    window.print();
+                },
+
+                async uploadAppLogo(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    try {
+                        const res = await fetch('/api/auth/branding/logo', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${this.token}`
+                            },
+                            body: formData
+                        });
+                        
+                        if (res.ok) {
+                            this.showToast('App branding logo uploaded successfully!');
+                            this.logoVersion = Date.now();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to upload logo', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                openPreviewOnlyModal(campaign) {
+                    this.editingCampaign = campaign;
+                    this.previewIframeSrc = `/api/campaigns/${campaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}`;
+                    this.modals.campaignPreview = true;
+                    this.refreshIcons();
                 }
             };
         }

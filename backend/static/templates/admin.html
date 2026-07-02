@@ -1,0 +1,408 @@
+                <!-- GLOBAL HOST ADMIN VIEW (Visible if user.role === 'super_admin') -->
+                <div x-show="activeTab === 'admin' && user.role === 'super_admin'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Global Host Settings</h1>
+                            <p class="page-subtitle">Manage tenants, globally map OIDC providers, and customize brand styles.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 3fr 2fr; gap: 30px;">
+                        
+                        <!-- Tenants Table -->
+                        <div class="card">
+                            <div class="page-header" style="margin-bottom: 20px;">
+                                <h3 style="font-size: 18px;">Registered Tenants</h3>
+                                <button @click="openCreateTenantModal()" class="btn btn-secondary btn-sm">+ Add Tenant</button>
+                            </div>
+                            <div class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Tenant Name</th>
+                                            <th>Sending Domain</th>
+                                            <th>Direct Send</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="t in tenants" :key="t.id">
+                                            <tr>
+                                                <td style="font-weight:600;" x-text="t.name"></td>
+                                                <td x-text="t.dkim_domain || 'SMTP Relay'"></td>
+                                                <td x-text="t.direct_send ? 'Yes (MTA)' : 'No'"></td>
+                                                <td>
+                                                     <div style="display: flex; gap: 8px;">
+                                                         <button @click="openEditTenantModal(t)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;">
+                                                             <i data-lucide="edit-3" style="width: 12px; height: 12px;"></i>
+                                                         </button>
+                                                         <button @click="deleteTenant(t.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px;">
+                                                             <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                                                         </button>
+                                                     </div>
+                                                 </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- OIDC / System configuration -->
+                        <div class="card">
+                            <h3 style="font-size: 18px; margin-bottom: 20px;">Identity & Styling Control</h3>
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div class="field">
+                                    <label>App Name</label>
+                                    <input type="text" x-model="globalSettings.app_name">
+                                </div>
+                                <div class="field">
+                                    <label>Upload App Logo (PNG/JPEG/GIF)</label>
+                                    <input type="file" @change="uploadAppLogo($event)" accept="image/png, image/jpeg, image/gif" style="background: rgba(0,0,0,0.1); border: 1px solid var(--border-glass); border-radius: 6px; padding: 6px; width: 100%;">
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Replaces the branding logo globally. Accepts PNG, JPEG, or GIF.</span>
+                                </div>
+                                <div class="field">
+                                    <label>Public System URL</label>
+                                    <input type="url" x-model="globalSettings.public_url" placeholder="https://newsletter.yourdomain.com">
+                                    <span style="font-size: 11px; color: var(--text-muted);">Required for outbound tracking and opt-in validation links.</span>
+                                </div>
+                                
+                                <div class="toggle-field" style="margin-top: 10px;">
+                                    <input type="checkbox" x-model="globalSettings.oidc_enabled" style="display:none;">
+                                    <div class="toggle-switch" @click="globalSettings.oidc_enabled = !globalSettings.oidc_enabled"></div>
+                                    <span>Enable OpenID Connect Login</span>
+                                </div>
+                                
+                                <div x-show="globalSettings.oidc_enabled">
+                                    <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
+                                        <div class="field">
+                                            <label>OIDC Provider Issuer URI</label>
+                                            <input type="text" x-model="globalSettings.oidc_issuer" placeholder="https://keycloak.local/realms/master">
+                                        </div>
+                                        <div class="field">
+                                            <label>Client ID</label>
+                                            <input type="text" x-model="globalSettings.oidc_client_id">
+                                        </div>
+                                        <div class="field">
+                                            <label>Client Secret</label>
+                                            <input type="password" x-model="globalSettings.oidc_client_secret" placeholder="••••••••">
+                                        </div>
+                                        <div class="field">
+                                            <label>Redirect URI</label>
+                                            <input type="text" x-model="globalSettings.oidc_redirect_url" placeholder="http://localhost:8000/api/auth/oidc/callback">
+                                        </div>
+                                        <div class="field">
+                                            <label>Restricted Domains (comma-separated)</label>
+                                            <input type="text" x-model="globalSettings.allowed_domains" placeholder="company.com, org.net">
+                                            <span style="font-size:11px; color:var(--text-muted);">Leave empty to allow all OIDC domains.</span>
+                                        </div>
+                                        <div class="toggle-field">
+                                            <input type="checkbox" x-model="globalSettings.auto_create_tenants" style="display:none;">
+                                            <div class="toggle-switch" @click="globalSettings.auto_create_tenants = !globalSettings.auto_create_tenants"></div>
+                                            <span>Auto-Create Tenant per Email Domain</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button @click="saveGlobalSettings()" class="btn btn-primary" style="width: 100%; margin-top: 25px;">Save Global Admin Configuration</button>
+                        </div>
+                        
+                        <!-- System Updates & Self-Updating Card -->
+                        <div class="card" style="margin-top: 30px;">
+                            <h3 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="refresh-cw" style="color: var(--color-primary);"></i>
+                                System Updates & Upgrades
+                            </h3>
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div style="background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass); font-size: 13px;">
+                                    <div><strong>Current Tag:</strong> <span style="font-family: monospace;" x-text="updateStatus.current_tag || 'None/Untagged'"></span></div>
+                                    <div style="margin-top: 4px;"><strong>Current Commit:</strong> <span style="font-family: monospace;" x-text="updateStatus.current_commit || 'Unknown'"></span></div>
+                                    <div style="margin-top: 4px;"><strong>DB Schema Version:</strong> <span style="font-family: monospace;" x-text="updateStatus.db_schema_version || 'Unknown'"></span></div>
+                                </div>
+
+                                <div class="field">
+                                    <label>Update Channel</label>
+                                    <select x-model="globalSettings.update_channel">
+                                        <option value="stable">Stable (GitHub Releases)</option>
+                                        <option value="beta">Beta (Latest Commits on Main)</option>
+                                    </select>
+                                </div>
+
+                                <div class="toggle-field">
+                                    <input type="checkbox" x-model="globalSettings.auto_update" style="display:none;">
+                                    <div class="toggle-switch" @click="globalSettings.auto_update = !globalSettings.auto_update"></div>
+                                    <div>
+                                        <div style="font-weight:600;">Enable Automatic Updates</div>
+                                        <div style="font-size: 11px; color: var(--text-muted);">Check and update every 12 hours automatically.</div>
+                                    </div>
+                                </div>
+
+                                <div style="border-top: 1px solid var(--border-glass); padding-top: 15px; margin-top: 5px;">
+                                    <div style="display: flex; gap: 10px;">
+                                        <button @click="checkUpdates()" class="btn btn-secondary" style="flex: 1;" :disabled="updateChecking">
+                                            <span x-show="!updateChecking">Check for Updates</span>
+                                            <span x-show="updateChecking">Checking...</span>
+                                        </button>
+                                        <template x-if="updateStatus.update_available">
+                                            <button @click="installUpdate()" class="btn btn-success" style="flex: 1;" :disabled="updateInstalling">
+                                                <span x-show="!updateInstalling">Install Update</span>
+                                                <span x-show="updateInstalling">Installing...</span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                    
+                                    <template x-if="updateStatus.update_available">
+                                        <div style="margin-top: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 6px; padding: 10px; font-size: 12px;">
+                                            <span style="color: var(--color-success); font-weight: 600;">Update Available!</span>
+                                            <div style="margin-top: 4px; color: var(--text-secondary);">
+                                                Target Version: <span style="font-family: monospace;" x-text="updateStatus.latest_tag || updateStatus.latest_commit"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-if="!updateStatus.update_available && updateStatus.current_commit">
+                                        <div style="margin-top: 10px; color: var(--text-muted); font-size: 11px; text-align: center;">
+                                            Your system is up to date on the selected channel.
+                                        </div>
+                                    </template>
+                                    <template x-if="!updateStatus.is_systemd && !updateStatus.is_docker">
+                                        <div style="margin-top: 12px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 6px; padding: 10px; display: flex; gap: 8px; align-items: flex-start; color: var(--color-warning);">
+                                            <i data-lucide="alert-triangle" style="width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+                                            <div>
+                                                <strong>Not Running Under Systemd</strong>
+                                                <div style="margin-top: 2px; color: var(--text-secondary); line-height: 1.3; font-size: 11px;">
+                                                    Updates will stop the server. You will need to manually restart the process afterwards.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-if="updateStatus.is_docker">
+                                        <div style="margin-top: 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 6px; padding: 10px; display: flex; gap: 8px; align-items: flex-start; color: var(--color-primary);">
+                                            <i data-lucide="info" style="width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+                                            <div>
+                                                <strong>Running in Docker Container</strong>
+                                                <div style="margin-top: 2px; color: var(--text-secondary); line-height: 1.3; font-size: 11px;">
+                                                    UI updates will apply a temporary hot-patch. If the container is recreated (e.g. during a pull or stack update), it will revert back to the base image.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div style="border-top: 1px solid var(--border-glass); padding-top: 15px; margin-top: 5px;">
+                                    <h4 style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Developer Testing / Beta</h4>
+                                    <button @click="forceBetaUpdate()" class="btn btn-danger" style="width: 100%;" :disabled="updateInstalling">
+                                        Force Pull Main Branch (Beta)
+                                    </button>
+                                    <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">
+                                        Pulls origin/main, runs pip install, stashes local code changes, and restarts.
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- GUI ACME Let's Encrypt SSL Generator -->
+                    <div class="card" style="margin-top: 30px;">
+                        <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="shield-check" style="color: var(--color-success);"></i>
+                            Let's Encrypt SSL/TLS Certificate Provisioning (ACME)
+                        </h2>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                            Request and configure Let's Encrypt SSL certificates automatically. The system will handle validation in-process. 
+                            <strong>Note:</strong> Port 80 (HTTP) must be open and forwarded to this app during validation.
+                        </p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                            <div>
+                                <!-- If external HTTPS termination proxy is detected -->
+                                <template x-if="sslStatus.is_proxy_https">
+                                    <div style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 10px;">
+                                        <div style="font-weight: 600; color: #fff; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                                            ℹ️ External SSL Termination Active
+                                        </div>
+                                        <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0;">
+                                            You are currently accessing PolyPress over an HTTPS connection terminated externally (e.g. by Nginx, Cloudflare, Traefik, or NPM proxying to port 8000). 
+                                        </p>
+                                        <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 0;">
+                                            The built-in Let's Encrypt generator is disabled because SSL is managed externally.
+                                        </p>
+                                    </div>
+                                </template>
+
+                                <!-- Otherwise, allow requesting Let's Encrypt certs locally -->
+                                <template x-if="!sslStatus.is_proxy_https">
+                                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                                        <div class="field">
+                                            <label>Domain Name</label>
+                                            <input type="text" x-model="sslForm.domain" placeholder="e.g. newsletter.domain.com">
+                                        </div>
+                                        <div class="field">
+                                            <label>Contact Email Address</label>
+                                            <input type="email" x-model="sslForm.email" placeholder="e.g. admin@domain.com">
+                                        </div>
+                                        <div class="toggle-field" style="margin-top: 10px;">
+                                            <input type="checkbox" x-model="sslForm.use_staging" style="display:none;">
+                                            <div class="toggle-switch" @click="sslForm.use_staging = !sslForm.use_staging"></div>
+                                            <div>
+                                                <div style="font-weight:600;">Use Let's Encrypt Staging Environment</div>
+                                                <div style="font-size: 11px; color: var(--text-muted);">Recommended for testing validation before requesting official certificates.</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <button @click="generateSslCertificate()" class="btn btn-success" style="margin-top: 15px;" :disabled="sslGenerating">
+                                            <span x-show="sslGenerating">Generating Certificate...</span>
+                                            <span x-show="!sslGenerating">Request Let's Encrypt Certificate</span>
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+                            
+                            <div>
+                                <h4 style="font-size: 14px; margin-bottom: 10px; color: var(--color-accent);">Current SSL Certificate Status</h4>
+                                <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px; font-size: 13px;">
+                                    <template x-if="!sslStatus.configured">
+                                        <div style="color: var(--color-warning); font-weight: 600;">
+                                            • No custom SSL/TLS certificates detected in backend/certs/.
+                                        </div>
+                                    </template>
+                                    <template x-if="sslStatus.configured">
+                                        <div>
+                                            <p style="margin: 4px 0; color: var(--color-success); font-weight: 600;">✓ SSL Certificate Active</p>
+                                            <p style="margin: 4px 0;">• <strong>Domain/Subject:</strong> <span x-text="sslStatus.subject"></span></p>
+                                            <p style="margin: 4px 0;">• <strong>Issuer:</strong> <span x-text="sslStatus.issuer"></span></p>
+                                            <p style="margin: 4px 0;">• <strong>Expires:</strong> <span x-text="new Date(sslStatus.expiry).toLocaleString()"></span></p>
+                                        </div>
+                                    </template>
+                                </div>
+                                
+                                <h4 style="font-size: 14px; margin-bottom: 10px; color: var(--color-accent);">ACME Protocol Execution Logs</h4>
+                                <div id="acme-console" style="background: #000; border: 1px solid #334155; font-family: monospace; font-size: 11px; padding: 12px; border-radius: 6px; height: 160px; overflow-y: auto; color: #10b981; line-height: 1.4;">
+                                    <template x-if="acmeLogs.length === 0">
+                                        <span style="color: var(--text-muted);">Console idle. Ready to request certificate.</span>
+                                    </template>
+                                    <template x-for="log in acmeLogs">
+                                        <div x-text="log"></div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Database Backup & Restore Console -->
+                    <div class="card" style="margin-top: 30px;">
+                        <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="database" style="color: var(--color-primary);"></i>
+                            System Database Backups & Recovery (Super Admin)
+                        </h2>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                            Generate highly portable system snapshots including SQLite subscriber lists, campaign databases, and branding assets. Upload backups to restore complete site state.
+                        </p>
+                        
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 30px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                            <!-- Backups Table -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <h3 style="font-size: 14px; margin: 0; color: var(--color-accent);">Backup Snapshots</h3>
+                                    <button @click="createBackup()" class="btn btn-secondary btn-sm" style="padding: 4px 10px; font-size: 11px;">
+                                        + Generate Backup
+                                    </button>
+                                </div>
+                                <div class="table-container" style="max-height: 250px; overflow-y: auto;">
+                                    <table class="data-table" style="font-size: 12px;">
+                                        <thead>
+                                            <tr>
+                                                <th>Filename</th>
+                                                <th>Size</th>
+                                                <th>Created At</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-if="backups.length === 0">
+                                                <tr>
+                                                    <td colspan="4" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 15px;">
+                                                        No backup snapshots generated yet.
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <template x-for="b in backups" :key="b.filename">
+                                                <tr>
+                                                    <td style="font-weight:600; font-family: monospace;" x-text="b.filename"></td>
+                                                    <td x-text="(b.size / 1024 / 1024).toFixed(2) + ' MB'"></td>
+                                                    <td x-text="new Date(b.created_at).toLocaleString()"></td>
+                                                    <td>
+                                                        <div style="display: flex; gap: 6px;">
+                                                            <a :href="'/api/admin/backups/download/' + b.filename + '?token=' + encodeURIComponent(token)" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 10px; display: inline-flex; align-items: center; gap: 2px;" download>
+                                                                <i data-lucide="download" style="width: 10px; height: 10px;"></i> Get
+                                                            </a>
+                                                            <button @click="restoreBackup(b.filename)" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 10px; display: inline-flex; align-items: center; gap: 2px; background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); color: var(--color-warning);">
+                                                                <i data-lucide="rotate-ccw" style="width: 10px; height: 10px;"></i> Restore
+                                                            </button>
+                                                            <button @click="deleteBackup(b.filename)" class="btn btn-danger btn-sm" style="padding: 2px 6px; font-size: 10px;">
+                                                                <i data-lucide="trash-2" style="width: 10px; height: 10px;"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- Upload Recovery / Drag & Drop -->
+                            <div>
+                                <h3 style="font-size: 14px; margin-bottom: 15px; color: var(--color-accent);">Upload Recovery Archive</h3>
+                                <div style="border: 2px dashed var(--border-glass); border-radius: 8px; padding: 25px 15px; text-align: center; background: rgba(255,255,255,0.01); display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer; position: relative;">
+                                    <input type="file" @change="uploadBackupRestoreFile($event)" accept=".zip" style="position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;">
+                                    <i data-lucide="upload-cloud" style="width: 32px; height: 32px; color: var(--color-primary);"></i>
+                                    <div style="font-size: 12px; font-weight: 500;">Click to upload ZIP backup</div>
+                                    <div style="font-size: 10px; color: var(--text-muted);">Must contain a valid polypress.db file.</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- External Backups API & Pushes -->
+                        <div style="border-top: 1px solid var(--border-glass); margin-top: 25px; padding-top: 20px;">
+                            <h3 style="font-size: 16px; margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                                <i data-lucide="link" style="color: var(--color-primary); width: 18px; height: 18px;"></i>
+                                External Backups API & Pushes
+                            </h3>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                                <div>
+                                    <h4 style="font-size: 13px; margin-bottom: 10px; color: var(--color-accent);">API Pull Token</h4>
+                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                        <input type="text" x-model="globalSettings.backup_token" readonly placeholder="No token configured" style="font-family: monospace;">
+                                        <button @click="generateBackupToken()" class="btn btn-secondary" style="white-space: nowrap;">Generate Token</button>
+                                    </div>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 5px;">
+                                        Enables external services to pull the latest system backup securely. Save the global admin configuration to activate.
+                                    </span>
+                                    <template x-if="globalSettings.backup_token">
+                                        <div style="margin-top: 12px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 11px;">
+                                            <span style="color: var(--text-muted); display: block; margin-bottom: 4px;">cURL command:</span>
+                                            <code style="word-break: break-all; color: var(--color-primary);" x-text="'curl -L -G \'' + window.location.origin + '/api/admin/backups/export\' --data-urlencode \'token=' + globalSettings.backup_token + '\' -o polypress_backup.zip'"></code>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div>
+                                    <h4 style="font-size: 13px; margin-bottom: 10px; color: var(--color-accent);">External Push Settings</h4>
+                                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                                        <div class="field" style="margin-bottom:0;">
+                                            <label style="font-size:11px;">External Backup URL (POST)</label>
+                                            <input type="url" x-model="globalSettings.external_backup_url" placeholder="https://external-backup-server.com/upload">
+                                        </div>
+                                        <div class="field" style="margin-bottom:0;">
+                                            <label style="font-size:11px;">Authorization Header Value</label>
+                                            <input type="text" x-model="globalSettings.external_backup_auth_header" placeholder="Bearer your-secret-token">
+                                        </div>
+                                    </div>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 5px;">
+                                        Whenever a backup is generated, PolyPress will POST the ZIP file to this URL as multipart form data.
+                                    </span>
+                                </div>
+                            </div>
+                            <button @click="saveGlobalSettings()" class="btn btn-primary btn-sm" style="margin-top: 20px; display: block; width: 100%;">Save External Backup Configuration</button>
+                        </div>
+                    </div>
+                </div>

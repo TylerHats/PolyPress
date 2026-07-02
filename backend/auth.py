@@ -172,6 +172,11 @@ def process_oidc_user(db: Session, email: str, name: str) -> User:
     # Check if user already exists
     user = db.query(User).filter(User.email == email).first()
     if user:
+        if user.auth_type == "local":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This account is configured for local credentials authentication only."
+            )
         return user
         
     # Check if we should auto-create a tenant for this domain
@@ -198,7 +203,8 @@ def process_oidc_user(db: Session, email: str, name: str) -> User:
         name=name,
         role=role,
         tenant_id=tenant.id if tenant else None,
-        is_active=True
+        is_active=True,
+        auth_type="oidc"
     )
     db.add(new_user)
     db.commit()

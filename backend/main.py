@@ -15,7 +15,7 @@ from bounce_worker import bounce_worker_loop
 from update_worker import auto_update_worker_loop
 
 # Import routers
-from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes, user_routes
+from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes, user_routes, report_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("polypress")
@@ -38,6 +38,105 @@ def seed_bootstrap_data():
     finally:
         db.close()
 
+def record_historical_metrics():
+    from database import SessionLocal, HistorySessionLocal, Tenant, GlobalSettings, HistoricalMetric, Subscriber, Campaign
+    from datetime import datetime, timedelta
+    
+    db = SessionLocal()
+    history_db = HistorySessionLocal()
+    
+    try:
+        global_settings = db.query(GlobalSettings).first()
+        global_freq = global_settings.history_record_frequency_hours if global_settings else 24
+        global_ret = global_settings.history_retention_days if global_settings else 30
+        
+        # 1. Record Global Metrics
+        now = datetime.utcnow()
+        latest_global = history_db.query(HistoricalMetric).filter(HistoricalMetric.tenant_id == None).order_by(HistoricalMetric.recorded_at.desc()).first()
+        
+        if not latest_global or (now - latest_global.recorded_at) >= timedelta(hours=global_freq):
+            # Calculate global metrics
+            sub_count = db.query(Subscriber).filter(Subscriber.status == "active").count()
+            # Campaigns metrics
+            campaigns = db.query(Campaign).all()
+            sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
+            opens = sum(c.open_count for c in campaigns if c.open_count)
+            clicks = sum(c.click_count for c in campaigns if c.click_count)
+            bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+            
+            metric = HistoricalMetric(
+                tenant_id=None,
+                recorded_at=now,
+                subscriber_count=sub_count,
+                emails_sent=sent,
+                email_opens=opens,
+                link_clicks=clicks,
+                bounces=bounces
+            )
+            history_db.add(metric)
+            
+            # Clean up global metrics older than global_ret
+            cutoff = now - timedelta(days=global_ret)
+            history_db.query(HistoricalMetric).filter(HistoricalMetric.tenant_id == None, HistoricalMetric.recorded_at < cutoff).delete()
+            history_db.commit()
+            
+        # 2. Record Tenant Metrics
+        tenants = db.query(Tenant).all()
+        for tenant in tenants:
+            tenant_freq = tenant.history_record_frequency_hours or 24
+            tenant_ret = tenant.history_retention_days or 30
+            
+            latest_tenant = history_db.query(HistoricalMetric).filter(HistoricalMetric.tenant_id == tenant.id).order_by(HistoricalMetric.recorded_at.desc()).first()
+            
+            if not latest_tenant or (now - latest_tenant.recorded_at) >= timedelta(hours=tenant_freq):
+                # Calculate tenant metrics
+                sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == tenant.id, Subscriber.status == "active").count()
+                campaigns = db.query(Campaign).filter(Campaign.tenant_id == tenant.id).all()
+                sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
+                opens = sum(c.open_count for c in campaigns if c.open_count)
+                clicks = sum(c.click_count for c in campaigns if c.click_count)
+                bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+                
+                metric = HistoricalMetric(
+                    tenant_id=tenant.id,
+                    recorded_at=now,
+                    subscriber_count=sub_count,
+                    emails_sent=sent,
+                    email_opens=opens,
+                    link_clicks=clicks,
+                    bounces=bounces
+                )
+                history_db.add(metric)
+                
+                # Clean up tenant metrics older than tenant_ret
+                cutoff = now - timedelta(days=tenant_ret)
+                history_db.query(HistoricalMetric).filter(HistoricalMetric.tenant_id == tenant.id, HistoricalMetric.recorded_at < cutoff).delete()
+                history_db.commit()
+                
+    except Exception as e:
+        logger.error(f"Error in record_historical_metrics: {e}")
+    finally:
+        db.close()
+        history_db.close()
+
+async def historical_metrics_worker_loop():
+    logger.info("Starting historical metrics worker...")
+    # Initial run on startup
+    try:
+        record_historical_metrics()
+    except Exception as e:
+        logger.error(f"Error doing initial historical metrics check: {e}")
+        
+    while True:
+        try:
+            # Sleep 1 hour between checks
+            await asyncio.sleep(3600)
+            record_historical_metrics()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in historical metrics loop: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup actions
@@ -56,6 +155,9 @@ async def lifespan(app: FastAPI):
     logger.info("Launching background auto-update worker...")
     update_task = asyncio.create_task(auto_update_worker_loop())
     
+    logger.info("Launching background historical metrics worker...")
+    metrics_task = asyncio.create_task(historical_metrics_worker_loop())
+    
     yield
     
     # Shutdown actions
@@ -63,8 +165,9 @@ async def lifespan(app: FastAPI):
     sending_task.cancel()
     bounce_task.cancel()
     update_task.cancel()
+    metrics_task.cancel()
     try:
-        await asyncio.gather(sending_task, bounce_task, update_task, return_exceptions=True)
+        await asyncio.gather(sending_task, bounce_task, update_task, metrics_task, return_exceptions=True)
     except Exception as e:
         logger.warning(f"Error while cleaning background tasks: {e}")
     logger.info("Shutdown complete.")
@@ -120,6 +223,7 @@ app.include_router(developer_routes.router)
 app.include_router(backup_routes.router)
 app.include_router(update_routes.router)
 app.include_router(user_routes.router)
+app.include_router(report_routes.router)
 
 # Mount branding folder for custom assets
 BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))

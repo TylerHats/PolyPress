@@ -1,0 +1,431 @@
+                <!-- SENDING SETTINGS VIEW -->
+                <div x-show="activeTab === 'settings'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Mailing Configurations</h1>
+                            <p class="page-subtitle">Setup SMTP delivery, generate DKIM domain DNS, and map IMAP bounce processors.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                        
+                        <!-- Sending MTA config -->
+                        <div class="card">
+                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="send" style="color: var(--color-primary);"></i>
+                                SMTP / Outbound Settings
+                            </h2>
+                            
+                            <div class="toggle-field" style="margin-bottom: 20px;">
+                                <input type="checkbox" id="direct_send" x-model="tenant.direct_send" style="display:none;">
+                                <div class="toggle-switch" @click="tenant.direct_send = !tenant.direct_send; saveTenantSettings()"></div>
+                                <div>
+                                    <div style="font-weight:600;">Direct Send Mode (Internal MTA)</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">Query recipient MX domains directly and sign messages with DKIM.</div>
+                                </div>
+                            </div>
+
+                            <!-- If SMTP relay is configured -->
+                            <div x-show="!tenant.direct_send">
+                                <div style="display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label>SMTP Host</label>
+                                            <input type="text" x-model="tenant.smtp_host">
+                                        </div>
+                                        <div class="field">
+                                            <label>SMTP Port</label>
+                                            <input type="number" x-model="tenant.smtp_port">
+                                        </div>
+                                    </div>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label>SMTP Username</label>
+                                            <input type="text" x-model="tenant.smtp_username">
+                                        </div>
+                                        <div class="field">
+                                            <label>SMTP Password</label>
+                                            <input type="password" x-model="tenant.smtp_password" placeholder="••••••••">
+                                        </div>
+                                    </div>
+                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                                        <div class="toggle-field">
+                                            <input type="checkbox" x-model="tenant.smtp_use_ssl" style="display:none;">
+                                            <div class="toggle-switch" @click="tenant.smtp_use_ssl = !tenant.smtp_use_ssl; if (tenant.smtp_use_ssl) tenant.smtp_use_tls = false;"></div>
+                                            <span>Use SSL (Port 465)</span>
+                                        </div>
+                                        <div class="toggle-field">
+                                            <input type="checkbox" x-model="tenant.smtp_use_tls" style="display:none;">
+                                            <div class="toggle-switch" @click="tenant.smtp_use_tls = !tenant.smtp_use_tls; if (tenant.smtp_use_tls) tenant.smtp_use_ssl = false;"></div>
+                                            <span>Use STARTTLS (587)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Direct Send Settings & DKIM Info -->
+                            <div x-show="tenant.direct_send">
+                                <div style="display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="field">
+                                        <label>Sending Mail Domain (DKIM Domain)</label>
+                                        <input type="text" x-model="tenant.dkim_domain" placeholder="e.g. yourdomain.com">
+                                    </div>
+                                    <div class="field">
+                                        <label>MTA From Username (Prefix)</label>
+                                        <input type="text" x-model="tenant.mta_from_prefix" placeholder="noreply">
+                                    </div>
+                                    <div class="field">
+                                        <label>DKIM Selector</label>
+                                        <input type="text" x-model="tenant.dkim_selector" placeholder="polypress">
+                                    </div>
+                                    
+                                    <!-- DKIM Keys rendering block -->
+                                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-glass); border-radius: 8px; padding: 16px;">
+                                        <h3 style="font-size: 13px; margin-bottom: 8px; color:#fff;">DNS TXT Record Setup</h3>
+                                        <template x-if="!tenant.dkim_public_key">
+                                            <div>
+                                                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">Configure your keys to display the TXT layout.</p>
+                                                <button @click="generateTenantDkimKeys()" class="btn btn-secondary btn-sm">Generate Key Pair</button>
+                                            </div>
+                                        </template>
+                                        <template x-if="tenant.dkim_public_key">
+                                            <div>
+                                                <div style="font-size: 11px; margin-bottom: 8px;">
+                                                    <span style="font-weight: bold; color: var(--color-accent);">Host/Name:</span>
+                                                    <code style="background: rgba(255,255,255,0.05); padding: 2px 4px; border-radius: 3px;" x-text="tenant.dkim_selector + '._domainkey.' + (tenant.dkim_domain || 'yourdomain.com')"></code>
+                                                </div>
+                                                <div style="font-size: 11px;">
+                                                    <span style="font-weight: bold; color: var(--color-accent);">Value:</span>
+                                                    <div style="background: rgba(255,255,255,0.05); padding: 6px; border-radius: 4px; font-family: monospace; word-break: break-all; margin-top: 4px;" x-text="tenant.dkim_public_key"></div>
+                                                </div>
+                                                <button @click="generateTenantDkimKeys()" class="btn btn-secondary btn-sm" style="margin-top: 12px;">Regenerate Keys</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Speed settings -->
+                            <div class="field" style="margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                                <label>Queue Sending Speed (Emails per Hour)</label>
+                                <input type="number" x-model="tenant.speed_emails_per_hour" placeholder="500">
+                                <span style="font-size: 11px; color: var(--text-muted);">Set to 0 for unlimited speed. Slow sending reduces host IP blocks.</span>
+                            </div>
+
+                            <!-- Double Opt-In settings -->
+                            <div class="toggle-field" style="margin-top: 15px; border-top: 1px solid var(--border-glass); padding-top: 15px;">
+                                <input type="checkbox" id="double_opt_in" x-model="tenant.double_opt_in" style="display:none;">
+                                <div class="toggle-switch" @click="tenant.double_opt_in = !tenant.double_opt_in"></div>
+                                <div>
+                                    <div style="font-weight:600;">Double Opt-In Required</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">Send verification email link when user subscribes via embedded forms.</div>
+                                </div>
+                            </div>
+
+                            <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save Outbound & Speed Settings</button>
+                        </div>
+
+                        <!-- Bounce handler config (IMAP) -->
+                        <div class="card">
+                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="inbox" style="color: var(--color-accent);"></i>
+                                Bounce Handling (IMAP)
+                            </h2>
+                            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                                Connects to a dedicated email inbox via IMAP, automatically processing bounces and spam complaint reports (ARF).
+                            </p>
+
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div class="field">
+                                    <label>Bounce/Reply Envelope Email Address</label>
+                                    <input type="email" x-model="tenant.bounce_email" placeholder="bounce@yourdomain.com">
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label>IMAP Host</label>
+                                        <input type="text" x-model="tenant.imap_host">
+                                    </div>
+                                    <div class="field">
+                                        <label>IMAP Port</label>
+                                        <input type="number" x-model="tenant.imap_port" placeholder="993">
+                                    </div>
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label>IMAP Username</label>
+                                        <input type="text" x-model="tenant.imap_username">
+                                    </div>
+                                    <div class="field">
+                                        <label>IMAP Password</label>
+                                        <input type="password" x-model="tenant.imap_password" placeholder="••••••••">
+                                    </div>
+                                </div>
+                                <div class="toggle-field">
+                                    <input type="checkbox" x-model="tenant.imap_use_ssl" style="display:none;">
+                                    <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
+                                    <span>Use SSL (Default Port 993)</span>
+                                </div>
+                            </div>
+
+                            <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save IMAP Bounce settings</button>
+                        </div>
+                    </div>
+
+                    <!-- DNS & Security Config Section -->
+                    <div style="margin-top: 30px; display: flex; flex-direction: column; gap: 30px;">
+                        
+                        <!-- DNS Verification Checklist -->
+                        <div class="card">
+                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="shield-alert" style="color: var(--color-accent);"></i>
+                                Domain DNS Diagnostics
+                            </h2>
+                            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                                Verify that your domain DNS settings are correctly configured for optimal inbox delivery.
+                            </p>
+                            
+                            <template x-if="!tenant.dkim_domain">
+                                <div style="color: var(--text-muted); font-size: 13px; font-style: italic; padding: 20px; text-align: center;">
+                                    Please save a sending domain name in SMTP/Outbound Settings first to run DNS diagnostics.
+                                </div>
+                            </template>
+                            
+                            <template x-if="tenant.dkim_domain">
+                                <div style="display: flex; flex-direction: column; gap: 16px;">
+                                    <!-- MX Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">1. MX (Mail Exchange) Record</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Points bounce replies to your bounce email IMAP handler.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;" x-text="'Target Domain: ' + tenant.dkim_domain"></div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.mx.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.mx.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;" x-text="dnsTestResults.mx.records.join(', ') || 'No records resolved'"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- SPF Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">2. SPF (Sender Policy Framework)</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Authorizes PolyPress servers or your SMTP relay to send on behalf of this domain.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;">Expected TXT value contains: v=spf1</div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.spf.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.spf.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="dnsTestResults.spf.records.join(', ')" x-text="dnsTestResults.spf.records.join(', ') || 'No TXT resolves'"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- DKIM Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">3. DKIM Public Key</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Validates email cryptographic header integrity.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;" x-text="'Target Host: ' + tenant.dkim_selector + '._domainkey.' + tenant.dkim_domain"></div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.dkim.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.dkim.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- DMARC Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">4. DMARC Policy</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Instructs recipient servers how to handle alignment failures.</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;" x-text="'Target Host: _dmarc.' + tenant.dkim_domain"></div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" :class="dnsTestResults.dmarc.status === 'valid' ? 'badge-success' : 'badge-warning'" x-text="dnsTestResults.dmarc.status === 'valid' ? 'Verified' : 'Missing / Check'"></span>
+                                        </div>
+                                    </div>
+
+                                    <button @click="runDnsDiagnostics()" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" :disabled="dnsTesting">
+                                        <i data-lucide="refresh-cw" :class="dnsTesting ? 'animate-spin' : ''" style="width: 16px; height: 16px;"></i>
+                                        <span x-text="dnsTesting ? 'Testing DNS Records...' : 'Verify DNS Records Live'"></span>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                        
+
+                    <!-- Outbox Queue Board -->
+                    <div class="card" style="margin-top: 30px;">
+                        <div class="page-header" style="margin-bottom: 20px;">
+                            <div>
+                                <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                                    <i data-lucide="mail" style="color: var(--color-warning);"></i>
+                                    Outbound Email Queue (Deferrals & Diagnostics)
+                                </h2>
+                                <p style="font-size: 13px; color: var(--text-secondary);">
+                                    Inspect deferred, sending, or pending outbound emails, see MX response logs, and clear items.
+                                </p>
+                            </div>
+                            <button @click="fetchOutboxQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px;">
+                                <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Refresh Queue
+                            </button>
+                        </div>
+
+                        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Recipient</th>
+                                        <th>Subject</th>
+                                        <th>Status</th>
+                                        <th>Attempts</th>
+                                        <th>Next Retry</th>
+                                        <th>Last SMTP/MX Response</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-if="outboxQueue.length === 0">
+                                        <tr>
+                                            <td colspan="7" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 30px;">
+                                                No emails currently in the outbox queue.
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <template x-for="item in outboxQueue" :key="item.id">
+                                        <tr>
+                                            <td style="font-weight: 600;" x-text="item.email"></td>
+                                            <td x-text="item.subject"></td>
+                                            <td>
+                                                <span class="badge" 
+                                                      :class="item.status === 'deferred' ? 'badge-warning' : (item.status === 'sending' ? 'badge-info' : 'badge-muted')" 
+                                                      x-text="item.status"></span>
+                                            </td>
+                                            <td x-text="item.retries"></td>
+                                            <td x-text="item.status === 'deferred' ? new Date(item.next_attempt + 'Z').toLocaleTimeString() : 'Immediate'"></td>
+                                            <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                                                :title="item.last_mx_response || item.error_message || 'None'" 
+                                                x-text="item.last_mx_response || item.error_message || 'None'"></td>
+                                            <td>
+                                                <button @click="purgeQueueItem(item.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px;">
+                                                    Purge
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Developer Console (API Keys & Webhooks) -->
+                    <div class="card" style="margin-top: 30px;">
+                        <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="code" style="color: var(--color-primary);"></i>
+                            Developer Console (API Keys & Webhooks)
+                        </h2>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 25px;">
+                            Manage restricted API credentials to sync subscribers programmatically, and configure real-time webhook subscriptions.
+                        </p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                            
+                            <!-- API Keys Management -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <h3 style="font-size: 14px; margin: 0; color: var(--color-accent);">API Keys</h3>
+                                    <button @click="generateApiKey()" class="btn btn-secondary btn-sm" style="padding: 4px 10px; font-size: 11px;">
+                                        + Generate Key
+                                    </button>
+                                </div>
+                                
+                                <!-- Display generated key (visible once) -->
+                                <template x-if="newlyCreatedKey">
+                                    <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid var(--color-success); border-radius: 6px; padding: 12px; margin-bottom: 15px; font-size: 12px;">
+                                        <p style="color: var(--color-success); font-weight: 600; margin: 0 0 6px 0;">✓ API Key Generated successfully!</p>
+                                        <p style="margin: 0 0 6px 0; color: var(--text-secondary);">Copy this key now. It will not be shown again:</p>
+                                        <code style="display: block; background: #000; padding: 8px; border-radius: 4px; word-break: break-all; color: #10b981;" x-text="newlyCreatedKey"></code>
+                                    </div>
+                                </template>
+                                
+                                <div class="table-container" style="max-height: 250px; overflow-y: auto;">
+                                    <table class="data-table" style="font-size: 12px;">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Prefix</th>
+                                                <th>Last Used</th>
+                                                <th>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-if="apiKeys.length === 0">
+                                                <tr>
+                                                    <td colspan="4" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 15px;">
+                                                        No active API keys found.
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <template x-for="key in apiKeys" :key="key.id">
+                                                <tr>
+                                                    <td style="font-weight:600;" x-text="key.name"></td>
+                                                    <td x-text="key.prefix"></td>
+                                                    <td x-text="key.last_used_at ? new Date(key.last_used_at + 'Z').toLocaleDateString() : 'Never'"></td>
+                                                    <td>
+                                                        <button @click="revokeApiKey(key.id)" class="btn btn-danger btn-sm" style="padding: 2px 6px; font-size: 10px;">
+                                                            Revoke
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- Webhooks Management -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <h3 style="font-size: 14px; margin: 0; color: var(--color-accent);">Webhook Subscriptions</h3>
+                                    <button @click="openCreateWebhookModal()" class="btn btn-secondary btn-sm" style="padding: 4px 10px; font-size: 11px;">
+                                        + Add Endpoint
+                                    </button>
+                                </div>
+                                
+                                <div class="table-container" style="max-height: 250px; overflow-y: auto;">
+                                    <table class="data-table" style="font-size: 12px;">
+                                        <thead>
+                                            <tr>
+                                                <th>Destination URL</th>
+                                                <th>Events</th>
+                                                <th>Status</th>
+                                                <th>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-if="webhooks.length === 0">
+                                                <tr>
+                                                    <td colspan="4" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 15px;">
+                                                        No webhook subscriptions configured.
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <template x-for="hook in webhooks" :key="hook.id">
+                                                <tr>
+                                                    <td style="word-break: break-all; max-width: 150px;" x-text="hook.url"></td>
+                                                    <td x-text="hook.events.join(', ')"></td>
+                                                    <td>
+                                                        <span class="badge" :class="hook.active ? 'badge-success' : 'badge-muted'" x-text="hook.active ? 'Active' : 'Inactive'"></span>
+                                                    </td>
+                                                    <td>
+                                                        <button @click="deleteWebhook(hook.id)" class="btn btn-danger btn-sm" style="padding: 2px 6px; font-size: 10px;">
+                                                            Delete
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                        </div>
+                    </div>
+                </div>

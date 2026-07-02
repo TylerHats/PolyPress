@@ -10,7 +10,18 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(auth.
     if current_user.role == "super_admin":
         users = db.query(User).all()
     else:
-        users = db.query(User).filter(User.tenant_id == current_user.tenant_id).all()
+        admin_tenants = set(current_user.allowed_tenants or ([current_user.tenant_id] if current_user.tenant_id else []))
+        all_users = db.query(User).all()
+        users = []
+        for u in all_users:
+            if u.id == current_user.id:
+                users.append(u)
+                continue
+            if u.role != "tenant_user":
+                continue
+            u_tenants = set(u.allowed_tenants or ([u.tenant_id] if u.tenant_id else []))
+            if u_tenants.issubset(admin_tenants) and len(u_tenants) > 0:
+                users.append(u)
         
     result = []
     for u in users:
@@ -28,6 +39,7 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(auth.
             "tenant_id": u.tenant_id,
             "tenant_name": tenant_name,
             "totp_enabled": u.totp_enabled,
+            "auth_type": u.auth_type,
             "allowed_tenants": u.allowed_tenants or []
         })
     return result
@@ -39,9 +51,10 @@ def create_user(payload: dict, db: Session = Depends(get_db), current_user: User
     password = payload.get("password")
     role = payload.get("role", "tenant_user")
     tenant_id = payload.get("tenant_id")
+    auth_type = payload.get("auth_type", "local")
     
-    if not email or not name or not password:
-        raise HTTPException(status_code=400, detail="Email, name, and password are required")
+    if not email or not name or (auth_type == "local" and not password):
+        raise HTTPException(status_code=400, detail="Email and name are required (and password for local accounts)")
         
     # Unique email check
     existing = db.query(User).filter(User.email == email).first()
@@ -71,11 +84,12 @@ def create_user(payload: dict, db: Session = Depends(get_db), current_user: User
     user = User(
         email=email,
         name=name,
-        password_hash=auth.hash_password(password),
+        password_hash=auth.hash_password(password) if (auth_type == "local" and password) else None,
         role=role,
         tenant_id=tenant_id,
         allowed_tenants=allowed_tenants,
-        is_active=payload.get("is_active", True)
+        is_active=payload.get("is_active", True),
+        auth_type=auth_type
     )
     db.add(user)
     db.commit()
@@ -89,9 +103,14 @@ def update_user(user_id: int, payload: dict, db: Session = Depends(get_db), curr
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
         
-    # Scoping check
-    if current_user.role != "super_admin" and user.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Not authorized to edit users outside your tenant")
+    # Scoping check (Bug 4)
+    if current_user.role != "super_admin":
+        if user.role != "tenant_user":
+            raise HTTPException(status_code=403, detail="Not authorized to edit users with administrative roles")
+        admin_tenants = set(current_user.allowed_tenants or ([current_user.tenant_id] if current_user.tenant_id else []))
+        user_tenants = set(user.allowed_tenants or ([user.tenant_id] if user.tenant_id else []))
+        if not user_tenants.issubset(admin_tenants) or len(user_tenants) == 0:
+            raise HTTPException(status_code=403, detail="Not authorized to edit users outside your workspace context scopes")
         
     if "name" in payload:
         user.name = payload["name"]
@@ -140,6 +159,13 @@ def update_user(user_id: int, payload: dict, db: Session = Depends(get_db), curr
     if "password" in payload and payload["password"]:
         user.password_hash = auth.hash_password(payload["password"])
         
+    if "auth_type" in payload:
+        user.auth_type = payload["auth_type"]
+        if user.auth_type == "oidc":
+            user.totp_enabled = False
+            user.totp_secret = None
+            user.password_hash = None
+        
     db.commit()
     return {"status": "success"}
 
@@ -152,9 +178,15 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User 
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot delete your own account")
         
-    if current_user.role != "super_admin" and user.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete users outside your tenant")
-        
+    # Scoping check (Bug 4)
+    if current_user.role != "super_admin":
+        if user.role != "tenant_user":
+            raise HTTPException(status_code=403, detail="Not authorized to delete users with administrative roles")
+        admin_tenants = set(current_user.allowed_tenants or ([current_user.tenant_id] if current_user.tenant_id else []))
+        user_tenants = set(user.allowed_tenants or ([user.tenant_id] if user.tenant_id else []))
+        if not user_tenants.issubset(admin_tenants) or len(user_tenants) == 0:
+            raise HTTPException(status_code=403, detail="Not authorized to delete users outside your workspace context scopes")
+            
     db.delete(user)
     db.commit()
     return {"status": "success"}

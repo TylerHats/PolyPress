@@ -1,0 +1,75 @@
+                <!-- USER MANAGEMENT VIEW -->
+                <div x-show="activeTab === 'users'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">User Accounts</h1>
+                            <p class="page-subtitle">Create and manage local user accounts or configure permissions for external OIDC accounts.</p>
+                        </div>
+                        <button @click="openAddUserModal()" class="btn btn-primary">
+                            <i data-lucide="user-plus"></i> Create User Account
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email Address</th>
+                                        <th>Role</th>
+                                        <th>Workspace Scope</th>
+                                        <th>2FA Security</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="u in usersList" :key="u.id">
+                                        <tr>
+                                            <td style="font-weight: 600;" x-text="u.name"></td>
+                                            <td x-text="u.email"></td>
+                                            <td>
+                                                <span class="badge" 
+                                                      :class="u.role === 'super_admin' ? 'badge-danger' : (u.role === 'tenant_admin' ? 'badge-info' : (u.role === 'pending' ? 'badge-warning' : 'badge-success'))"
+                                                      x-text="u.role === 'super_admin' ? 'Super Admin' : (u.role === 'tenant_admin' ? 'Tenant Admin' : (u.role === 'pending' ? 'Awaiting Approval' : 'Tenant User'))">
+                                                </span>
+                                            </td>
+                                            <td x-text="u.tenant_name || 'Global System'"></td>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 6px;">
+                                                    <span class="badge" :class="u.totp_enabled ? 'badge-success' : 'badge-muted'" x-text="u.totp_enabled ? 'Active' : 'Disabled'"></span>
+                                                    <template x-if="u.totp_enabled && u.id !== user.id">
+                                                        <button @click="resetUser2FA(u)" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 10px;" title="Reset/Disable 2FA for this user">
+                                                            Reset 2FA
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button @click="u.is_active = !u.is_active; updateUser(u)" class="btn btn-sm" :class="u.is_active ? 'btn-secondary' : 'btn-danger'" style="padding: 4px 8px;" :disabled="u.id === user.id">
+                                                    <span x-text="u.is_active ? 'Deactivate' : 'Activate'"></span>
+                                                </button>
+                                            </td>
+                                            <td>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <button @click="openEditUserModal(u)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;">
+                                                        <i data-lucide="edit-3" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                    <button @click="deleteUser(u.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px;" :disabled="u.id === user.id">
+                                                        <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="usersList.length === 0">
+                                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">
+                                            No user accounts loaded.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>

@@ -89,15 +89,21 @@ def list_subscribers(
     db: Session = Depends(get_db), 
     current_user: User = Depends(auth.get_current_user)
 ):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
         
-    # Verify list ownership
-    sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
     if not sub_list:
         raise HTTPException(status_code=404, detail="List not found")
         
-    query = db.query(Subscriber).filter(Subscriber.list_id == list_id, Subscriber.tenant_id == current_user.tenant_id)
+    if current_user.role == "super_admin":
+        query = db.query(Subscriber).filter(Subscriber.list_id == list_id)
+    else:
+        query = db.query(Subscriber).filter(Subscriber.list_id == list_id, Subscriber.tenant_id == current_user.tenant_id)
+        
     if search:
         query = query.filter(
             (Subscriber.email.ilike(f"%{search}%")) | (Subscriber.name.ilike(f"%{search}%"))
@@ -117,10 +123,13 @@ def list_subscribers(
 
 @router.post("/{list_id}/subscribers")
 def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
         
-    sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
     if not sub_list:
         raise HTTPException(status_code=404, detail="List not found")
         
@@ -129,11 +138,17 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
         raise HTTPException(status_code=400, detail="Email is required")
         
     # Check if subscriber exists in this list
-    existing = db.query(Subscriber).filter(
-        Subscriber.list_id == list_id,
-        Subscriber.email == email,
-        Subscriber.tenant_id == current_user.tenant_id
-    ).first()
+    if current_user.role == "super_admin":
+        existing = db.query(Subscriber).filter(
+            Subscriber.list_id == list_id,
+            Subscriber.email == email
+        ).first()
+    else:
+        existing = db.query(Subscriber).filter(
+            Subscriber.list_id == list_id,
+            Subscriber.email == email,
+            Subscriber.tenant_id == current_user.tenant_id
+        ).first()
     
     if existing:
         existing.name = payload.get("name", existing.name)
@@ -145,7 +160,7 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
         return existing
         
     subscriber = Subscriber(
-        tenant_id=current_user.tenant_id,
+        tenant_id=sub_list.tenant_id,
         list_id=list_id,
         email=email,
         name=payload.get("name"),
@@ -161,14 +176,19 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
 
 @router.delete("/{list_id}/subscribers/{sub_id}")
 def remove_subscriber(list_id: int, sub_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    subscriber = db.query(Subscriber).filter(
-        Subscriber.id == sub_id,
-        Subscriber.list_id == list_id,
-        Subscriber.tenant_id == current_user.tenant_id
-    ).first()
+    if current_user.role == "super_admin":
+        subscriber = db.query(Subscriber).filter(
+            Subscriber.id == sub_id,
+            Subscriber.list_id == list_id
+        ).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        subscriber = db.query(Subscriber).filter(
+            Subscriber.id == sub_id,
+            Subscriber.list_id == list_id,
+            Subscriber.tenant_id == current_user.tenant_id
+        ).first()
     
     if not subscriber:
         raise HTTPException(status_code=404, detail="Subscriber not found")
@@ -181,11 +201,13 @@ def remove_subscriber(list_id: int, sub_id: int, db: Session = Depends(get_db), 
 
 @router.post("/{list_id}/parse-headers")
 async def parse_csv_headers(list_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
         
-    # Check list ownership
-    sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
     if not sub_list:
         raise HTTPException(status_code=404, detail="List not found")
         
@@ -208,10 +230,13 @@ async def import_csv_subscribers(
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.require_tenant_write_access)
 ):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
         
-    sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
     if not sub_list:
         raise HTTPException(status_code=404, detail="List not found")
         
@@ -235,10 +260,15 @@ async def import_csv_subscribers(
     skipped_count = 0
     
     # Pre-fetch existing subscribers to avoid N+1 queries during matching
-    existing_subs = {s.email.lower(): s for s in db.query(Subscriber).filter(
-        Subscriber.list_id == list_id,
-        Subscriber.tenant_id == current_user.tenant_id
-    ).all()}
+    if current_user.role == "super_admin":
+        existing_subs = {s.email.lower(): s for s in db.query(Subscriber).filter(
+            Subscriber.list_id == list_id
+        ).all()}
+    else:
+        existing_subs = {s.email.lower(): s for s in db.query(Subscriber).filter(
+            Subscriber.list_id == list_id,
+            Subscriber.tenant_id == current_user.tenant_id
+        ).all()}
     
     for row in reader:
         # Resolve column names (handling whitespace)

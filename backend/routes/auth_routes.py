@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import RedirectResponse
 import requests
+import os
 from sqlalchemy.orm import Session
 import database as db_mod
 from database import get_db, User, GlobalSettings, Tenant
@@ -125,10 +126,13 @@ def login(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email and password required")
         
     user = db.query(User).filter(User.email == email, User.is_active == True).first()
-    if not user or not user.password_hash:
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
         
-    if not auth.verify_password(password, user.password_hash):
+    if user.auth_type == "oidc":
+        raise HTTPException(status_code=400, detail="This account is configured for OIDC (SSO) authentication only")
+        
+    if not user.password_hash or not auth.verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
         
     if user.totp_enabled:
@@ -311,5 +315,33 @@ def get_me(current_user: User = Depends(auth.get_current_user), db: Session = De
         "tenant_id": current_user.tenant_id,
         "tenant_name": tenant_name,
         "totp_enabled": current_user.totp_enabled,
+        "auth_type": current_user.auth_type,
         "allowed_tenants": current_user.allowed_tenants or []
     }
+
+@router.post("/branding/logo")
+def upload_branding_logo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_super_admin)
+):
+    import shutil
+    # Validate extension
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".png", ".jpg", ".jpeg", ".gif"]:
+        raise HTTPException(status_code=400, detail="Only PNG, JPG, JPEG, and GIF formats are allowed")
+    
+    # Target path
+    BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    branding_dir = os.path.join(BASE_DIR, "branding")
+    os.makedirs(branding_dir, exist_ok=True)
+    logo_path = os.path.join(branding_dir, "logo.png")
+    
+    try:
+        with open(logo_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save logo file: {e}")
+        
+    return {"status": "success", "logo_url": "/branding/logo.png"}
+

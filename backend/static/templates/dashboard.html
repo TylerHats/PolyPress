@@ -1,0 +1,81 @@
+                <!-- DASHBOARD VIEW -->
+                <div x-show="activeTab === 'dashboard'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Welcome back, <span x-text="user.name || 'User'"></span></h1>
+                            <p class="page-subtitle">Here is what's happening with your newsletters today.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Grid -->
+                    <div class="stat-card-grid">
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Total Subscribers</span>
+                                <i data-lucide="users" style="color: var(--color-primary);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.totalSubscribers">0</div>
+                            <div class="card-trend trend-up">
+                                <i data-lucide="trending-up" style="width: 12px; height: 12px;"></i> Active contacts
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Campaigns Sent</span>
+                                <i data-lucide="send" style="color: var(--color-accent);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.campaignsSent">0</div>
+                            <div class="card-trend trend-up">
+                                Historical broadcasts
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Avg Open Rate</span>
+                                <i data-lucide="eye" style="color: var(--color-success);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.avgOpenRate + '%'">0%</div>
+                            <div class="card-trend trend-up">
+                                Click-through ratio
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Bounce / Spam Rate</span>
+                                <i data-lucide="alert-triangle" style="color: var(--color-danger);"></i>
+                            </div>
+                            <div class="card-value" x-text="stats.avgBounceRate + '%'">0%</div>
+                            <div class="card-trend trend-down" :class="stats.avgBounceRate > 5 ? 'trend-down' : 'trend-up'">
+                                Target: under 3%
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Performance Chart & Recent Campaigns -->
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 30px; margin-top: 30px;">
+                        <div class="card" style="min-height: 380px;">
+                            <h2 style="font-size: 16px; margin-bottom: 20px;">Open & Click Dynamics</h2>
+                            <div style="height: 300px; position: relative;">
+                                <canvas id="dashboardChart"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="card" style="overflow-y: auto;">
+                            <h2 style="font-size: 16px; margin-bottom: 20px;">Recent Campaigns</h2>
+                            <div style="display: flex; flex-direction: column; gap: 16px;" class="nav-menu">
+                                <template x-for="c in campaigns.slice(0, 5)" :key="c.id">
+                                    <div style="padding: 12px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size: 14px;" x-text="c.name"></div>
+                                            <div style="font-size: 12px; color: var(--text-secondary);" x-text="c.subject"></div>
+                                        </div>
+                                        <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status"></span>
+                                    </div>
+                                </template>
+                                <div x-show="campaigns.length === 0" style="text-align: center; color: var(--text-muted); padding: 30px 0;">
+                                    No campaigns sent yet.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>

@@ -1,0 +1,99 @@
+<!-- HISTORICAL REPORTS VIEW -->
+<div x-show="activeTab === 'reports'">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Historical Reports</h1>
+            <p class="page-subtitle">Track list growth, campaign engagement, and deliverability trends over time.</p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button @click="printReport()" class="btn btn-primary">
+                <i data-lucide="printer"></i> Print / Export PDF
+            </button>
+        </div>
+    </div>
+
+    <!-- Analytics settings and filters row -->
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 30px; margin-bottom: 30px;">
+        <!-- Filters card -->
+        <div class="card">
+            <h3 style="font-size: 15px; margin-bottom: 15px;">Date Range Selection</h3>
+            <div style="display: flex; gap: 20px; align-items: flex-end;">
+                <div class="field" style="margin-bottom:0; flex-grow:1;">
+                    <label>Start Date</label>
+                    <input type="date" x-model="reportsFilterStartDate" @change="fetchReportData()">
+                </div>
+                <div class="field" style="margin-bottom:0; flex-grow:1;">
+                    <label>End Date</label>
+                    <input type="date" x-model="reportsFilterEndDate" @change="fetchReportData()">
+                </div>
+                <button @click="resetReportsFilters()" class="btn btn-secondary" style="height: 42px;">Reset</button>
+            </div>
+        </div>
+
+        <!-- Settings card (retention/frequency) -->
+        <div class="card" x-show="user.role === 'super_admin' || user.role === 'tenant_admin'">
+            <h3 style="font-size: 15px; margin-bottom: 15px;">Retention & Frequency</h3>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size:12px; color:var(--text-secondary);">History Retention:</span>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <input type="number" x-model.number="reportsSettings.retention_days" style="width:60px; padding:2px 5px; text-align:center; height:28px;">
+                        <span style="font-size:12px;">days</span>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size:12px; color:var(--text-secondary);">Min Interval:</span>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <input type="number" x-model.number="reportsSettings.frequency_hours" style="width:60px; padding:2px 5px; text-align:center; height:28px;">
+                        <span style="font-size:12px;">hours</span>
+                    </div>
+                </div>
+                <button @click="saveReportSettings()" class="btn btn-secondary btn-sm" style="width:100%; margin-top:5px; padding: 4px 0;">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Graph Card -->
+    <div class="card" style="min-height: 400px; margin-bottom: 30px;">
+        <h2 style="font-size: 16px; margin-bottom: 20px;">Engagement Metrics Timeline</h2>
+        <div style="height: 320px; position: relative;">
+            <canvas id="reportsChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Table Card -->
+    <div class="card">
+        <h2 style="font-size: 16px; margin-bottom: 20px;">Metrics History Data Table</h2>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date & Time</th>
+                        <th>Subscriber Count</th>
+                        <th>Emails Sent</th>
+                        <th>Opens</th>
+                        <th>Clicks</th>
+                        <th>Bounces</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="r in reportsData" :key="r.id">
+                        <tr>
+                            <td x-text="new Date(r.recorded_at).toLocaleString()"></td>
+                            <td x-text="r.subscriber_count"></td>
+                            <td x-text="r.emails_sent"></td>
+                            <td x-text="r.email_opens"></td>
+                            <td x-text="r.link_clicks"></td>
+                            <td x-text="r.bounces"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="reportsData.length === 0">
+                        <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 40px;">
+                            No historical snapshots recorded for the selected dates.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

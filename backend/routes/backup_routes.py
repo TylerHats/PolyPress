@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/admin/backups", tags=["backups"])
 BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BACKUP_DIR = os.path.join(BASE_DIR, "backups")
 DB_PATH = os.path.join(BASE_DIR, "backend", "polypress.db")
+HISTORY_DB_PATH = os.path.join(BASE_DIR, "backend", "polypress_history.db")
 BRANDING_DIR = os.path.join(BASE_DIR, "branding")
 
 def run_sqlite_backup(src: str, dest: str):
@@ -76,9 +77,20 @@ def create_backup(background_tasks: BackgroundTasks, current_user: User = Depend
             
         run_sqlite_backup(DB_PATH, temp_db)
         
+        # History DB Copy
+        temp_history_db = os.path.join(BACKUP_DIR, "temp_history_backup.db")
+        if os.path.exists(temp_history_db):
+            os.remove(temp_history_db)
+            
+        history_exists = os.path.exists(HISTORY_DB_PATH)
+        if history_exists:
+            run_sqlite_backup(HISTORY_DB_PATH, temp_history_db)
+        
         # 2. Package database and branding files
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(temp_db, "polypress.db")
+            if history_exists:
+                zipf.write(temp_history_db, "polypress_history.db")
             if os.path.exists(BRANDING_DIR):
                 for root, dirs, files in os.walk(BRANDING_DIR):
                     for file in files:
@@ -88,6 +100,8 @@ def create_backup(background_tasks: BackgroundTasks, current_user: User = Depend
                         
         if os.path.exists(temp_db):
             os.remove(temp_db)
+        if os.path.exists(temp_history_db):
+            os.remove(temp_history_db)
             
         # Trigger external backup push if configured
         settings = db.query(GlobalSettings).first()
@@ -129,8 +143,18 @@ def export_backup(
             
         run_sqlite_backup(DB_PATH, temp_db)
         
+        temp_history_db = os.path.join(BACKUP_DIR, "temp_history_backup.db")
+        if os.path.exists(temp_history_db):
+            os.remove(temp_history_db)
+            
+        history_exists = os.path.exists(HISTORY_DB_PATH)
+        if history_exists:
+            run_sqlite_backup(HISTORY_DB_PATH, temp_history_db)
+        
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(temp_db, "polypress.db")
+            if history_exists:
+                zipf.write(temp_history_db, "polypress_history.db")
             if os.path.exists(BRANDING_DIR):
                 for root, dirs, files in os.walk(BRANDING_DIR):
                     for file in files:
@@ -140,6 +164,8 @@ def export_backup(
                         
         if os.path.exists(temp_db):
             os.remove(temp_db)
+        if os.path.exists(temp_history_db):
+            os.remove(temp_history_db)
             
         # Trigger external backup push if configured
         if settings and settings.external_backup_url:
@@ -192,9 +218,15 @@ async def restore_backup(file: UploadFile = File(...), current_user: User = Depe
             
         # Safely shut down database connection pool
         engine.dispose()
+        from database import history_engine
+        history_engine.dispose()
         
         # Replace files
         shutil.copy2(restored_db, DB_PATH)
+        
+        restored_history_db = os.path.join(temp_extract, "polypress_history.db")
+        if os.path.exists(restored_history_db):
+            shutil.copy2(restored_history_db, HISTORY_DB_PATH)
         
         restored_branding = os.path.join(temp_extract, "branding")
         if os.path.exists(restored_branding):
@@ -238,9 +270,15 @@ def restore_local_backup(filename: str, current_user: User = Depends(auth.requir
             
         # Safely shut down database connection pool
         engine.dispose()
+        from database import history_engine
+        history_engine.dispose()
         
         # Replace files
         shutil.copy2(restored_db, DB_PATH)
+        
+        restored_history_db = os.path.join(temp_extract, "polypress_history.db")
+        if os.path.exists(restored_history_db):
+            shutil.copy2(restored_history_db, HISTORY_DB_PATH)
         
         restored_branding = os.path.join(temp_extract, "branding")
         if os.path.exists(restored_branding):

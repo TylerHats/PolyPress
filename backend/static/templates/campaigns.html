@@ -1,0 +1,553 @@
+                <!-- CAMPAIGNS VIEW -->
+                <div x-show="activeTab === 'campaigns'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">Campaigns</h1>
+                            <p class="page-subtitle">Design, send, and analyze your email newsletters.</p>
+                        </div>
+                        <button x-show="user.role !== 'tenant_user'" @click="openCreateCampaignModal()" class="btn btn-primary">
+                            <i data-lucide="plus"></i> Create Campaign
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Campaign Name</th>
+                                        <th>Subject</th>
+                                        <th>Status</th>
+                                        <th>Delivered</th>
+                                        <th>Opens</th>
+                                        <th>Clicks</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="c in campaigns" :key="c.id">
+                                        <tr>
+                                            <td style="font-weight: 600;" x-text="c.name"></td>
+                                            <td x-text="c.subject"></td>
+                                            <td>
+                                                <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status"></span>
+                                            </td>
+                                            <td x-text="c.sent_count + '/' + c.total_recipients"></td>
+                                            <td x-text="c.open_count + ' (' + calculatePercentage(c.open_count, c.sent_count) + '%)'"></td>
+                                            <td x-text="c.click_count + ' (' + calculatePercentage(c.click_count, c.sent_count) + '%)'"></td>
+                                            <td>
+                                                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                                     <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Content">
+                                                         <i data-lucide="edit-3"></i> Design
+                                                     </button>
+                                                     <button x-show="user.role === 'tenant_user'" @click="openPreviewOnlyModal(c)" class="btn btn-secondary btn-sm" title="Preview Campaign">
+                                                         <i data-lucide="eye"></i> Preview
+                                                     </button>
+                                                     <button x-show="user.role !== 'tenant_user'" @click="duplicateCampaign(c.id)" class="btn btn-secondary btn-sm" title="Duplicate/Clone">
+                                                         <i data-lucide="copy"></i> Duplicate
+                                                     </button>
+                                                     <button @click="openStatsModal(c.id)" class="btn btn-secondary btn-sm" title="View Metrics">
+                                                         <i data-lucide="bar-chart-2"></i> Stats
+                                                     </button>
+                                                     <button x-show="c.status === 'sending'" @click="pauseCampaign(c.id)" class="btn btn-secondary btn-sm" title="Pause Broadcast" style="background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); color: var(--color-warning); padding: 4px 8px; font-size: 11px;">
+                                                          <i data-lucide="pause" style="width:12px; height:12px;"></i> Pause
+                                                      </button>
+                                                      <button x-show="c.status === 'paused'" @click="resumeCampaign(c.id)" class="btn btn-secondary btn-sm" title="Resume Broadcast" style="background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); color: var(--color-success); padding: 4px 8px; font-size: 11px;">
+                                                          <i data-lucide="play" style="width:12px; height:12px;"></i> Resume
+                                                      </button>
+                                                      <button x-show="['sending', 'paused', 'queued', 'scheduled'].includes(c.status)" @click="cancelCampaign(c.id)" class="btn btn-danger btn-sm" title="Cancel Broadcast" style="padding: 4px 8px; font-size: 11px;">
+                                                          <i data-lucide="x-circle" style="width:12px; height:12px;"></i> Cancel
+                                                      </button>
+                                                     <button x-show="!['sending', 'queued'].includes(c.status) && user.role !== 'tenant_user'" @click="deleteCampaign(c.id)" class="btn btn-danger btn-sm" title="Delete">
+                                                         <i data-lucide="trash-2"></i>
+                                                     </button>
+                                                 </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="campaigns.length === 0">
+                                        <td colspan="7" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                                            No campaigns found. Create one to get started!
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- EMAIL VISUAL EDITOR VIEW -->
+                <div x-show="activeTab === 'editor'">
+                    <div class="page-header" style="margin-bottom: 20px;">
+                        <div>
+                            <span style="font-size: 13px; color: var(--text-muted); cursor: pointer;" @click="switchTab('campaigns')">← Back to campaigns</span>
+                            <h1 class="page-title" style="font-size: 22px; margin-top: 4px;" x-text="'Design: ' + editingCampaign.name"></h1>
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button @click="saveCampaignDraft()" class="btn btn-secondary">
+                                <i data-lucide="save"></i> Save Draft
+                            </button>
+                            <button @click="openPreviewModal()" class="btn btn-secondary">
+                                <i data-lucide="eye"></i> Live Preview
+                            </button>
+                            <button @click="openLaunchModal()" class="btn btn-primary">
+                                <i data-lucide="send"></i> Queue & Send
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Editor Workspace -->
+                    <div class="editor-layout">
+                        <!-- Left Panel: Blocks to Add -->
+                        <div class="editor-sidebar">
+                            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 15px;">Blocks</h3>
+                            <div class="block-item" @click="addEditorBlock('heading')">
+                                <i data-lucide="heading"></i> Heading Block
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('paragraph')">
+                                <i data-lucide="text"></i> Paragraph Text
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('button')">
+                                <i data-lucide="mouse-pointer"></i> Button / Call Action
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('image')">
+                                <i data-lucide="image"></i> Image Asset
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('divider')">
+                                <i data-lucide="minus"></i> Divider Line
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('spacer')">
+                                <i data-lucide="space"></i> Vertical Spacer
+                            </div>
+                            <div class="block-item" @click="addEditorBlock('columns')">
+                                <i data-lucide="columns"></i> Two-Column Layout
+                            </div>
+                            
+                            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-top: 25px; margin-bottom: 10px;">Merge Tags</h3>
+                            <div style="font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                                <code>{{name}}</code>
+                                <code>{{email}}</code>
+                                <template x-for="f in getActiveListFields()" :key="f.key">
+                                    <code x-text="'{{' + f.key + '}}'"></code>
+                                </template>
+                                <code>{{unsubscribe_url}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Center Panel: Live Preview Canvas -->
+                        <div class="editor-canvas-container">
+                            <div class="editor-canvas" id="emailCanvas">
+                                <template x-for="(b, idx) in editorBlocks" :key="idx">
+                                    <div class="canvas-block" 
+                                         :class="selectedBlockIndex === idx ? 'active' : ''" 
+                                         @click.stop="selectedBlockIndex = idx"
+                                         draggable="true"
+                                         @dragstart="draggedIndex = idx; $event.dataTransfer.effectAllowed = 'move'; $event.dataTransfer.setData('text/plain', idx);"
+                                         @dragover.prevent
+                                         @drop="moveBlock(draggedIndex, idx)">
+                                        
+                                        <!-- Actions Overlay -->
+                                        <div class="canvas-block-actions">
+                                            <button @click.stop="moveBlockUp(idx)" class="action-icon-btn" title="Move Up"><i data-lucide="chevron-up" style="width: 14px; height: 14px;"></i></button>
+                                            <button @click.stop="moveBlockDown(idx)" class="action-icon-btn" title="Move Down"><i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i></button>
+                                            <button @click.stop="deleteBlock(idx)" class="action-icon-btn" title="Delete" style="color: var(--color-danger);"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i></button>
+                                        </div>
+
+                                        <!-- Block Renderings -->
+                                        <div style="pointer-events: none;">
+                                            <template x-if="b.type === 'heading'">
+                                                <h1 :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding" x-text="b.text"></h1>
+                                            </template>
+                                            <template x-if="b.type === 'paragraph'">
+                                                <p :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding + '; white-space: pre-line;'" x-text="b.text"></p>
+                                            </template>
+                                            <template x-if="b.type === 'button'">
+                                                <div :style="'text-align:' + b.align + '; padding: 12px 0;'">
+                                                    <span :style="'display:inline-block; padding:' + b.padding + '; background-color:' + b.bg_color + '; color:' + b.text_color + '; font-weight:bold; border-radius:' + b.border_radius + '; text-decoration:none; font-size:14px;'" x-text="b.text"></span>
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'image'">
+                                                <div style="text-align: center; width: 100%;">
+                                                    <img :src="b.url" :alt="b.alt" :style="'max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius:' + (b.border_radius || '0px')">
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'columns'">
+                                                <div style="display: flex; width: 100%; justify-content: space-between; align-items: stretch;">
+                                                    <div :style="(b.layout === '70-30' ? 'flex:0 0 68%; width:68%;' : (b.layout === '30-70' ? 'flex:0 0 28%; width:28%;' : 'flex:0 0 48%; width:48%;')) + '; align-self: ' + (b.left.valign === 'middle' ? 'center' : (b.left.valign === 'bottom' ? 'flex-end' : 'flex-start'))" style="border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; box-sizing: border-box;">
+                                                        <template x-if="b.left.type === 'paragraph'">
+                                                            <div :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#334155') + '; font-size:' + (b.left.size || '15px')" x-text="b.left.text"></div>
+                                                        </template>
+                                                        <template x-if="b.left.type === 'heading'">
+                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#1e293b') + '; font-size:' + (b.left.size || '22px') + '; margin: 0 0 10px 0;'" x-text="b.left.text"></h3>
+                                                        </template>
+                                                        <template x-if="b.left.type === 'image'">
+                                                            <img :src="b.left.url || 'https://picsum.photos/300/150'" :alt="b.left.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                        </template>
+                                                        <template x-if="b.left.type === 'button'">
+                                                            <div :style="'text-align:' + b.left.align">
+                                                                <span class="btn btn-sm" :style="'background-color:' + (b.left.bg_color || '#6366f1') + '; color:' + (b.left.text_color || '#ffffff')" x-text="b.left.text"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                    <div :style="(b.layout === '70-30' ? 'flex:0 0 28%; width:28%;' : (b.layout === '30-70' ? 'flex:0 0 68%; width:68%;' : 'flex:0 0 48%; width:48%;')) + '; align-self: ' + (b.right.valign === 'middle' ? 'center' : (b.right.valign === 'bottom' ? 'flex-end' : 'flex-start'))" style="border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; box-sizing: border-box;">
+                                                        <template x-if="b.right.type === 'paragraph'">
+                                                            <div :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#334155') + '; font-size:' + (b.right.size || '15px')" x-text="b.right.text"></div>
+                                                        </template>
+                                                        <template x-if="b.right.type === 'heading'">
+                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#1e293b') + '; font-size:' + (b.right.size || '22px') + '; margin: 0 0 10px 0;'" x-text="b.right.text"></h3>
+                                                        </template>
+                                                        <template x-if="b.right.type === 'image'">
+                                                            <img :src="b.right.url || 'https://picsum.photos/300/150'" :alt="b.right.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                        </template>
+                                                        <template x-if="b.right.type === 'button'">
+                                                            <div :style="'text-align:' + b.right.align">
+                                                                <span class="btn btn-sm" :style="'background-color:' + (b.right.bg_color || '#6366f1') + '; color:' + (b.right.text_color || '#ffffff')" x-text="b.right.text"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'divider'">
+                                                <div :style="'padding:' + b.padding">
+                                                    <hr :style="'border:none; border-top:' + b.height + ' solid ' + b.color">
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'spacer'">
+                                                <div :style="'height:' + b.height"></div>
+                                            </template>
+                                        </div>
+
+                                    </div>
+                                </template>
+                                <div x-show="editorBlocks.length === 0" style="text-align: center; padding: 60px 20px; color: #94a3b8; font-style: italic;">
+                                    Canvas is empty. Click elements on the left side to build your newsletter layout.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Block Customization Properties -->
+                        <div class="editor-properties">
+                            <!-- Campaign settings always visible at the top of properties panel -->
+                            <div style="margin-bottom: 20px; border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
+                                <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Campaign Settings</h3>
+                                <div class="field" style="margin-bottom: 10px;">
+                                    <label>Email Subject</label>
+                                    <input type="text" x-model="editingCampaign.subject">
+                                </div>
+                                <div class="field">
+                                    <label>Email Snippet (Preheader Text)</label>
+                                    <input type="text" x-model="editingCampaign.preheader" placeholder="Snippet text seen in inbox list">
+                                </div>
+                            </div>
+
+                            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 15px;">Block Properties</h3>
+                            <template x-if="selectedBlockIndex === null">
+                                <div style="color: var(--text-muted); font-size: 13px; font-style: italic;">
+                                    Click a block on the preview canvas to configure its settings.
+                                </div>
+                            </template>
+                            <template x-if="selectedBlockIndex !== null">
+                                <div style="display: flex; flex-direction: column; gap: 14px;">
+                                    <!-- Dynamic fields depending on active block type -->
+                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="field">
+                                            <label>Text Content</label>
+                                            <textarea x-model="editorBlocks[selectedBlockIndex].text" @input="reRenderCanvas()"></textarea>
+                                        </div>
+                                    </template>
+                                    
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'button'">
+                                        <div class="field">
+                                            <label>Redirect URL</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].url">
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'image'">
+                                        <div>
+                                            <div class="field" style="margin-bottom: 10px;">
+                                                <label>Image Source URL</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].url" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="form-grid">
+                                                <div class="field">
+                                                    <label>Alt Text</label>
+                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].alt">
+                                                </div>
+                                                <div class="field">
+                                                    <label>Border Radius</label>
+                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].border_radius" @input="reRenderCanvas()" placeholder="e.g. 8px or 50%">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'columns'">
+                                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                                            <div class="form-grid">
+                                                <div class="field">
+                                                    <label>Layout Ratio</label>
+                                                    <select x-model="editorBlocks[selectedBlockIndex].layout" @change="reRenderCanvas()">
+                                                        <option value="50-50">50% / 50%</option>
+                                                        <option value="70-30">70% / 30%</option>
+                                                        <option value="30-70">30% / 70%</option>
+                                                    </select>
+                                                </div>
+                                                <div class="field">
+                                                    <label>Gap Size</label>
+                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].gap" @input="reRenderCanvas()">
+                                                </div>
+                                            </div>
+                                            
+                                            <div style="border: 1px solid var(--border-glass); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
+                                                <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--color-accent);">Left Column</h4>
+                                                <div class="field" style="margin-bottom: 8px;">
+                                                    <label>Type</label>
+                                                    <select x-model="editorBlocks[selectedBlockIndex].left.type" @change="reRenderCanvas()">
+                                                        <option value="paragraph">Paragraph</option>
+                                                        <option value="heading">Heading</option>
+                                                        <option value="image">Image</option>
+                                                        <option value="button">Button</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].left.type)">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Text Content</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.text" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].left.type === 'image'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Image Source URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].left.type === 'button'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Link URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+
+                                                <!-- Style Configurations for Left Column Content -->
+                                                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                    <div class="field">
+                                                        <label>Horiz. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].left.align" @change="reRenderCanvas()">
+                                                            <option value="left">Left</option>
+                                                            <option value="center">Center</option>
+                                                            <option value="right">Right</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="field">
+                                                        <label>Vert. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].left.valign" @change="reRenderCanvas()">
+                                                            <option value="top">Top</option>
+                                                            <option value="middle">Middle</option>
+                                                            <option value="bottom">Bottom</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <template x-if="['paragraph', 'heading'].includes(editorBlocks[selectedBlockIndex].left.type)">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].left.color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Size</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].left.size" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                        </div>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="editorBlocks[selectedBlockIndex].left.type === 'button'">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Bg Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].left.bg_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.bg_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Text Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].left.text_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.text_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </div>
+
+                                            <div style="border: 1px solid var(--border-glass); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
+                                                <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--color-accent);">Right Column</h4>
+                                                <div class="field" style="margin-bottom: 8px;">
+                                                    <label>Type</label>
+                                                    <select x-model="editorBlocks[selectedBlockIndex].right.type" @change="reRenderCanvas()">
+                                                        <option value="paragraph">Paragraph</option>
+                                                        <option value="heading">Heading</option>
+                                                        <option value="image">Image</option>
+                                                        <option value="button">Button</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].right.type)">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Text Content</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.text" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].right.type === 'image'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Image Source URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].right.type === 'button'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Link URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+
+                                                <!-- Style Configurations for Right Column Content -->
+                                                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                    <div class="field">
+                                                        <label>Horiz. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].right.align" @change="reRenderCanvas()">
+                                                            <option value="left">Left</option>
+                                                            <option value="center">Center</option>
+                                                            <option value="right">Right</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="field">
+                                                        <label>Vert. Align</label>
+                                                        <select x-model="editorBlocks[selectedBlockIndex].right.valign" @change="reRenderCanvas()">
+                                                            <option value="top">Top</option>
+                                                            <option value="middle">Middle</option>
+                                                            <option value="bottom">Bottom</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <template x-if="['paragraph', 'heading'].includes(editorBlocks[selectedBlockIndex].right.type)">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].right.color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Size</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].right.size" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                        </div>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="editorBlocks[selectedBlockIndex].right.type === 'button'">
+                                                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                                        <div class="field">
+                                                            <label>Bg Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].right.bg_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.bg_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Text Color</label>
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <input type="color" x-model="editorBlocks[selectedBlockIndex].right.text_color" @input="reRenderCanvas()" style="width: 28px; height: 28px; padding: 0; border: none; border-radius: 4px; background: transparent; cursor: pointer;">
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.text_color" @input="reRenderCanvas()" style="font-size: 11px; padding: 4px; height: 28px;">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="field">
+                                            <label>Alignment</label>
+                                            <select x-model="editorBlocks[selectedBlockIndex].align" @change="reRenderCanvas()">
+                                                <option value="left">Left</option>
+                                                <option value="center">Center</option>
+                                                <option value="right">Right</option>
+                                            </select>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="['heading', 'paragraph'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label>Font Size</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].size" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Text Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].color" @input="reRenderCanvas()">
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'button'">
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label>BG Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].bg_color" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Text Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].text_color" @input="reRenderCanvas()">
+                                            </div>
+                                        </div>
+                                        <div class="field">
+                                            <label>Corner Radius</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].border_radius" @input="reRenderCanvas()">
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'divider'">
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label>Height (px)</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].height" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Line Color</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].color" @input="reRenderCanvas()">
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'spacer'">
+                                        <div class="field">
+                                            <label>Height (px)</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].height" @input="reRenderCanvas()">
+                                        </div>
+                                    </template>
+
+                                    <template x-if="['heading', 'paragraph', 'divider', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                        <div class="field">
+                                            <label>Padding (margins)</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].padding" @input="reRenderCanvas()">
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
