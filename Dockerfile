@@ -1,5 +1,5 @@
-# Use an official lightweight Python runtime as a parent image
-FROM python:3.11-slim
+# Use an official lightweight Python runtime based on Alpine
+FROM python:3.11-alpine
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -10,9 +10,7 @@ ENV PORT=8000
 WORKDIR /app
 
 # Install system dependencies (like Git, which PolyPress uses for self-updating and version tracking)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache git
 
 # Copy requirements and install dependencies
 COPY backend/requirements.txt /app/backend/requirements.txt
