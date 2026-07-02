@@ -5,6 +5,7 @@ FROM python:3.14-alpine
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
+ENV PYTHONPATH=/app/backend
 
 # Set the working directory in the container
 WORKDIR /app
