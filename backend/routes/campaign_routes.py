@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -155,7 +155,7 @@ def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_
     return new_campaign
 
 @router.post("/{campaign_id}/launch")
-def launch_campaign(campaign_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
@@ -163,9 +163,18 @@ def launch_campaign(campaign_id: int, request: Request, db: Session = Depends(ge
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    if campaign.status != "draft":
-        raise HTTPException(status_code=400, detail="Campaign is already sent or sending")
+    if campaign.status not in ["draft", "scheduled"]:
+        raise HTTPException(status_code=400, detail="Campaign is already sending or sent")
         
+    # Check if scheduling is specified in payload
+    scheduled_time = None
+    if payload and payload.get("scheduled_send_at"):
+        try:
+            # Parse ISO date string
+            scheduled_time = datetime.fromisoformat(payload["scheduled_send_at"].replace("Z", ""))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid scheduled date format: {e}")
+            
     # Get subscribers matching list constraints and targeting rules
     query = db.query(Subscriber).filter(
         Subscriber.list_id == campaign.list_id,
@@ -184,17 +193,17 @@ def launch_campaign(campaign_id: int, request: Request, db: Session = Depends(ge
             query = query.filter(Subscriber.engagement_score == int(target_engagement))
             
         signup_after = rules.get("signup_after")
-        if signup_after:
+        if signup_after and str(signup_after).strip():
             try:
-                dt = datetime.fromisoformat(signup_after.replace("Z", ""))
+                dt = datetime.fromisoformat(str(signup_after).replace("Z", ""))
                 query = query.filter(Subscriber.created_at >= dt)
             except Exception:
                 pass
                 
         signup_before = rules.get("signup_before")
-        if signup_before:
+        if signup_before and str(signup_before).strip():
             try:
-                dt = datetime.fromisoformat(signup_before.replace("Z", ""))
+                dt = datetime.fromisoformat(str(signup_before).replace("Z", ""))
                 query = query.filter(Subscriber.created_at <= dt)
             except Exception:
                 pass
@@ -209,6 +218,9 @@ def launch_campaign(campaign_id: int, request: Request, db: Session = Depends(ge
     if tracking_domain:
         tracking_domain = tracking_domain.rstrip("/")
     
+    # Clear any previous queue items if re-scheduling/updating
+    db.query(QueueItem).filter(QueueItem.campaign_id == campaign.id).delete()
+    
     # Create queue items
     queue_items = []
     for sub in subscribers:
@@ -220,6 +232,9 @@ def launch_campaign(campaign_id: int, request: Request, db: Session = Depends(ge
             subscriber_id=sub.id
         )
         
+        # next_attempt set to future scheduled time or now
+        next_attempt = scheduled_time if scheduled_time else datetime.utcnow()
+        
         item = QueueItem(
             tenant_id=current_user.tenant_id,
             campaign_id=campaign.id,
@@ -227,17 +242,26 @@ def launch_campaign(campaign_id: int, request: Request, db: Session = Depends(ge
             email=sub.email,
             subject=campaign.subject,
             body_html=body,
-            status="pending"
+            status="pending",
+            next_attempt=next_attempt
         )
         db.add(item)
         queue_items.append(item)
         
-    campaign.status = "sending"
-    campaign.total_recipients = len(queue_items)
-    campaign.sent_at = datetime.utcnow()
-    
-    db.commit()
-    return {"detail": f"Campaign launched successfully. {len(queue_items)} emails queued."}
+    if scheduled_time:
+        campaign.status = "scheduled"
+        campaign.scheduled_send_at = scheduled_time
+        campaign.total_recipients = len(queue_items)
+        campaign.sent_at = None
+        db.commit()
+        return {"detail": f"Campaign scheduled successfully for {scheduled_time} UTC. {len(queue_items)} emails staged."}
+    else:
+        campaign.status = "sending"
+        campaign.total_recipients = len(queue_items)
+        campaign.sent_at = datetime.utcnow()
+        campaign.scheduled_send_at = None
+        db.commit()
+        return {"detail": f"Campaign launched successfully. {len(queue_items)} emails queued."}
 
 @router.get("/{campaign_id}/stats")
 def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
@@ -270,10 +294,31 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
     }
 
 @router.get("/{campaign_id}/preview", response_class=HTMLResponse)
-def preview_campaign(campaign_id: int, mock_name: str = "John Doe", mock_email: str = "john@example.com", db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
+def preview_campaign(
+    campaign_id: int, 
+    mock_name: str = "John Doe", 
+    mock_email: str = "john@example.com", 
+    token: str = Query(None),
+    db: Session = Depends(get_db)
+):
+    user = None
+    if token:
+        try:
+            import jwt
+            from auth import SECRET_KEY, ALGORITHM
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("sub")
+            user = db.query(User).filter(User.email == email, User.is_active == True).first()
+        except Exception:
+            pass
+            
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication token required")
+        
+    if not user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+        
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         

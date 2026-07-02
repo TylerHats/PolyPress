@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PolyPress Admin Dashboard</title>
     <link rel="icon" href="/branding/logo.png" type="image/png">
-    <link href="/static/style.css" rel="stylesheet">
+    <link href="/static/style.css?v=1.0.1" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Load ChartJS for premium charts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Offline local QR Code library -->
+    <script src="/static/qrcode.min.js"></script>
 </head>
 <body x-data="polyPressApp()" x-init="initApp()">
     
@@ -501,6 +503,9 @@
                             <div class="block-item" @click="addEditorBlock('spacer')">
                                 <i data-lucide="space"></i> Vertical Spacer
                             </div>
+                            <div class="block-item" @click="addEditorBlock('columns')">
+                                <i data-lucide="columns"></i> Two-Column Layout
+                            </div>
                             
                             <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-top: 25px; margin-bottom: 10px;">Merge Tags</h3>
                             <div style="font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
@@ -517,7 +522,13 @@
                         <div class="editor-canvas-container">
                             <div class="editor-canvas" id="emailCanvas">
                                 <template x-for="(b, idx) in editorBlocks" :key="idx">
-                                    <div class="canvas-block" :class="selectedBlockIndex === idx ? 'active' : ''" @click.stop="selectedBlockIndex = idx">
+                                    <div class="canvas-block" 
+                                         :class="selectedBlockIndex === idx ? 'active' : ''" 
+                                         @click.stop="selectedBlockIndex = idx"
+                                         draggable="true"
+                                         @dragstart="draggedIndex = idx"
+                                         @dragover.prevent
+                                         @drop="moveBlock(draggedIndex, idx)">
                                         
                                         <!-- Actions Overlay -->
                                         <div class="canvas-block-actions">
@@ -541,7 +552,43 @@
                                             </template>
                                             <template x-if="b.type === 'image'">
                                                 <div style="text-align: center; width: 100%;">
-                                                    <img :src="b.url" :alt="b.alt" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                                                    <img :src="b.url" :alt="b.alt" :style="'max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius:' + (b.border_radius || '0px')">
+                                                </div>
+                                            </template>
+                                            <template x-if="b.type === 'columns'">
+                                                <div style="display: flex; width: 100%;" :style="'gap:' + b.gap">
+                                                    <div :style="b.layout === '50-50' ? 'width:50%' : (b.layout === '70-30' ? 'width:70%' : 'width:30%')" style="flex: 1; border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px;">
+                                                        <template x-if="b.left.type === 'paragraph'">
+                                                            <div :style="'text-align:' + b.left.align + '; color:' + b.left.color + '; font-size:' + b.left.size" x-text="b.left.text"></div>
+                                                        </template>
+                                                        <template x-if="b.left.type === 'heading'">
+                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + b.left.color + '; font-size:' + b.left.size" x-text="b.left.text"></h3>
+                                                        </template>
+                                                        <template x-if="b.left.type === 'image'">
+                                                            <img :src="b.left.url" :alt="b.left.alt" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                        </template>
+                                                        <template x-if="b.left.type === 'button'">
+                                                            <div :style="'text-align:' + b.left.align">
+                                                                <span class="btn btn-sm" :style="'background-color:' + b.left.bg_color + '; color:' + b.left.text_color" x-text="b.left.text"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                    <div :style="b.layout === '50-50' ? 'width:50%' : (b.layout === '70-30' ? 'width:30%' : 'width:70%')" style="flex: 1; border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px;">
+                                                        <template x-if="b.right.type === 'paragraph'">
+                                                            <div :style="'text-align:' + b.right.align + '; color:' + b.right.color + '; font-size:' + b.right.size" x-text="b.right.text"></div>
+                                                        </template>
+                                                        <template x-if="b.right.type === 'heading'">
+                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + b.right.color + '; font-size:' + b.right.size" x-text="b.right.text"></h3>
+                                                        </template>
+                                                        <template x-if="b.right.type === 'image'">
+                                                            <img :src="b.right.url" :alt="b.right.alt" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                        </template>
+                                                        <template x-if="b.right.type === 'button'">
+                                                            <div :style="'text-align:' + b.right.align">
+                                                                <span class="btn btn-sm" :style="'background-color:' + b.right.bg_color + '; color:' + b.right.text_color" x-text="b.right.text"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
                                                 </div>
                                             </template>
                                             <template x-if="b.type === 'divider'">
@@ -593,9 +640,102 @@
                                                 <label>Image Source URL</label>
                                                 <input type="text" x-model="editorBlocks[selectedBlockIndex].url" @input="reRenderCanvas()">
                                             </div>
-                                            <div class="field">
-                                                <label>Alt Text</label>
-                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].alt">
+                                            <div class="form-grid">
+                                                <div class="field">
+                                                    <label>Alt Text</label>
+                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].alt">
+                                                </div>
+                                                <div class="field">
+                                                    <label>Border Radius</label>
+                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].border_radius" @input="reRenderCanvas()" placeholder="e.g. 8px or 50%">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'columns'">
+                                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                                            <div class="form-grid">
+                                                <div class="field">
+                                                    <label>Layout Ratio</label>
+                                                    <select x-model="editorBlocks[selectedBlockIndex].layout" @change="reRenderCanvas()">
+                                                        <option value="50-50">50% / 50%</option>
+                                                        <option value="70-30">70% / 30%</option>
+                                                        <option value="30-70">30% / 70%</option>
+                                                    </select>
+                                                </div>
+                                                <div class="field">
+                                                    <label>Gap Size</label>
+                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].gap" @input="reRenderCanvas()">
+                                                </div>
+                                            </div>
+                                            
+                                            <div style="border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
+                                                <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--color-accent);">Left Column</h4>
+                                                <div class="field" style="margin-bottom: 8px;">
+                                                    <label>Type</label>
+                                                    <select x-model="editorBlocks[selectedBlockIndex].left.type" @change="reRenderCanvas()">
+                                                        <option value="paragraph">Paragraph</option>
+                                                        <option value="heading">Heading</option>
+                                                        <option value="image">Image</option>
+                                                        <option value="button">Button</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].left.type)">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Text Content</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.text" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].left.type === 'image'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Image Source URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].left.type === 'button'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Link URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                            </div>
+
+                                            <div style="border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.01);">
+                                                <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--color-accent);">Right Column</h4>
+                                                <div class="field" style="margin-bottom: 8px;">
+                                                    <label>Type</label>
+                                                    <select x-model="editorBlocks[selectedBlockIndex].right.type" @change="reRenderCanvas()">
+                                                        <option value="paragraph">Paragraph</option>
+                                                        <option value="heading">Heading</option>
+                                                        <option value="image">Image</option>
+                                                        <option value="button">Button</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].right.type)">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Text Content</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.text" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].right.type === 'image'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Image Source URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
+                                                
+                                                <template x-if="editorBlocks[selectedBlockIndex].right.type === 'button'">
+                                                    <div class="field" style="margin-bottom: 8px;">
+                                                        <label>Link URL</label>
+                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.url" @input="reRenderCanvas()">
+                                                    </div>
+                                                </template>
                                             </div>
                                         </div>
                                     </template>
@@ -2215,6 +2355,26 @@
         </div>
     </div>
 
+    <!-- Reusable Confirmation and Prompt Modal -->
+    <div x-show="confirmModal.open" class="modal-overlay" style="display: none; z-index: 9999;" x-cloak>
+        <div class="modal-content" style="max-width: 450px;">
+            <div class="modal-header">
+                <h3 style="font-size: 18px;" x-text="confirmModal.title || 'Are you sure?'"></h3>
+                <button @click="confirmModal.resolve(confirmModal.isPrompt ? null : false); confirmModal.open = false;" class="close-btn" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 20px;">&times;</button>
+            </div>
+            <div class="modal-body" style="padding-top: 15px;">
+                <p x-text="confirmModal.message" style="font-size: 14px; line-height: 1.5; color: var(--text-muted); white-space: pre-line;"></p>
+                <div x-show="confirmModal.isPrompt" class="field" style="margin-top: 15px;">
+                    <input type="text" x-model="confirmModal.inputValue" class="form-control" style="width: 100%; padding: 10px; background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 6px;" :placeholder="confirmModal.inputPlaceholder || ''" @keyup.enter="confirmModal.resolve(confirmModal.inputValue); confirmModal.open = false;">
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding-top: 20px;">
+                <button @click="confirmModal.resolve(confirmModal.isPrompt ? null : false); confirmModal.open = false;" class="btn btn-secondary" x-text="confirmModal.cancelText || 'Cancel'"></button>
+                <button @click="confirmModal.resolve(confirmModal.isPrompt ? confirmModal.inputValue : true); confirmModal.open = false;" class="btn" :class="confirmModal.isDanger ? 'btn-danger' : 'btn-primary'" x-text="confirmModal.confirmText || 'Confirm'"></button>
+            </div>
+        </div>
+    </div>
+
     <!-- User Management Modal -->
     <div x-show="userModalOpen" class="modal-overlay" style="display: none;">
         <div class="modal-content">
@@ -2327,6 +2487,9 @@
                                     <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
                                         1. Scan the connection string or backup key in your Authenticator app:
                                     </p>
+                                    <div style="display: flex; justify-content: center; background: white; padding: 10px; border-radius: 8px; width: fit-content; margin: 5px auto 10px;">
+                                        <div id="totp-qrcode"></div>
+                                    </div>
                                     <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; font-family: monospace; text-align: center; word-break: break-all;">
                                         <span style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 2px;">Authenticator Backup Secret</span>
                                         <span style="font-size: 14px; font-weight: 700; color: var(--color-accent);" x-text="totpSetup.secret"></span>
@@ -2416,7 +2579,77 @@
                     rowsHtml += `
                     <tr>
                         <td align="center" style="padding: ${block.padding || '10px 0'};">
-                            <img src="${block.url || 'https://picsum.photos/600/300'}" alt="${block.alt || 'Image'}" style="display: block; width: 100%; max-width: 600px; height: auto; border: 0;" />
+                            <img src="${block.url || 'https://picsum.photos/600/300'}" alt="${block.alt || 'Image'}" style="display: block; width: 100%; max-width: 600px; height: auto; border: 0; border-radius: ${block.border_radius || '0px'};" />
+                        </td>
+                    </tr>`;
+                } else if (block.type === 'columns') {
+                    let leftPct = '48%';
+                    let rightPct = '48%';
+                    let gapPct = '4%';
+                    if (block.layout === '70-30') {
+                        leftPct = '68%';
+                        rightPct = '28%';
+                        gapPct = '4%';
+                    } else if (block.layout === '30-70') {
+                        leftPct = '28%';
+                        rightPct = '68%';
+                        gapPct = '4%';
+                    }
+                    
+                    let leftHtml = '';
+                    if (block.left.type === 'paragraph') {
+                        leftHtml = `<div style="text-align: ${block.left.align || 'left'}; color: ${block.left.color || '#334155'}; font-family: sans-serif; font-size: ${block.left.size || '15px'}; line-height: 1.5;">${block.left.text}</div>`;
+                    } else if (block.left.type === 'heading') {
+                        leftHtml = `<h3 style="text-align: ${block.left.align || 'center'}; color: ${block.left.color || '#1e293b'}; font-family: sans-serif; font-size: ${block.left.size || '22px'}; margin: 0 0 10px 0;">${block.left.text}</h3>`;
+                    } else if (block.left.type === 'image') {
+                        leftHtml = `<img src="${block.left.url || 'https://picsum.photos/300/150'}" alt="${block.left.alt || ''}" style="display: block; width: 100%; height: auto; border: 0; border-radius: 4px;" />`;
+                    } else if (block.left.type === 'button') {
+                        leftHtml = `
+                        <table border="0" cellpadding="0" cellspacing="0" align="${block.left.align || 'center'}">
+                            <tr>
+                                <td align="center" bgcolor="${block.left.bg_color || '#4f46e5'}" style="border-radius: 4px;">
+                                    <a href="${block.left.url || '#'}" target="_blank" style="display: inline-block; padding: 8px 16px; font-family: sans-serif; font-size: 13px; font-weight: bold; color: ${block.left.text_color || '#ffffff'}; text-decoration: none; border-radius: 4px;">
+                                        ${block.left.text}
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>`;
+                    }
+                    
+                    let rightHtml = '';
+                    if (block.right.type === 'paragraph') {
+                        rightHtml = `<div style="text-align: ${block.right.align || 'left'}; color: ${block.right.color || '#334155'}; font-family: sans-serif; font-size: ${block.right.size || '15px'}; line-height: 1.5;">${block.right.text}</div>`;
+                    } else if (block.right.type === 'heading') {
+                        rightHtml = `<h3 style="text-align: ${block.right.align || 'center'}; color: ${block.right.color || '#1e293b'}; font-family: sans-serif; font-size: ${block.right.size || '22px'}; margin: 0 0 10px 0;">${block.right.text}</h3>`;
+                    } else if (block.right.type === 'image') {
+                        rightHtml = `<img src="${block.right.url || 'https://picsum.photos/300/150'}" alt="${block.right.alt || ''}" style="display: block; width: 100%; height: auto; border: 0; border-radius: 4px;" />`;
+                    } else if (block.right.type === 'button') {
+                        rightHtml = `
+                        <table border="0" cellpadding="0" cellspacing="0" align="${block.right.align || 'center'}">
+                            <tr>
+                                <td align="center" bgcolor="${block.right.bg_color || '#4f46e5'}" style="border-radius: 4px;">
+                                    <a href="${block.right.url || '#'}" target="_blank" style="display: inline-block; padding: 8px 16px; font-family: sans-serif; font-size: 13px; font-weight: bold; color: ${block.right.text_color || '#ffffff'}; text-decoration: none; border-radius: 4px;">
+                                        ${block.right.text}
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>`;
+                    }
+                    
+                    rowsHtml += `
+                    <tr>
+                        <td style="padding: 15px 0;">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td width="${leftPct}" valign="top">
+                                        ${leftHtml}
+                                    </td>
+                                    <td width="${gapPct}">&nbsp;</td>
+                                    <td width="${rightPct}" valign="top">
+                                        ${rightHtml}
+                                    </td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>`;
                 } else if (block.type === 'divider') {
@@ -2492,7 +2725,21 @@
             return {
                 authenticated: false,
                 activeTab: 'dashboard',
+                
+                confirmModal: {
+                    open: false,
+                    title: '',
+                    message: '',
+                    isPrompt: false,
+                    isDanger: false,
+                    inputValue: '',
+                    inputPlaceholder: '',
+                    cancelText: 'Cancel',
+                    confirmText: 'Confirm',
+                    resolve: null
+                },
                 token: null,
+                draggedIndex: null,
                 toasts: [],
                 dashboardChart: null,
                 
@@ -2631,6 +2878,42 @@
                 
                 // Dashboard summary
                 stats: { totalSubscribers: 0, campaignsSent: 0, avgOpenRate: 0, avgBounceRate: 0 },
+
+                askConfirm(message, title = 'Confirm Action', isDanger = false) {
+                    return new Promise((resolve) => {
+                        this.confirmModal.title = title;
+                        this.confirmModal.message = message;
+                        this.confirmModal.isPrompt = false;
+                        this.confirmModal.isDanger = isDanger;
+                        this.confirmModal.cancelText = 'Cancel';
+                        this.confirmModal.confirmText = 'Confirm';
+                        this.confirmModal.resolve = resolve;
+                        this.confirmModal.open = true;
+                    });
+                },
+                
+                askPrompt(message, placeholder = '', title = 'Enter Value') {
+                    return new Promise((resolve) => {
+                        this.confirmModal.title = title;
+                        this.confirmModal.message = message;
+                        this.confirmModal.isPrompt = true;
+                        this.confirmModal.inputValue = '';
+                        this.confirmModal.inputPlaceholder = placeholder;
+                        this.confirmModal.isDanger = false;
+                        this.confirmModal.cancelText = 'Cancel';
+                        this.confirmModal.confirmText = 'Submit';
+                        this.confirmModal.resolve = resolve;
+                        this.confirmModal.open = true;
+                    });
+                },
+
+                refreshIcons() {
+                    setTimeout(() => {
+                        if (window.lucide) {
+                            window.lucide.replace();
+                        }
+                    }, 80);
+                },
 
                 async initApp() {
                     // Check schema status first
@@ -2797,6 +3080,22 @@
                         this.totpSetup.uri = data.uri;
                         this.totpSetup.code = '';
                         this.totpSetup.step = 2;
+                        
+                        // Render QR Code locally offline
+                        this.$nextTick(() => {
+                            const qrContainer = document.getElementById("totp-qrcode");
+                            if (qrContainer) {
+                                qrContainer.innerHTML = '';
+                                new QRCode(qrContainer, {
+                                    text: data.uri,
+                                    width: 160,
+                                    height: 160,
+                                    colorDark: "#0b111e",
+                                    colorLight: "#ffffff",
+                                    correctLevel: QRCode.CorrectLevel.M
+                                });
+                            }
+                        });
                     } catch(e) {
                         this.showToast('Failed to start 2FA setup', 'error');
                     }
@@ -2874,7 +3173,7 @@
                 },
                 
                 async purgeQueueItem(id) {
-                    if (!confirm('Remove this message from the outbound sending queue?')) return;
+                    if (!await this.askConfirm('Remove this message from the outbound sending queue?', 'Confirm Purging Queue Item', true)) return;
                     try {
                         const res = await fetch(`/api/tenants/my/queue/${id}`, {
                             method: 'DELETE',
@@ -2969,7 +3268,7 @@
                 },
                 
                 async generateApiKey() {
-                    const name = prompt('Enter a label/name for this API Key (e.g. landing-page-sync):');
+                    const name = await this.askPrompt('Enter a label/name for this API Key:', 'landing-page-sync', 'Generate API Key');
                     if (!name) return;
                     
                     try {
@@ -2992,7 +3291,7 @@
                 },
                 
                 async revokeApiKey(id) {
-                    if (!confirm('Are you sure you want to revoke this API Key? Any programmatic integrations using it will immediately stop working.')) return;
+                    if (!await this.askConfirm('Are you sure you want to revoke this API Key? Any programmatic integrations using it will immediately stop working.', 'Revoke API Key', true)) return;
                     try {
                         const res = await fetch(`/api/developer/keys/${id}`, {
                             method: 'DELETE',
@@ -3040,7 +3339,7 @@
                 },
                 
                 async deleteWebhook(id) {
-                    if (!confirm('Are you sure you want to delete this webhook subscription?')) return;
+                    if (!await this.askConfirm('Are you sure you want to delete this webhook subscription?', 'Delete Webhook Subscription', true)) return;
                     try {
                         const res = await fetch(`/api/developer/webhooks/${id}`, {
                             method: 'DELETE',
@@ -3276,7 +3575,7 @@
                 },
                 
                 async deleteUser(userId) {
-                    if (!confirm('Are you sure you want to delete this user?')) return;
+                    if (!await this.askConfirm('Are you sure you want to delete this user?', 'Delete User Account', true)) return;
                     try {
                         const res = await fetch(`/api/admin/users/${userId}`, {
                             method: 'DELETE',
@@ -3295,7 +3594,7 @@
                 },
                 
                 async resetUser2FA(user) {
-                    if (!confirm(`Are you sure you want to reset 2FA for ${user.name}? They will be able to log in without a 2FA prompt.`)) return;
+                    if (!await this.askConfirm(`Are you sure you want to reset 2FA for ${user.name}? They will be able to log in without a 2FA prompt.`, 'Reset User 2FA', true)) return;
                     try {
                         const res = await fetch(`/api/admin/users/${user.id}`, {
                             method: 'PUT',
@@ -3360,21 +3659,30 @@
                 async fetchCampaigns() {
                     try {
                         const res = await fetch('/api/campaigns', { headers: this.getAuthHeaders() });
-                        if (res.ok) this.campaigns = await res.json();
+                        if (res.ok) {
+                            this.campaigns = await res.json();
+                            this.refreshIcons();
+                        }
                     } catch(e) {}
                 },
                 
                 async fetchLists() {
                     try {
                         const res = await fetch('/api/lists', { headers: this.getAuthHeaders() });
-                        if (res.ok) this.lists = await res.json();
+                        if (res.ok) {
+                            this.lists = await res.json();
+                            this.refreshIcons();
+                        }
                     } catch(e) {}
                 },
                 
                 async fetchTenants() {
                     try {
                         const res = await fetch('/api/tenants', { headers: this.getAuthHeaders() });
-                        if (res.ok) this.tenants = await res.json();
+                        if (res.ok) {
+                            this.tenants = await res.json();
+                            this.refreshIcons();
+                        }
                     } catch(e) {}
                 },
                 
@@ -3440,7 +3748,7 @@
                 },
 
                 async restoreBackup(filename) {
-                    if (!confirm('Are you absolutely sure you want to restore the system database from: ' + filename + '?\n\nWARNING: THIS WILL COMPLETELY OVERWRITE ALL DATA IN THE SYSTEM. This cannot be undone!')) {
+                    if (!await this.askConfirm('Are you absolutely sure you want to restore the system database from: ' + filename + '?\n\nWARNING: THIS WILL COMPLETELY OVERWRITE ALL DATA IN THE SYSTEM. This cannot be undone!', 'Restore Backup', true)) {
                         return;
                     }
                     try {
@@ -3461,7 +3769,7 @@
                 },
 
                 async deleteBackup(filename) {
-                    if (!confirm('Are you sure you want to delete the backup snapshot ' + filename + '?')) {
+                    if (!await this.askConfirm('Are you sure you want to delete the backup snapshot ' + filename + '?', 'Delete Backup Snapshot', true)) {
                         return;
                     }
                     try {
@@ -3482,7 +3790,7 @@
                     const file = event.target.files[0];
                     if (!file) return;
                     
-                    if (!confirm('Are you absolutely sure you want to upload and restore this backup ZIP archive?\n\nWARNING: THIS WILL COMPLETELY OVERWRITE ALL EXISTING DATA IN THE SYSTEM!')) {
+                    if (!await this.askConfirm('Are you absolutely sure you want to upload and restore this backup ZIP archive?\n\nWARNING: THIS WILL COMPLETELY OVERWRITE ALL EXISTING DATA IN THE SYSTEM!', 'Upload & Restore Backup', true)) {
                         event.target.value = '';
                         return;
                     }
@@ -3547,7 +3855,7 @@
                     } else {
                         warn += '\n\nThe server will restart automatically to apply updates.';
                     }
-                    if (!confirm(warn)) return;
+                    if (!await this.askConfirm(warn, 'Install Update', true)) return;
                     
                     this.updateInstalling = true;
                     try {
@@ -3574,7 +3882,7 @@
                     } else {
                         warn += '\n\nThe server will restart automatically.';
                     }
-                    if (!confirm(warn)) return;
+                    if (!await this.askConfirm(warn, 'Force Beta Update', true)) return;
                     
                     this.updateInstalling = true;
                     try {
@@ -3670,6 +3978,8 @@
                         this.fetchOutboxQueue();
                         this.fetchDeveloperConsole();
                     } else if (tab === 'admin') {
+                        this.fetchTenants();
+                        this.fetchGlobalSettings();
                         this.fetchSslStatus();
                         this.fetchBackups();
                         this.fetchUpdateStatus();
@@ -3814,7 +4124,7 @@
                 },
                 
                 async deleteCampaign(id) {
-                    if (!confirm('Are you sure you want to delete this campaign permanently?')) return;
+                    if (!await this.askConfirm('Are you sure you want to delete this campaign permanently?', 'Delete Campaign', true)) return;
                     try {
                         const res = await fetch(`/api/campaigns/${id}`, {
                             method: 'DELETE',
@@ -3850,7 +4160,7 @@
                 },
                 
                 async deleteList(id) {
-                    if (!confirm('Delete this subscriber list and all containing contacts permanently?')) return;
+                    if (!await this.askConfirm('Delete this subscriber list and all containing contacts permanently?', 'Delete Subscriber List', true)) return;
                     try {
                         const res = await fetch(`/api/lists/${id}`, {
                             method: 'DELETE',
@@ -3977,7 +4287,7 @@
                 },
                 
                 async deleteSubscriber(subId) {
-                    if (!confirm('Remove this subscriber from the list?')) return;
+                    if (!await this.askConfirm('Remove this subscriber from the list?', 'Remove Contact', true)) return;
                     try {
                         const res = await fetch(`/api/lists/${this.listSelected}/subscribers/${subId}`, {
                             method: 'DELETE',
@@ -4132,15 +4442,32 @@
                     } else if (type === 'button') {
                         block = { type, text: 'Click Link', url: 'https://example.com', align: 'center', bg_color: '#6366f1', text_color: '#ffffff', padding: '12px 24px', border_radius: '6px' };
                     } else if (type === 'image') {
-                        block = { type, url: 'https://picsum.photos/600/300', alt: 'Marketing Banner' };
+                        block = { type, url: 'https://picsum.photos/600/300', alt: 'Marketing Banner', border_radius: '0px' };
                     } else if (type === 'divider') {
                         block = { type, color: '#e2e8f0', height: '2px', padding: '20px 0px' };
                     } else if (type === 'spacer') {
                         block = { type, height: '25px' };
+                    } else if (type === 'columns') {
+                        block = { 
+                            type, 
+                            layout: '50-50', 
+                            gap: '20px',
+                            left: { type: 'paragraph', text: 'Left Content', align: 'left', color: '#334155', size: '15px' },
+                            right: { type: 'paragraph', text: 'Right Content', align: 'left', color: '#334155', size: '15px' }
+                        };
                     }
                     
                     this.editorBlocks.push(block);
                     this.selectedBlockIndex = this.editorBlocks.length - 1;
+                    this.reRenderCanvas();
+                },
+                
+                moveBlock(from, to) {
+                    if (from === null || to === null || from === to) return;
+                    const block = this.editorBlocks.splice(from, 1)[0];
+                    this.editorBlocks.splice(to, 0, block);
+                    this.selectedBlockIndex = to;
+                    this.reRenderCanvas();
                     this.reRenderCanvas();
                 },
                 
@@ -4376,7 +4703,7 @@
                 },
                 
                 async deleteTenant(id) {
-                    if (!confirm('WARNING: Remove this tenant permanently? All lists, campaigns, and subscriber contacts will be lost.')) return;
+                    if (!await this.askConfirm('WARNING: Remove this tenant permanently? All lists, campaigns, and subscriber contacts will be lost.', 'Delete Workspace Tenant', true)) return;
                     try {
                         const res = await fetch(`/api/tenants/${id}`, {
                             method: 'DELETE',

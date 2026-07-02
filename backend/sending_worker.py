@@ -14,6 +14,7 @@ except ImportError:
     dkim = None
 from sqlalchemy.orm import Session
 from database import SessionLocal, QueueItem, Campaign, Tenant, Subscriber
+from ntp_sync import get_corrected_time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sending_worker")
@@ -357,7 +358,21 @@ async def process_queue():
     while True:
         db = SessionLocal()
         try:
-            now = datetime.utcnow()
+            now = get_corrected_time()
+            
+            # 0. Automatically start sending scheduled campaigns whose scheduled time has passed
+            try:
+                scheduled_campaigns = db.query(Campaign).filter(
+                    Campaign.status == "scheduled",
+                    Campaign.scheduled_send_at <= now
+                ).all()
+                for sc in scheduled_campaigns:
+                    logger.info(f"NTP corrected clock triggered sending for scheduled campaign '{sc.name}' (scheduled at {sc.scheduled_send_at} UTC)")
+                    sc.status = "sending"
+                    sc.sent_at = now
+                    db.commit()
+            except Exception as se:
+                logger.error(f"Error checking/promoting scheduled campaigns: {se}")
             
             # 1. Periodically check for expired queue items (once every 60 seconds)
             if time.time() - last_expiry_check > 60:

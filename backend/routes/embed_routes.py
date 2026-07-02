@@ -8,7 +8,88 @@ import secrets
 
 router = APIRouter(prefix="/api/embed", tags=["embed"])
 
-HTML_STYLE = """
+def get_html_style(theme: str = "dark") -> str:
+    if theme == "light":
+        return """
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background-color: #f8fafc;
+        color: #0f172a;
+        margin: 0;
+        padding: 20px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+    }
+    .card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 30px;
+        width: 100%;
+        max-width: 400px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+    h2 {
+        margin-top: 0;
+        font-size: 20px;
+        font-weight: 700;
+        color: #0f172a;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .form-group {
+        margin-bottom: 15px;
+    }
+    label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 5px;
+    }
+    input[type="text"], input[type="email"], select {
+        width: 100%;
+        padding: 10px 12px;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        color: #0f172a;
+        font-size: 14px;
+        box-sizing: border-box;
+        transition: border-color 0.15s ease;
+    }
+    input:focus, select:focus {
+        border-color: #3b82f6;
+        outline: none;
+    }
+    .btn {
+        width: 100%;
+        padding: 11px;
+        background: #2563eb;
+        border: none;
+        border-radius: 6px;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease;
+        margin-top: 10px;
+    }
+    .btn:hover {
+        background: #1d4ed8;
+    }
+    .success-msg {
+        text-align: center;
+        color: #059669;
+        font-size: 15px;
+        font-weight: 500;
+    }
+</style>
+"""
+    return """
 <style>
     body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -207,7 +288,7 @@ CONFIRMATION_EMAIL_TEMPLATE = """<!DOCTYPE html>
 """
 
 @router.get("/subscribe/{list_id}", response_class=HTMLResponse)
-def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed", db: Session = Depends(get_db)):
+def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed", theme: str = "dark", db: Session = Depends(get_db)):
     sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
     if not sub_list:
         return HTMLResponse("<h2>List not found</h2>", status_code=404)
@@ -229,7 +310,7 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
             </div>
             """
             
-    submit_url = f"/api/embed/subscribe/{list_id}/submit"
+    submit_url = f"/api/embed/subscribe/{list_id}/submit?theme={theme}"
     
     html = f"""
     <!DOCTYPE html>
@@ -237,7 +318,7 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
     <head>
         <title>Subscribe to {sub_list.name}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        {HTML_STYLE}
+        {get_html_style(theme)}
     </head>
     <body>
         <div class="card">
@@ -262,7 +343,7 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
     return HTMLResponse(content=html)
 
 @router.post("/subscribe/{list_id}/submit", response_class=HTMLResponse)
-async def post_embed_subscribe(list_id: int, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def post_embed_subscribe(list_id: int, request: Request, background_tasks: BackgroundTasks, theme: str = "dark", db: Session = Depends(get_db)):
     form_data = await request.form()
     
     sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
@@ -358,7 +439,7 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         <html>
         <head>
             <title>Verification Sent</title>
-            {HTML_STYLE}
+            {get_html_style(theme)}
         </head>
         <body>
             <div class="card" style="text-align: center;">
@@ -378,7 +459,7 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
     <html>
     <head>
         <title>Success</title>
-        {HTML_STYLE}
+        {get_html_style(theme)}
     </head>
     <body>
         <div class="card">

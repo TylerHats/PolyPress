@@ -27,9 +27,14 @@ def get_ssl_status(request: Request, db: Session = Depends(get_db), current_user
     priv_key_path = os.path.join(CERTS_DIR, "privkey.pem")
     cert_path = os.path.join(CERTS_DIR, "fullchain.pem")
     
+    from ntp_sync import get_time_offset
+    ntp_drift = get_time_offset()
+    
     status_payload = {
         "configured": False,
-        "is_proxy_https": is_proxy_https
+        "is_proxy_https": is_proxy_https,
+        "ntp_drift_seconds": ntp_drift,
+        "ntp_drift_warning": abs(ntp_drift) > 10.0
     }
     
     if not os.path.exists(priv_key_path) or not os.path.exists(cert_path):

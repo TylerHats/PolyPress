@@ -15,7 +15,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 
@@ -182,6 +182,7 @@ class Campaign(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
     sent_at = Column(DateTime, nullable=True)
+    scheduled_send_at = Column(DateTime, nullable=True)
     
     tenant = relationship("Tenant", back_populates="campaigns")
     subscriber_list = relationship("SubscriberList", back_populates="campaigns")
@@ -261,6 +262,33 @@ def get_db():
 def init_db():
     global SCHEMA_MISMATCH, DB_SCHEMA_VERSION
     
+    # 0. Storage Write Permissions Diagnostics Check
+    if DATABASE_URL.startswith("sqlite:///"):
+        db_path = DATABASE_URL.replace("sqlite:///", "")
+        db_dir = os.path.dirname(db_path)
+        if not db_dir:
+            db_dir = "."
+        else:
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+            except Exception as e:
+                print(f"CRITICAL WARNING: Failed to create database directory '{db_dir}': {e}")
+        
+        # Test file write permissions
+        try:
+            test_file = os.path.join(db_dir, ".polypress_write_test")
+            with open(test_file, "w") as f:
+                f.write("write_test")
+            os.remove(test_file)
+            print(f"Diagnostics: Verified database directory '{db_dir}' is writable.")
+        except Exception as e:
+            print("\n" + "="*80)
+            print(f"CRITICAL PERMISSION WARNING: The database directory '{db_dir}' is NOT writable!")
+            print(f"Detailed Error: {e}")
+            print("PolyPress will fail to persist any configuration changes or user updates!")
+            print("Ensure that absolute host paths have the correct write permissions for the container.")
+            print("="*80 + "\n")
+            
     # 1. Create tables first (so schema_version column exists on new databases)
     Base.metadata.create_all(bind=engine)
     
