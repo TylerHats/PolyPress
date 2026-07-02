@@ -7,10 +7,13 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
-from fastapi import Depends, HTTPException, status, Security
+from fastapi import Depends, HTTPException, status, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db, User, GlobalSettings, Tenant
+import auth
+import urllib.parse
+from routes.tenant_routes import generate_dkim_keypair
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
 ALGORITHM = "HS256"
@@ -50,7 +53,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security), db: Session = Depends(get_db)) -> User:
+def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Security(security), db: Session = Depends(get_db)) -> User:
     token = credentials.credentials
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -68,6 +71,16 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(securi
     user = db.query(User).filter(User.email == email, User.is_active == True).first()
     if user is None:
         raise credentials_exception
+        
+    # Context switching for Super Admins via header override
+    if user.role == "super_admin":
+        tenant_id_header = request.headers.get("X-PolyPress-Tenant-Id")
+        if tenant_id_header:
+            try:
+                user.tenant_id = int(tenant_id_header)
+            except ValueError:
+                pass
+                
     return user
 
 def require_role(roles: list):
@@ -132,12 +145,12 @@ def process_oidc_user(db: Session, email: str, name: str) -> User:
         db.refresh(tenant)
         
     # Determine role: If there are absolutely no users in the DB, make them super admin.
-    # Otherwise, they are tenant_admin for their new tenant, or tenant_user if tenant already exists.
+    # Otherwise, they are default pending approval.
     num_users = db.query(User).count()
     if num_users == 0:
         role = "super_admin"
     else:
-        role = "tenant_admin" if tenant else "tenant_user"
+        role = "pending"
         
     new_user = User(
         email=email,

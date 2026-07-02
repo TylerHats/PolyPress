@@ -90,7 +90,7 @@
                 </div>
 
                 <div style="border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
-                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">2. Super Admin Profile</h3>
+                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">2. Super Admin Account</h3>
                     <div class="field" style="margin-bottom: 10px;">
                         <label>Admin Full Name</label>
                         <input type="text" x-model="setupForm.admin_name" placeholder="System Administrator">
@@ -107,71 +107,33 @@
                     </div>
                 </div>
 
-                <div style="border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
-                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">3. Email Transport</h3>
-                    <div class="toggle-field" style="margin-bottom: 12px;">
-                        <input type="checkbox" id="setup_direct_send" x-model="setupForm.direct_send" style="display:none;">
-                        <div class="toggle-switch" @click="setupForm.direct_send = !setupForm.direct_send"></div>
-                        <span>Direct Send (Internal MTA with DKIM)</span>
-                    </div>
-
-                    <div x-show="setupForm.direct_send">
-                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div class="field">
-                                <label>Sending Domain</label>
-                                <input type="text" x-model="setupForm.dkim_domain" placeholder="e.g. domain.com">
-                            </div>
-                            <div class="field">
-                                <label>DKIM Selector</label>
-                                <input type="text" x-model="setupForm.dkim_selector" placeholder="polypress">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="!setupForm.direct_send">
-                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div class="field">
-                                <label>SMTP Host</label>
-                                <input type="text" x-model="setupForm.smtp_host" placeholder="smtp.mailgun.org">
-                            </div>
-                            <div class="field">
-                                <label>SMTP Port</label>
-                                <input type="number" x-model="setupForm.smtp_port" placeholder="587">
-                            </div>
-                        </div>
-                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-top:10px;">
-                            <div class="field">
-                                <label>SMTP Username</label>
-                                <input type="text" x-model="setupForm.smtp_username" placeholder="user@domain.com">
-                            </div>
-                            <div class="field">
-                                <label>SMTP Password</label>
-                                <input type="password" x-model="setupForm.smtp_password" placeholder="••••••••">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <div>
-                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">4. Bounce Handler (IMAP)</h3>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
-                        <div class="field">
-                            <label>IMAP Host</label>
-                            <input type="text" x-model="setupForm.imap_host" placeholder="imap.domain.com">
-                        </div>
-                        <div class="field">
-                            <label>IMAP Port</label>
-                            <input type="number" x-model="setupForm.imap_port" placeholder="993">
-                        </div>
+                    <h3 style="font-size: 15px; margin-bottom: 10px; color: var(--color-accent);">3. OIDC Integration (Optional)</h3>
+                    <div class="toggle-field" style="margin-bottom: 12px;">
+                        <input type="checkbox" id="setup_oidc_enabled" x-model="setupForm.oidc_enabled" style="display:none;">
+                        <div class="toggle-switch" @click="setupForm.oidc_enabled = !setupForm.oidc_enabled"></div>
+                        <span>Enable OpenID Connect (OIDC) Authentication</span>
                     </div>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-top:10px;">
+
+                    <div x-show="setupForm.oidc_enabled" style="display: flex; flex-direction: column; gap: 10px;">
                         <div class="field">
-                            <label>IMAP Username</label>
-                            <input type="text" x-model="setupForm.imap_username" placeholder="bounce@domain.com">
+                            <label>OIDC Provider Issuer URL</label>
+                            <input type="url" x-model="setupForm.oidc_issuer" placeholder="https://keycloak.local/realms/master">
+                        </div>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="field">
+                                <label>OIDC Client ID</label>
+                                <input type="text" x-model="setupForm.oidc_client_id" placeholder="polypress">
+                            </div>
+                            <div class="field">
+                                <label>OIDC Client Secret</label>
+                                <input type="password" x-model="setupForm.oidc_client_secret" placeholder="••••••••">
+                            </div>
                         </div>
                         <div class="field">
-                            <label>IMAP Password</label>
-                            <input type="password" x-model="setupForm.imap_password" placeholder="••••••••">
+                            <label>OIDC Redirect/Callback URL</label>
+                            <input type="url" x-model="setupForm.oidc_redirect_url" placeholder="https://newsletter.yourdomain.com/api/auth/oidc/callback">
+                            <span style="font-size: 11px; color: var(--text-secondary);">Leave blank to fall back automatically to the computed callback URL.</span>
                         </div>
                     </div>
                 </div>
@@ -239,10 +201,30 @@
             </div>
             
             <nav style="flex-grow: 1;">
-                <ul class="nav-menu">
+                <!-- Host Admin Sidebar Menu -->
+                <ul class="nav-menu" x-show="user.role === 'super_admin' && hostAdminMode">
                     <li class="nav-item" :class="activeTab === 'dashboard' ? 'active' : ''">
                         <button @click="switchTab('dashboard')">
-                            <i data-lucide="layout-dashboard"></i> Dashboard
+                            <i data-lucide="layout-dashboard"></i> Host Dashboard
+                        </button>
+                    </li>
+                    <li class="nav-item" :class="activeTab === 'admin' ? 'active' : ''">
+                        <button @click="switchTab('admin')">
+                            <i data-lucide="sliders"></i> Global Settings
+                        </button>
+                    </li>
+                    <li class="nav-item" :class="activeTab === 'users' ? 'active' : ''">
+                        <button @click="switchTab('users')">
+                            <i data-lucide="users"></i> User Management
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Domain Workspace Sidebar Menu -->
+                <ul class="nav-menu" x-show="user.role !== 'super_admin' || !hostAdminMode">
+                    <li class="nav-item" :class="activeTab === 'dashboard' ? 'active' : ''">
+                        <button @click="switchTab('dashboard')">
+                            <i data-lucide="layout-dashboard"></i> Workspace Dashboard
                         </button>
                     </li>
                     <li class="nav-item" :class="activeTab === 'campaigns' || activeTab === 'editor' ? 'active' : ''">
@@ -252,28 +234,29 @@
                     </li>
                     <li class="nav-item" :class="activeTab === 'lists' ? 'active' : ''">
                         <button @click="switchTab('lists')">
-                            <i data-lucide="users"></i> Subscriber Lists
+                            <i data-lucide="contact"></i> Subscriber Lists
                         </button>
                     </li>
-                    <li class="nav-item" :class="activeTab === 'settings' ? 'active' : ''">
+                    <!-- Only show settings to super_admin or tenant_admin roles -->
+                    <li x-show="user.role === 'super_admin' || user.role === 'tenant_admin'" class="nav-item" :class="activeTab === 'settings' ? 'active' : ''" style="display: none;">
                         <button @click="switchTab('settings')">
                             <i data-lucide="settings"></i> Sending Settings
                         </button>
                     </li>
-                    <li x-show="user.role === 'super_admin'" class="nav-item" :class="activeTab === 'admin' ? 'active' : ''" style="display: none;">
-                        <button @click="switchTab('admin')">
-                            <i data-lucide="sliders"></i> Global Admin
+                    <li x-show="user.role === 'super_admin' || user.role === 'tenant_admin'" class="nav-item" :class="activeTab === 'users' ? 'active' : ''" style="display: none;">
+                        <button @click="switchTab('users')">
+                            <i data-lucide="users"></i> User Management
                         </button>
                     </li>
                 </ul>
             </nav>
             
             <div class="sidebar-footer">
-                <div class="user-profile">
+                <div class="user-profile" @click="openProfileModal()" style="cursor: pointer; border-radius: 8px; padding: 6px 12px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
                     <div class="user-avatar" x-text="user.name ? user.name.charAt(0).toUpperCase() : 'U'"></div>
                     <div class="user-details">
                         <div class="user-name" x-text="user.name || user.email"></div>
-                        <div class="user-role" x-text="user.role === 'super_admin' ? 'Super Admin' : (user.tenant_name || 'Tenant Admin')"></div>
+                        <div class="user-role" x-text="user.role === 'super_admin' ? 'Super Admin' : (tenant.name || 'Tenant Admin')"></div>
                     </div>
                 </div>
                 <button @click="handleLogout()" class="btn btn-secondary btn-sm" style="width: 100%; gap: 6px;">
@@ -286,9 +269,35 @@
         <main class="main-wrapper">
             <!-- Header bar -->
             <header class="top-nav">
-                <div class="top-nav-title" x-text="tenant.name || 'PolyPress Console'"></div>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <div class="top-nav-title" x-text="hostAdminMode ? 'Host Administration' : (tenant.name || 'Domain Workspace')"></div>
+                    
+                    <!-- Tenant Context Dropdown Selector (for Super Admins in Domain Workspace mode) -->
+                    <div x-show="user.role === 'super_admin' && !hostAdminMode" style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 13px; color: var(--text-secondary);">Switch Domain Context:</span>
+                        <select x-model="activeTenantId" @change="changeActiveTenantContext()" style="padding: 4px 10px; font-size: 13px; width: 200px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; color: #fff;">
+                            <option value="">Select Tenant Context...</option>
+                            <template x-for="t in tenants" :key="t.id">
+                                <option :value="t.id" x-text="t.name" :selected="activeTenantId == t.id"></option>
+                            </template>
+                        </select>
+                    </div>
+                </div>
+                
                 <div class="top-nav-actions">
-                    <div class="badge badge-info" x-text="user.role === 'super_admin' ? 'Host Admin Mode' : 'Domain Isolation'"></div>
+                    <!-- Clickable Mode Bubble -->
+                    <template x-if="user.role === 'super_admin'">
+                        <div class="badge" 
+                             :class="hostAdminMode ? 'badge-info' : 'badge-success'" 
+                             @click="toggleHostAdminMode()" 
+                             style="cursor: pointer; padding: 6px 12px; border-radius: 8px; font-weight: 700; user-select: none;"
+                             title="Click to toggle between Host Admin and Domain Workspace views">
+                             <span x-text="hostAdminMode ? '🛡️ HOST ADMIN ACTIVE' : '🌐 WORKSPACE CLIENT ACTIVE'"></span>
+                        </div>
+                    </template>
+                    <template x-if="user.role !== 'super_admin'">
+                        <div class="badge badge-muted" x-text="user.tenant_name || 'Domain Isolation'"></div>
+                    </template>
                 </div>
             </header>
 
@@ -1080,66 +1089,6 @@
                             </template>
                         </div>
                         
-                        <!-- Account Security & 2FA (TOTP) Card -->
-                        <div class="card">
-                            <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
-                                <i data-lucide="key-round" style="color: var(--color-primary);"></i>
-                                Account Security (2FA)
-                            </h2>
-                            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
-                                Secure your account using Time-based One-Time Passwords (TOTP). Compatible with Google Authenticator, Authy, or Bitwarden.
-                            </p>
-
-                            <!-- If 2FA enabled -->
-                            <div x-show="user.totp_enabled">
-                                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 15px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px;">
-                                    <i data-lucide="shield-check" style="color: var(--color-success); width: 24px; height: 24px; flex-shrink: 0;"></i>
-                                    <div>
-                                        <div style="font-weight: 600; color: #fff; font-size:14px;">Two-Factor Authentication is Active</div>
-                                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Your local login credentials now require a 6-digit TOTP verification code.</div>
-                                    </div>
-                                </div>
-                                <div class="field" style="margin-bottom: 15px;">
-                                    <label>Enter 2FA Code to Disable</label>
-                                    <input type="text" x-model="totpSetup.code" placeholder="123456" maxlength="6" style="text-align: center; font-size: 18px; letter-spacing: 2px;">
-                                </div>
-                                <button @click="disableTotp()" class="btn btn-danger" style="width: 100%;">Disable 2FA / TOTP protection</button>
-                            </div>
-
-                            <!-- If 2FA disabled -->
-                            <div x-show="!user.totp_enabled">
-                                <div x-show="totpSetup.step === 1">
-                                    <button @click="initiateTotpSetup()" class="btn btn-primary" style="width: 100%;">Set Up Two-Factor Authentication</button>
-                                </div>
-                                
-                                <div x-show="totpSetup.step === 2" style="display: none;">
-                                    <div style="display: flex; flex-direction: column; gap: 15px;">
-                                        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-                                            1. Scan the connection string or backup key in your Authenticator app.
-                                        </div>
-                                        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; font-family: monospace; text-align: center; word-break: break-all;">
-                                            <span style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">Authenticator Backup Secret</span>
-                                            <span style="font-size: 15px; font-weight: 700; color: var(--color-accent);" x-text="totpSetup.secret"></span>
-                                        </div>
-                                        <div style="font-size: 11px; color: var(--text-muted); line-height: 1.4; word-break: break-all; background: rgba(255,255,255,0.02); padding: 8px; border-radius: 4px;">
-                                            <strong>Key Link:</strong> <span x-text="totpSetup.uri"></span>
-                                        </div>
-                                        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-                                            2. Enter the generated 6-digit verification code below to confirm setup:
-                                        </div>
-                                        <div class="field">
-                                            <label>Verification Code</label>
-                                            <input type="text" x-model="totpSetup.code" placeholder="123456" maxlength="6" style="text-align: center; font-size: 18px; letter-spacing: 2px;">
-                                        </div>
-                                        <div style="display: flex; gap: 10px;">
-                                            <button @click="totpSetup.step = 1" class="btn btn-secondary" style="flex:1;">Cancel</button>
-                                            <button @click="enableTotp()" class="btn btn-primary" style="flex:1;">Enable 2FA</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- Outbox Queue Board -->
                     <div class="card" style="margin-top: 30px;">
@@ -1316,6 +1265,82 @@
                                 </div>
                             </div>
                             
+                        </div>
+                    </div>
+                </div>
+
+                <!-- USER MANAGEMENT VIEW -->
+                <div x-show="activeTab === 'users'">
+                    <div class="page-header">
+                        <div>
+                            <h1 class="page-title">User Accounts</h1>
+                            <p class="page-subtitle">Create and manage local user accounts or configure permissions for external OIDC accounts.</p>
+                        </div>
+                        <button @click="openAddUserModal()" class="btn btn-primary">
+                            <i data-lucide="user-plus"></i> Create User Account
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email Address</th>
+                                        <th>Role</th>
+                                        <th>Workspace Scope</th>
+                                        <th>2FA Security</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="u in usersList" :key="u.id">
+                                        <tr>
+                                            <td style="font-weight: 600;" x-text="u.name"></td>
+                                            <td x-text="u.email"></td>
+                                            <td>
+                                                <span class="badge" 
+                                                      :class="u.role === 'super_admin' ? 'badge-danger' : (u.role === 'tenant_admin' ? 'badge-info' : (u.role === 'pending' ? 'badge-warning' : 'badge-success'))"
+                                                      x-text="u.role === 'super_admin' ? 'Super Admin' : (u.role === 'tenant_admin' ? 'Tenant Admin' : (u.role === 'pending' ? 'Awaiting Approval' : 'Tenant User'))">
+                                                </span>
+                                            </td>
+                                            <td x-text="u.tenant_name || 'Global System'"></td>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 6px;">
+                                                    <span class="badge" :class="u.totp_enabled ? 'badge-success' : 'badge-muted'" x-text="u.totp_enabled ? 'Active' : 'Disabled'"></span>
+                                                    <template x-if="u.totp_enabled && u.id !== user.id">
+                                                        <button @click="resetUser2FA(u)" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 10px;" title="Reset/Disable 2FA for this user">
+                                                            Reset 2FA
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button @click="u.is_active = !u.is_active; updateUser(u)" class="btn btn-sm" :class="u.is_active ? 'btn-secondary' : 'btn-danger'" style="padding: 4px 8px;" :disabled="u.id === user.id">
+                                                    <span x-text="u.is_active ? 'Deactivate' : 'Activate'"></span>
+                                                </button>
+                                            </td>
+                                            <td>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <button @click="openEditUserModal(u)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;">
+                                                        <i data-lucide="edit-3" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                    <button @click="deleteUser(u.id)" class="btn btn-danger btn-sm" style="padding: 4px 8px;" :disabled="u.id === user.id">
+                                                        <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="usersList.length === 0">
+                                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">
+                                            No user accounts loaded.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -1525,29 +1550,47 @@
                         
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
                             <div>
-                                <div style="display: flex; flex-direction: column; gap: 15px;">
-                                    <div class="field">
-                                        <label>Domain Name</label>
-                                        <input type="text" x-model="sslForm.domain" placeholder="e.g. newsletter.domain.com">
-                                    </div>
-                                    <div class="field">
-                                        <label>Contact Email Address</label>
-                                        <input type="email" x-model="sslForm.email" placeholder="e.g. admin@domain.com">
-                                    </div>
-                                    <div class="toggle-field" style="margin-top: 10px;">
-                                        <input type="checkbox" x-model="sslForm.use_staging" style="display:none;">
-                                        <div class="toggle-switch" @click="sslForm.use_staging = !sslForm.use_staging"></div>
-                                        <div>
-                                            <div style="font-weight:600;">Use Let's Encrypt Staging Environment</div>
-                                            <div style="font-size: 11px; color: var(--text-muted);">Recommended for testing validation before requesting official certificates.</div>
+                                <!-- If external HTTPS termination proxy is detected -->
+                                <template x-if="sslStatus.is_proxy_https">
+                                    <div style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 10px;">
+                                        <div style="font-weight: 600; color: #fff; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                                            ℹ️ External SSL Termination Active
                                         </div>
+                                        <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0;">
+                                            You are currently accessing PolyPress over an HTTPS connection terminated externally (e.g. by Nginx, Cloudflare, Traefik, or NPM proxying to port 8000). 
+                                        </p>
+                                        <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 0;">
+                                            The built-in Let's Encrypt generator is disabled because SSL is managed externally.
+                                        </p>
                                     </div>
-                                    
-                                    <button @click="generateSslCertificate()" class="btn btn-success" style="margin-top: 15px;" :disabled="sslGenerating">
-                                        <span x-show="sslGenerating">Generating Certificate...</span>
-                                        <span x-show="!sslGenerating">Request Let's Encrypt Certificate</span>
-                                    </button>
-                                </div>
+                                </template>
+
+                                <!-- Otherwise, allow requesting Let's Encrypt certs locally -->
+                                <template x-if="!sslStatus.is_proxy_https">
+                                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                                        <div class="field">
+                                            <label>Domain Name</label>
+                                            <input type="text" x-model="sslForm.domain" placeholder="e.g. newsletter.domain.com">
+                                        </div>
+                                        <div class="field">
+                                            <label>Contact Email Address</label>
+                                            <input type="email" x-model="sslForm.email" placeholder="e.g. admin@domain.com">
+                                        </div>
+                                        <div class="toggle-field" style="margin-top: 10px;">
+                                            <input type="checkbox" x-model="sslForm.use_staging" style="display:none;">
+                                            <div class="toggle-switch" @click="sslForm.use_staging = !sslForm.use_staging"></div>
+                                            <div>
+                                                <div style="font-weight:600;">Use Let's Encrypt Staging Environment</div>
+                                                <div style="font-size: 11px; color: var(--text-muted);">Recommended for testing validation before requesting official certificates.</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <button @click="generateSslCertificate()" class="btn btn-success" style="margin-top: 15px;" :disabled="sslGenerating">
+                                            <span x-show="sslGenerating">Generating Certificate...</span>
+                                            <span x-show="!sslGenerating">Request Let's Encrypt Certificate</span>
+                                        </button>
+                                    </div>
+                                </template>
                             </div>
                             
                             <div>
@@ -2172,6 +2215,165 @@
         </div>
     </div>
 
+    <!-- User Management Modal -->
+    <div x-show="userModalOpen" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="font-size: 18px;" x-text="userForm.id ? 'Edit User Details' : 'Create Local User Account'"></h3>
+                <button @click="userModalOpen = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <div class="field">
+                        <label>Full Name</label>
+                        <input type="text" x-model="userForm.name" placeholder="John Doe">
+                    </div>
+                    <div class="field">
+                        <label>Email Address</label>
+                        <input type="email" x-model="userForm.email" placeholder="john@example.com" :disabled="!!userForm.id">
+                    </div>
+                    <div class="field">
+                        <label x-text="userForm.id ? 'New Password (leave blank to keep current)' : 'Password'"></label>
+                        <input type="password" x-model="userForm.password" placeholder="••••••••">
+                    </div>
+                    <div class="field">
+                        <label>System/Workspace Role</label>
+                        <select x-model="userForm.role">
+                            <option value="tenant_user">Tenant User (Standard Access)</option>
+                            <option value="tenant_admin">Tenant Admin (Domain Manager)</option>
+                            <option value="pending">Awaiting Activation (No Access)</option>
+                            <template x-if="user.role === 'super_admin'">
+                                <option value="super_admin">Super Admin (Global System Manager)</option>
+                            </template>
+                        </select>
+                    </div>
+                    <template x-if="user.role === 'super_admin'">
+                        <div class="field">
+                            <label>Domain/Tenant Scope</label>
+                            <select x-model="userForm.tenant_id">
+                                <option value="">Global/No Tenant Context</option>
+                                <template x-for="t in tenants" :key="t.id">
+                                    <option :value="t.id" x-text="t.name" :selected="userForm.tenant_id == t.id"></option>
+                                </template>
+                            </select>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="userModalOpen = false" class="btn btn-secondary">Cancel</button>
+                <button @click="saveUser()" class="btn btn-primary">Save User Account</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- My Profile & 2FA Modal -->
+    <div x-show="profileModalOpen" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="font-size: 18px;">My Profile Settings</h3>
+                <button @click="profileModalOpen = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; flex-direction: column; gap: 20px;">
+                    <!-- Details Section -->
+                    <div>
+                        <h4 style="font-size: 14px; margin-bottom: 10px; color: var(--color-accent);">Account Details</h4>
+                        <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <div class="field">
+                                <label>Full Name</label>
+                                <input type="text" x-model="profileForm.name">
+                            </div>
+                            <div class="field">
+                                <label>Email (Cannot be modified)</label>
+                                <input type="email" :value="user.email" disabled style="opacity: 0.6;">
+                            </div>
+                            <div class="field">
+                                <label>New Password (leave blank to keep current)</label>
+                                <input type="password" x-model="profileForm.password" placeholder="••••••••">
+                            </div>
+                            <button @click="saveProfile()" class="btn btn-primary btn-sm" style="align-self: flex-start; margin-top: 5px;">Update Profile Details</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 2FA Block -->
+                    <div style="border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                        <h4 style="font-size: 14px; margin-bottom: 10px; color: var(--color-accent); display: flex; align-items: center; gap: 8px;">
+                            <i data-lucide="key-round" style="width: 16px; height: 16px;"></i> Two-Factor Authentication (2FA)
+                        </h4>
+                        
+                        <!-- If 2FA enabled -->
+                        <div x-show="user.totp_enabled">
+                            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 15px; margin-bottom: 15px; display: flex; align-items: center; gap: 12px;">
+                                <i data-lucide="shield-check" style="color: var(--color-success); width: 24px; height: 24px; flex-shrink: 0;"></i>
+                                <div style="font-size: 13px; color: var(--text-secondary);">
+                                    Two-factor authentication is active on your account.
+                                </div>
+                            </div>
+                            <div class="field" style="margin-bottom: 12px;">
+                                <label>Enter 2FA Code to Disable</label>
+                                <input type="text" x-model="totpSetup.code" placeholder="123456" maxlength="6" style="text-align: center; font-size: 18px; letter-spacing: 2px;">
+                            </div>
+                            <button @click="disableTotp()" class="btn btn-danger btn-sm" style="width: 100%;">Disable 2FA Security</button>
+                        </div>
+                        
+                        <!-- If 2FA disabled -->
+                        <div x-show="!user.totp_enabled">
+                            <div x-show="totpSetup.step === 1">
+                                <button @click="initiateTotpSetup()" class="btn btn-primary btn-sm" style="width: 100%;">Configure 2FA Protection</button>
+                            </div>
+                            <div x-show="totpSetup.step === 2" style="display: none;">
+                                <div style="display: flex; flex-direction: column; gap: 12px;">
+                                    <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
+                                        1. Scan the connection string or backup key in your Authenticator app:
+                                    </p>
+                                    <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; font-family: monospace; text-align: center; word-break: break-all;">
+                                        <span style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 2px;">Authenticator Backup Secret</span>
+                                        <span style="font-size: 14px; font-weight: 700; color: var(--color-accent);" x-text="totpSetup.secret"></span>
+                                    </div>
+                                    <div style="font-size: 10px; color: var(--text-muted); word-break: break-all; background: rgba(255,255,255,0.02); padding: 6px; border-radius: 4px; max-height: 60px; overflow-y: auto;">
+                                        <strong>Key Link:</strong> <span x-text="totpSetup.uri"></span>
+                                    </div>
+                                    <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
+                                        2. Enter the generated 6-digit verification code below to confirm setup:
+                                    </p>
+                                    <div class="field">
+                                        <label>Verification Code</label>
+                                        <input type="text" x-model="totpSetup.code" placeholder="123456" maxlength="6" style="text-align: center; font-size: 18px; letter-spacing: 2px;">
+                                    </div>
+                                    <div style="display: flex; gap: 10px;">
+                                        <button @click="totpSetup.step = 1" class="btn btn-secondary btn-sm" style="flex:1;">Cancel</button>
+                                        <button @click="enableTotp()" class="btn btn-primary btn-sm" style="flex:1;">Confirm & Enable</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="profileModalOpen = false" class="btn btn-secondary">Close Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Awaiting Approval Lock Screen -->
+    <div x-show="authenticated && user.role === 'pending'" class="login-container" style="display: none; position: fixed; inset: 0; background: #0b111e; z-index: 9999; justify-content: center; align-items: center;">
+        <div class="login-card" style="max-width: 480px;">
+            <div style="font-size: 48px; margin-bottom: 20px;">🔒</div>
+            <h1 class="login-title">Account Awaiting Approval</h1>
+            <p class="login-subtitle" style="margin-bottom: 20px;">Your registration request was recorded successfully.</p>
+            <div style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 15px; margin-bottom: 25px; text-align: left;">
+                <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0;">
+                    Your account (<strong><span x-text="user.email"></span></strong>) is currently pending verification from a system administrator. Please contact your administrator to assign your tenant workspace and activate your access privileges.
+                </p>
+            </div>
+            <button @click="handleLogout()" class="btn btn-secondary" style="width: 100%;">
+                <i data-lucide="log-out"></i> Return to Sign In
+            </button>
+        </div>
+    </div>
+
     <!-- Scripting Business Logic -->
     <script>
         function compileBlocksToHtml(blocks) {
@@ -2337,6 +2539,15 @@
                 listForm: { name: '', description: '' },
                 tenantForm: { name: '', generate_dkim: true },
                 subscriberForm: { email: '', name: '', custom_data: {} },
+                
+                // Host admin & user management state
+                hostAdminMode: true,
+                activeTenantId: localStorage.getItem('polypress_active_tenant') || null,
+                usersList: [],
+                userForm: { id: null, email: '', name: '', password: '', role: 'tenant_user', tenant_id: null },
+                userModalOpen: false,
+                profileModalOpen: false,
+                profileForm: { name: '', password: '' },
                 
                 // Session details
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
@@ -2873,17 +3084,47 @@
                         this.user = data;
                         this.authenticated = true;
                         
-                        // Load primary datasets
-                        await this.fetchTenant();
-                        await this.fetchCampaigns();
-                        await this.fetchLists();
+                        // Handle pending approval block
+                        if (this.user.role === 'pending') {
+                            this.switchTab('pending_approval');
+                            return;
+                        }
+                        
+                        // Retrieve saved host admin mode preference
+                        const savedHostMode = localStorage.getItem('polypress_host_admin_mode');
+                        if (savedHostMode !== null) {
+                            this.hostAdminMode = savedHostMode === 'true';
+                        } else {
+                            this.hostAdminMode = this.user.role === 'super_admin';
+                        }
+                        
                         if (this.user.role === 'super_admin') {
                             await this.fetchTenants();
                             await this.fetchGlobalSettings();
                             await this.fetchUpdateStatus();
+                            
+                            // Load saved tenant context if in client mode
+                            if (!this.hostAdminMode) {
+                                const savedTenant = localStorage.getItem('polypress_active_tenant');
+                                if (savedTenant) {
+                                    this.activeTenantId = parseInt(savedTenant);
+                                } else if (this.tenants.length > 0) {
+                                    this.activeTenantId = this.tenants[0].id;
+                                }
+                            }
                         }
                         
+                        // Load context details
+                        if (this.user.role === 'super_admin' && this.hostAdminMode) {
+                            this.tenant = { name: 'PolyPress Console' };
+                        } else {
+                            await this.fetchTenant();
+                        }
+                        
+                        await this.fetchCampaigns();
+                        await this.fetchLists();
                         await this.loadDashboardMetrics();
+                        
                         this.switchTab('dashboard');
                     } catch(e) {
                         this.handleLogout();
@@ -2891,10 +3132,222 @@
                 },
                 
                 getAuthHeaders() {
-                    return {
+                    const headers = {
                         'Authorization': `Bearer ${this.token}`,
                         'Content-Type': 'application/json'
                     };
+                    if (this.user && this.user.role === 'super_admin' && !this.hostAdminMode && this.activeTenantId) {
+                        headers['X-PolyPress-Tenant-Id'] = String(this.activeTenantId);
+                    }
+                    return headers;
+                },
+                
+                toggleHostAdminMode() {
+                    this.hostAdminMode = !this.hostAdminMode;
+                    localStorage.setItem('polypress_host_admin_mode', this.hostAdminMode);
+                    
+                    // Reset selected context if switching back to host admin mode
+                    if (this.hostAdminMode) {
+                        this.activeTenantId = null;
+                        this.tenant = { name: 'PolyPress Console' };
+                        this.switchTab('dashboard');
+                        this.fetchTenants();
+                        this.fetchGlobalSettings();
+                    } else {
+                        // Switching to client workspace mode: select first tenant if any
+                        if (this.tenants.length > 0 && !this.activeTenantId) {
+                            this.activeTenantId = this.tenants[0].id;
+                        }
+                        this.changeActiveTenantContext();
+                    }
+                    setTimeout(() => lucide.replace(), 100);
+                },
+                
+                async changeActiveTenantContext() {
+                    if (this.activeTenantId) {
+                        localStorage.setItem('polypress_active_tenant', this.activeTenantId);
+                    } else {
+                        localStorage.removeItem('polypress_active_tenant');
+                    }
+                    
+                    try {
+                        const res = await fetch('/api/tenants/my', { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.tenant = await res.json();
+                        } else {
+                            this.tenant = { name: 'Client Context' };
+                        }
+                    } catch(e) {
+                        this.tenant = { name: 'Client Context' };
+                    }
+                    
+                    // Re-load data in selected tenant context
+                    await this.fetchCampaigns();
+                    await this.fetchLists();
+                    await this.loadDashboardMetrics();
+                    
+                    this.switchTab('dashboard');
+                    setTimeout(() => lucide.replace(), 100);
+                },
+
+                // User Management CRUD Actions
+                async fetchUsers() {
+                    try {
+                        const res = await fetch('/api/admin/users', { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.usersList = await res.json();
+                        }
+                        setTimeout(() => lucide.replace(), 50);
+                    } catch(e) {
+                        this.showToast('Failed to load user list', 'error');
+                    }
+                },
+                
+                openAddUserModal() {
+                    this.userForm = { id: null, email: '', name: '', password: '', role: 'tenant_user', tenant_id: this.activeTenantId || this.user.tenant_id };
+                    this.userModalOpen = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                openEditUserModal(user) {
+                    this.userForm = { 
+                        id: user.id, 
+                        email: user.email, 
+                        name: user.name, 
+                        password: '', 
+                        role: user.role, 
+                        tenant_id: user.tenant_id 
+                    };
+                    this.userModalOpen = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async saveUser() {
+                    if (!this.userForm.email || !this.userForm.name) {
+                        this.showToast('Name and email are required', 'error');
+                        return;
+                    }
+                    if (!this.userForm.id && !this.userForm.password) {
+                        this.showToast('Password is required for new users', 'error');
+                        return;
+                    }
+                    
+                    try {
+                        const isEdit = !!this.userForm.id;
+                        const url = isEdit ? `/api/admin/users/${this.userForm.id}` : '/api/admin/users';
+                        const method = isEdit ? 'PUT' : 'POST';
+                        
+                        const res = await fetch(url, {
+                            method: method,
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.userForm)
+                        });
+                        
+                        if (res.ok) {
+                            this.showToast(isEdit ? 'User updated successfully' : 'User created successfully');
+                            this.userModalOpen = false;
+                            await this.fetchUsers();
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Failed to save user');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async updateUser(user) {
+                    try {
+                        const res = await fetch(`/api/admin/users/${user.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(user)
+                        });
+                        if (res.ok) {
+                            this.showToast('User updated');
+                            await this.fetchUsers();
+                        } else {
+                            throw new Error('Failed to update user');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                        await this.fetchUsers();
+                    }
+                },
+                
+                async deleteUser(userId) {
+                    if (!confirm('Are you sure you want to delete this user?')) return;
+                    try {
+                        const res = await fetch(`/api/admin/users/${userId}`, {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('User deleted successfully');
+                            await this.fetchUsers();
+                        } else {
+                            const err = await res.json();
+                            throw new Error(err.detail || 'Failed to delete user');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async resetUser2FA(user) {
+                    if (!confirm(`Are you sure you want to reset 2FA for ${user.name}? They will be able to log in without a 2FA prompt.`)) return;
+                    try {
+                        const res = await fetch(`/api/admin/users/${user.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({ reset_2fa: true })
+                        });
+                        if (res.ok) {
+                            this.showToast('2FA has been disabled for this user');
+                            await this.fetchUsers();
+                        } else {
+                            throw new Error('Failed to reset 2FA');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                // Profile Settings Actions
+                openProfileModal() {
+                    this.profileForm = { name: this.user.name, password: '' };
+                    this.totpSetup.step = 1;
+                    this.profileModalOpen = true;
+                    setTimeout(() => lucide.replace(), 50);
+                },
+                
+                async saveProfile() {
+                    if (!this.profileForm.name) {
+                        this.showToast('Name cannot be empty', 'error');
+                        return;
+                    }
+                    try {
+                        const payload = { name: this.profileForm.name };
+                        if (this.profileForm.password) {
+                            payload.password = this.profileForm.password;
+                        }
+                        
+                        const res = await fetch(`/api/admin/users/${this.user.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(payload)
+                        });
+                        
+                        if (res.ok) {
+                            this.showToast('Profile updated successfully');
+                            this.user.name = this.profileForm.name;
+                            this.profileModalOpen = false;
+                        } else {
+                            throw new Error('Failed to update profile');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
                 },
                 
                 async fetchTenant() {
@@ -3220,6 +3673,8 @@
                         this.fetchSslStatus();
                         this.fetchBackups();
                         this.fetchUpdateStatus();
+                    } else if (tab === 'users') {
+                        this.fetchUsers();
                     }
                 },
 

@@ -67,12 +67,27 @@ def run_setup(payload: dict, db: Session = Depends(get_db)):
     if not settings:
         settings = GlobalSettings(
             app_name=app_name,
-            public_url=payload.get("public_url")
+            public_url=payload.get("public_url"),
+            oidc_enabled=payload.get("oidc_enabled", False),
+            oidc_issuer=payload.get("oidc_issuer"),
+            oidc_client_id=payload.get("oidc_client_id"),
+            oidc_client_secret=payload.get("oidc_client_secret"),
+            oidc_redirect_url=payload.get("oidc_redirect_url")
         )
         db.add(settings)
     else:
         settings.app_name = app_name
         settings.public_url = payload.get("public_url")
+        if "oidc_enabled" in payload:
+            settings.oidc_enabled = payload["oidc_enabled"]
+        if "oidc_issuer" in payload:
+            settings.oidc_issuer = payload["oidc_issuer"]
+        if "oidc_client_id" in payload:
+            settings.oidc_client_id = payload["oidc_client_id"]
+        if "oidc_client_secret" in payload:
+            settings.oidc_client_secret = payload["oidc_client_secret"]
+        if "oidc_redirect_url" in payload:
+            settings.oidc_redirect_url = payload["oidc_redirect_url"]
     db.commit()
     
     # Create Super Admin User

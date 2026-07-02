@@ -15,7 +15,7 @@ from bounce_worker import bounce_worker_loop
 from update_worker import auto_update_worker_loop
 
 # Import routers
-from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes
+from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes, user_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("polypress")
@@ -119,6 +119,7 @@ app.include_router(ssl_routes.router)
 app.include_router(developer_routes.router)
 app.include_router(backup_routes.router)
 app.include_router(update_routes.router)
+app.include_router(user_routes.router)
 
 # Mount branding folder for custom assets
 BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))

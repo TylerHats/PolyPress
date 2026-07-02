@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 import os
-from database import get_db, User
+from database import get_db, User, GlobalSettings
 import auth
 from acme_helper import ACMEClient, acme_log_buffer, clear_acme_logs, log_progress
 from cryptography import x509
@@ -12,12 +12,28 @@ BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CERTS_DIR = os.path.join(BASE_DIR, "certs")
 
 @router.get("/status")
-def get_ssl_status(current_user: User = Depends(auth.require_super_admin)):
+def get_ssl_status(request: Request, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    is_proxy_https = False
+    
+    # 1. Check header
+    if request.headers.get("x-forwarded-proto") == "https":
+        is_proxy_https = True
+        
+    # 2. Check public_url
+    settings = db.query(GlobalSettings).first()
+    if settings and settings.public_url and settings.public_url.lower().startswith("https://"):
+        is_proxy_https = True
+
     priv_key_path = os.path.join(CERTS_DIR, "privkey.pem")
     cert_path = os.path.join(CERTS_DIR, "fullchain.pem")
     
+    status_payload = {
+        "configured": False,
+        "is_proxy_https": is_proxy_https
+    }
+    
     if not os.path.exists(priv_key_path) or not os.path.exists(cert_path):
-        return {"configured": False}
+        return status_payload
         
     try:
         with open(cert_path, "rb") as f:
@@ -31,14 +47,16 @@ def get_ssl_status(current_user: User = Depends(auth.require_super_admin)):
         issuer = cert.issuer.rfc4514_string()
         subject = cert.subject.rfc4514_string()
         
-        return {
+        status_payload.update({
             "configured": True,
             "expiry": expiry.isoformat(),
             "issuer": issuer,
             "subject": subject
-        }
+        })
+        return status_payload
     except Exception as e:
-        return {"configured": False, "error": str(e)}
+        status_payload.update({"error": str(e)})
+        return status_payload
 
 @router.post("/generate")
 def generate_ssl_certificate(payload: dict, current_user: User = Depends(auth.require_super_admin)):
