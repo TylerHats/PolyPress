@@ -315,13 +315,13 @@
 
             <!-- Dashboard body contents -->
             <div class="content-body">
-                <div x-html="templates.dashboard" x-show="activeTab === dashboard"></div>
-                <div x-html="templates.campaigns" x-show="activeTab === campaigns"></div>
-                <div x-html="templates.subscribers" x-show="activeTab === lists"></div>
-                <div x-html="templates.settings" x-show="activeTab === settings"></div>
-                <div x-html="templates.users" x-show="activeTab === users"></div>
-                <div x-html="templates.reports" x-show="activeTab === reports"></div>
-                <div x-html="templates.admin" x-show="activeTab === admin"></div>
+                <div x-html="templates.dashboard" x-show="activeTab === 'dashboard'"></div>
+                <div x-html="templates.campaigns" x-show="activeTab === 'campaigns'"></div>
+                <div x-html="templates.subscribers" x-show="activeTab === 'lists'"></div>
+                <div x-html="templates.settings" x-show="activeTab === 'settings'"></div>
+                <div x-html="templates.users" x-show="activeTab === 'users'"></div>
+                <div x-html="templates.reports" x-show="activeTab === 'reports'"></div>
+                <div x-html="templates.admin" x-show="activeTab === 'admin'"></div>
             </div>
 
 
