@@ -60,7 +60,7 @@ def create_user(payload: dict, db: Session = Depends(get_db), current_user: User
         password_hash=auth.hash_password(password),
         role=role,
         tenant_id=tenant_id,
-        is_active=True
+        is_active=payload.get("is_active", True)
     )
     db.add(user)
     db.commit()

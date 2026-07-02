@@ -37,7 +37,8 @@ def create_subscriber_list(payload: dict, db: Session = Depends(get_db), current
         tenant_id=current_user.tenant_id,
         name=name,
         description=payload.get("description"),
-        custom_fields=payload.get("custom_fields", [])
+        custom_fields=payload.get("custom_fields", []),
+        form_settings=payload.get("form_settings", {})
     )
     db.add(sub_list)
     db.commit()
@@ -56,6 +57,7 @@ def update_subscriber_list(list_id: int, payload: dict, db: Session = Depends(ge
     sub_list.name = payload.get("name", sub_list.name)
     sub_list.description = payload.get("description", sub_list.description)
     sub_list.custom_fields = payload.get("custom_fields", sub_list.custom_fields)
+    sub_list.form_settings = payload.get("form_settings", sub_list.form_settings)
     
     db.commit()
     db.refresh(sub_list)

@@ -565,7 +565,7 @@
                                                             <div :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#334155') + '; font-size:' + (b.left.size || '15px')" x-text="b.left.text"></div>
                                                         </template>
                                                         <template x-if="b.left.type === 'heading'">
-                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#1e293b') + '; font-size:' + (b.left.size || '22px'); margin: 0 0 10px 0;" x-text="b.left.text"></h3>
+                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#1e293b') + '; font-size:' + (b.left.size || '22px') + '; margin: 0 0 10px 0;'" x-text="b.left.text"></h3>
                                                         </template>
                                                         <template x-if="b.left.type === 'image'">
                                                             <img :src="b.left.url || 'https://picsum.photos/300/150'" :alt="b.left.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
@@ -581,7 +581,7 @@
                                                             <div :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#334155') + '; font-size:' + (b.right.size || '15px')" x-text="b.right.text"></div>
                                                         </template>
                                                         <template x-if="b.right.type === 'heading'">
-                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#1e293b') + '; font-size:' + (b.right.size || '22px'); margin: 0 0 10px 0;" x-text="b.right.text"></h3>
+                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#1e293b') + '; font-size:' + (b.right.size || '22px') + '; margin: 0 0 10px 0;'" x-text="b.right.text"></h3>
                                                         </template>
                                                         <template x-if="b.right.type === 'image'">
                                                             <img :src="b.right.url || 'https://picsum.photos/300/150'" :alt="b.right.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
@@ -2091,11 +2091,24 @@
                 <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
                     Create subscriber attributes that vary domain-to-domain (e.g. City, Age, Gender).
                 </p>
+
+                <!-- Signup Form Validation Constraints -->
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px; margin-bottom: 20px;" x-show="fieldsListTarget.form_settings">
+                    <h4 style="font-size:13px; margin-bottom: 10px;">Standard Field Configuration</h4>
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; color: var(--color-accent); user-select: none;">
+                        <input type="checkbox" x-model="fieldsListTarget.form_settings.name_required" style="width: 16px; height: 16px; cursor: pointer;">
+                        Make "Name" field required on sign-up form
+                    </label>
+                </div>
+
                 <div style="max-height: 250px; overflow-y: auto; margin-bottom: 20px;">
                     <template x-for="(f, idx) in fieldsListTarget.custom_fields" :key="idx">
                         <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
                             <input type="text" x-model="f.label" placeholder="Label (e.g. City)" style="flex: 2;">
                             <input type="text" x-model="f.key" placeholder="Key (e.g. city)" style="flex: 2;" disabled>
+                            <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; user-select: none; flex-shrink: 0;">
+                                <input type="checkbox" x-model="f.required" style="width: 14px; height: 14px;"> Required
+                            </label>
                             <button @click="fieldsListTarget.custom_fields.splice(idx, 1)" class="btn btn-danger btn-sm" style="padding: 6px;"><i data-lucide="trash-2" style="width: 14px;"></i></button>
                         </div>
                     </template>
@@ -2106,9 +2119,12 @@
 
                 <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px;">
                     <h4 style="font-size:13px; margin-bottom: 10px;">Add Custom Attribute</h4>
-                    <div style="display: flex; gap: 10px;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
                         <input type="text" x-model="newField.label" placeholder="Label (e.g. Gender)" style="flex:1;">
                         <input type="text" x-model="newField.key" placeholder="Database key (e.g. gender)" style="flex:1;">
+                        <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; user-select: none; flex-shrink: 0;">
+                            <input type="checkbox" x-model="newField.required" style="width: 14px; height: 14px;"> Required
+                        </label>
                         <button @click="addCustomFieldToListSchema()" class="btn btn-secondary btn-sm">Add</button>
                     </div>
                 </div>
@@ -2374,9 +2390,9 @@
                 </div>
                 <!-- Future Scheduling Options -->
                 <div style="margin-top: 15px; text-align: left; background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px;">
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;" :style="launchScheduling.enabled ? 'margin-bottom: 10px;' : 'margin-bottom: 0;'">
                         <input type="checkbox" id="enable-scheduling" x-model="launchScheduling.enabled" style="width: 16px; height: 16px; cursor: pointer;">
-                        <label for="enable-scheduling" style="font-weight: 600; cursor: pointer; color: var(--color-accent);">Schedule for Future Date/Time</label>
+                        <label for="enable-scheduling" style="font-weight: 600; cursor: pointer; color: var(--color-accent); margin: 0;">Schedule for Future Date/Time</label>
                     </div>
                     
                     <div x-show="launchScheduling.enabled" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -2589,6 +2605,13 @@
                             <template x-if="user.role === 'super_admin'">
                                 <option value="super_admin">Super Admin (Global System Manager)</option>
                             </template>
+                        </select>
+                    </div>
+                    <div class="field" x-show="userForm.id !== user.id">
+                        <label>Account Status</label>
+                        <select x-model="userForm.is_active" @change="userForm.is_active = $event.target.value === 'true'">
+                            <option value="true" :selected="userForm.is_active === true">Active / Enabled</option>
+                            <option value="false" :selected="userForm.is_active === false">Inactive / Disabled</option>
                         </select>
                     </div>
                     <template x-if="user.role === 'super_admin'">
@@ -3563,6 +3586,7 @@
                     this.authenticated = false;
                     this.user = {};
                     this.tenant = {};
+                    this.loginForm = { email: '', password: '' };
                     this.showToast('Signed out successfully.');
                 },
                 
@@ -4228,62 +4252,71 @@
                 },
                 
                 renderMetricsChart(sentCampaigns) {
-                    const ctx = document.getElementById('dashboardChart');
-                    if (!ctx) return;
-                    
-                    if (this.dashboardChart) {
-                        this.dashboardChart.destroy();
-                    }
-                    
-                    // Prepare data coordinates
-                    const reversed = [...sentCampaigns].reverse().slice(-7);
-                    const labels = reversed.map(c => c.name);
-                    const opensData = reversed.map(c => c.open_count);
-                    const clicksData = reversed.map(c => c.click_count);
-                    
-                    this.dashboardChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels.length ? labels : ['No Data'],
-                            datasets: [
-                                {
-                                    label: 'Email Opens',
-                                    data: opensData.length ? opensData : [0],
-                                    borderColor: '#10b981',
-                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                                    tension: 0.3,
-                                    fill: true
-                                },
-                                {
-                                    label: 'Link Clicks',
-                                    data: clicksData.length ? clicksData : [0],
-                                    borderColor: '#6366f1',
-                                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                                    tension: 0.3,
-                                    fill: true
-                                }
-                            ]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: {
-                                    labels: { color: '#94a3b8' }
-                                }
-                            },
-                            scales: {
-                                y: {
-                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                    ticks: { color: '#94a3b8' }
-                                },
-                                x: {
-                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                    ticks: { color: '#94a3b8' }
-                                }
-                            }
+                    setTimeout(() => {
+                        const ctx = document.getElementById('dashboardChart');
+                        if (!ctx) return;
+                        
+                        if (this.dashboardChart) {
+                            try {
+                                this.dashboardChart.destroy();
+                            } catch(e) {}
+                            this.dashboardChart = null;
                         }
-                    });
+                        
+                        // Prepare data coordinates
+                        const reversed = [...sentCampaigns].reverse().slice(-7);
+                        const labels = reversed.map(c => c.name);
+                        const opensData = reversed.map(c => c.open_count);
+                        const clicksData = reversed.map(c => c.click_count);
+                        
+                        try {
+                            this.dashboardChart = new Chart(ctx, {
+                                type: 'line',
+                                data: {
+                                    labels: labels.length ? labels : ['No Data'],
+                                    datasets: [
+                                        {
+                                            label: 'Email Opens',
+                                            data: opensData.length ? opensData : [0],
+                                            borderColor: '#10b981',
+                                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                            tension: 0.3,
+                                            fill: true
+                                        },
+                                        {
+                                            label: 'Link Clicks',
+                                            data: clicksData.length ? clicksData : [0],
+                                            borderColor: '#6366f1',
+                                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                                            tension: 0.3,
+                                            fill: true
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: {
+                                        legend: {
+                                            labels: { color: '#94a3b8' }
+                                        }
+                                    },
+                                    scales: {
+                                        y: {
+                                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                            ticks: { color: '#94a3b8' }
+                                        },
+                                        x: {
+                                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                            ticks: { color: '#94a3b8' }
+                                        }
+                                    }
+                                }
+                            });
+                        } catch(e) {
+                            console.error("Chart creation error: ", e);
+                        }
+                    }, 50);
                 },
                 
                 // Create Campaign Actions
@@ -4380,7 +4413,10 @@
                 // Schema control
                 openEditListFieldsModal(list) {
                     this.fieldsListTarget = JSON.parse(JSON.stringify(list)); // deep clone
-                    this.newField = { label: '', key: '' };
+                    if (!this.fieldsListTarget.form_settings) {
+                        this.fieldsListTarget.form_settings = { name_required: false };
+                    }
+                    this.newField = { label: '', key: '', required: false };
                     this.modals.editFields = true;
                     this.refreshIcons();
                 },
@@ -4400,8 +4436,8 @@
                         return;
                     }
                     
-                    this.fieldsListTarget.custom_fields.push({ key, label, type: 'text' });
-                    this.newField = { label: '', key: '' };
+                    this.fieldsListTarget.custom_fields.push({ key, label, type: 'text', required: !!this.newField.required });
+                    this.newField = { label: '', key: '', required: false };
                     this.refreshIcons();
                 },
                 
@@ -4413,7 +4449,8 @@
                             body: JSON.stringify({
                                 name: this.fieldsListTarget.name,
                                 description: this.fieldsListTarget.description,
-                                custom_fields: this.fieldsListTarget.custom_fields
+                                custom_fields: this.fieldsListTarget.custom_fields,
+                                form_settings: this.fieldsListTarget.form_settings
                             })
                         });
                         if (res.ok) {

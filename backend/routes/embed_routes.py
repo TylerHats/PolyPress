@@ -295,6 +295,11 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
         
     tenant = db.query(Tenant).filter(Tenant.id == sub_list.tenant_id).first()
     
+    # Check form_settings for name requirement
+    name_required = False
+    if sub_list.form_settings:
+        name_required = sub_list.form_settings.get("name_required", False)
+        
     # Generate form inputs dynamically for custom fields
     custom_inputs = ""
     if sub_list.custom_fields:
@@ -302,11 +307,15 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
             key = field.get("key")
             label = field.get("label", key.capitalize())
             ftype = field.get("type", "text")
+            required = field.get("required", False)
+            
+            req_attr = "required" if required else ""
+            req_star = " *" if required else ""
             
             custom_inputs += f"""
             <div class="form-group">
-                <label for="custom_{key}">{label}</label>
-                <input type="{ftype}" id="custom_{key}" name="custom_{key}" placeholder="Enter your {label.lower()}">
+                <label for="custom_{key}">{label}{req_star}</label>
+                <input type="{ftype}" id="custom_{key}" name="custom_{key}" placeholder="Enter your {label.lower()}" {req_attr}>
             </div>
             """
             
@@ -330,8 +339,8 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
                     <input type="email" id="email" name="email" required placeholder="you@example.com">
                 </div>
                 <div class="form-group">
-                    <label for="name">Name</label>
-                    <input type="text" id="name" name="name" placeholder="Your Name">
+                    <label for="name">Name{" *" if name_required else ""}</label>
+                    <input type="text" id="name" name="name" placeholder="Your Name" {"required" if name_required else ""}>
                 </div>
                 {custom_inputs}
                 <button type="submit" class="btn">Subscribe</button>
@@ -358,12 +367,26 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
     if not email or "@" not in email:
         return HTMLResponse("<h2>Invalid email address</h2>", status_code=400)
         
+    # Check form_settings for name requirement
+    name_required = False
+    if sub_list.form_settings:
+        name_required = sub_list.form_settings.get("name_required", False)
+        
+    if name_required and not name:
+        return HTMLResponse("<h2>Name is a required field</h2>", status_code=400)
+        
     # Extract custom values
     custom_data = {}
     if sub_list.custom_fields:
         for field in sub_list.custom_fields:
             key = field.get("key")
+            label = field.get("label", key.capitalize())
+            required = field.get("required", False)
             form_val = form_data.get(f"custom_{key}")
+            
+            if required and not form_val:
+                return HTMLResponse(f"<h2>{label} is a required field</h2>", status_code=400)
+                
             if form_val is not None:
                 custom_data[key] = form_val
                 

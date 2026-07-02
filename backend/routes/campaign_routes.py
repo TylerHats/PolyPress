@@ -340,7 +340,8 @@ def preview_campaign(
         custom_data={"city": "Metropolis", "company": "Daily Planet"}
     )
     
-    tracking_domain = f"{request.base_url.scheme}://{request.base_url.netloc}".rstrip("/")
+    scheme = request.headers.get("x-forwarded-proto", request.base_url.scheme)
+    tracking_domain = f"{scheme}://{request.base_url.netloc}".rstrip("/")
     rendered = render_email_template(
         body_html=campaign.body_html,
         subscriber=mock_sub,

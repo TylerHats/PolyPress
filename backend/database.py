@@ -15,7 +15,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 
@@ -115,6 +115,7 @@ class SubscriberList(Base):
     # JSON definition of subscriber attributes (e.g. city, gender, etc.)
     # Format: [{"key": "city", "label": "City", "type": "text"}]
     custom_fields = Column(JSON, default=list)
+    form_settings = Column(JSON, default=dict)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     
