@@ -125,7 +125,8 @@
                                         <div style="font-weight: 600; color: var(--color-primary); margin-bottom: 6px; border-bottom: 1px solid var(--border-glass); padding-bottom: 4px;">Your System</div>
                                         <div><strong>Current Tag:</strong> <span style="font-family: monospace;" x-text="updateStatus.current_tag || 'None/Untagged'"></span></div>
                                         <div style="margin-top: 4px;"><strong>Current Commit:</strong> <span style="font-family: monospace;" x-text="updateStatus.current_commit || 'Unknown'"></span></div>
-                                        <div style="margin-top: 4px;"><strong>DB Schema Version:</strong> <span style="font-family: monospace;" x-text="updateStatus.db_schema_version || 'Unknown'"></span></div>
+                                        <div style="margin-top: 4px;"><strong>DB Schema (Main):</strong> <span style="font-family: monospace;" x-text="updateStatus.db_schema_version || 'Unknown'"></span></div>
+                                        <div style="margin-top: 4px;"><strong>DB Schema (Reports):</strong> <span style="font-family: monospace;" x-text="updateStatus.db_history_schema_version || 'Unknown'"></span></div>
                                     </div>
                                     <div>
                                         <div style="font-weight: 600; color: var(--color-success); margin-bottom: 6px; border-bottom: 1px solid var(--border-glass); padding-bottom: 4px;">Latest Online</div>

@@ -68,7 +68,8 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
         "auto_update": auto_update,
         "is_systemd": is_systemd,
         "is_docker": is_docker,
-        "db_schema_version": database.DB_SCHEMA_VERSION
+        "db_schema_version": database.DB_SCHEMA_VERSION,
+        "db_history_schema_version": database.DB_HISTORY_SCHEMA_VERSION
     }
 
 @router.post("/check")
@@ -117,7 +118,9 @@ def get_schema_status():
     return {
         "schema_mismatch": database.SCHEMA_MISMATCH,
         "current_code_version": database.CURRENT_SCHEMA_VERSION,
-        "db_schema_version": database.DB_SCHEMA_VERSION
+        "db_schema_version": database.DB_SCHEMA_VERSION,
+        "current_history_code_version": database.CURRENT_HISTORY_SCHEMA_VERSION,
+        "db_history_schema_version": database.DB_HISTORY_SCHEMA_VERSION
     }
 
 @router.post("/bypass-schema-check")

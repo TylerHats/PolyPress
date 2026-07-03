@@ -18,6 +18,8 @@ Base = declarative_base()
 CURRENT_SCHEMA_VERSION = 3
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
+CURRENT_HISTORY_SCHEMA_VERSION = 1
+DB_HISTORY_SCHEMA_VERSION = 0
 
 class GlobalSettings(Base):
     __tablename__ = "global_settings"
@@ -296,6 +298,11 @@ class HistoricalMetric(HistoryBase):
     link_clicks = Column(Integer, default=0)
     bounces = Column(Integer, default=0)
 
+class HistorySettings(HistoryBase):
+    __tablename__ = "history_settings"
+    id = Column(Integer, primary_key=True)
+    schema_version = Column(Integer, default=CURRENT_HISTORY_SCHEMA_VERSION)
+
 def get_history_db():
     db = HistorySessionLocal()
     try:
@@ -311,7 +318,7 @@ def get_db():
         db.close()
 
 def init_db():
-    global SCHEMA_MISMATCH, DB_SCHEMA_VERSION
+    global SCHEMA_MISMATCH, DB_SCHEMA_VERSION, DB_HISTORY_SCHEMA_VERSION
     
     # 0. Storage Write Permissions Diagnostics Check
     if DATABASE_URL.startswith("sqlite:///"):
@@ -364,14 +371,36 @@ def init_db():
     except Exception as e:
         print(f"Error checking DB schema version: {e}")
         
+    # 2.5 Check if history_schema_version exists in history database
+    db_history_schema_version = 1
+    try:
+        with history_engine.begin() as conn:
+            # Check history_settings table info
+            res = conn.execute(text("PRAGMA table_info(history_settings)")).fetchall()
+            cols = [r[1] for r in res]
+            
+            if "schema_version" not in cols:
+                conn.execute(text("ALTER TABLE history_settings ADD COLUMN schema_version INTEGER DEFAULT 1"))
+                
+            res_val = conn.execute(text("SELECT schema_version FROM history_settings LIMIT 1")).fetchone()
+            if res_val is None:
+                conn.execute(text(f"INSERT INTO history_settings (schema_version) VALUES ({CURRENT_HISTORY_SCHEMA_VERSION})"))
+                db_history_schema_version = CURRENT_HISTORY_SCHEMA_VERSION
+            else:
+                db_history_schema_version = int(res_val[0])
+            DB_HISTORY_SCHEMA_VERSION = db_history_schema_version
+    except Exception as e:
+        print(f"Error checking History DB version: {e}")
+        
     # 3. Mismatch check
-    if db_schema_version > CURRENT_SCHEMA_VERSION:
-        print(f"CRITICAL ERROR: Database version ({db_schema_version}) is newer than code version ({CURRENT_SCHEMA_VERSION})!")
+    if db_schema_version > CURRENT_SCHEMA_VERSION or db_history_schema_version > CURRENT_HISTORY_SCHEMA_VERSION:
+        print(f"CRITICAL ERROR: Main Database version ({db_schema_version}) or History Database version ({db_history_schema_version}) is newer than code versions ({CURRENT_SCHEMA_VERSION} / {CURRENT_HISTORY_SCHEMA_VERSION})!")
         SCHEMA_MISMATCH = True
         DB_SCHEMA_VERSION = db_schema_version
+        DB_HISTORY_SCHEMA_VERSION = db_history_schema_version
         return  # Block migrations and initialization
         
-    # 4. If compatible, run dynamic column reconciliation
+    # 4. If compatible, run dynamic column reconciliation for main database
     try:
         with engine.begin() as conn:
             inspector = inspect(engine)
@@ -417,6 +446,52 @@ def init_db():
             DB_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
     except Exception as migration_error:
         print(f"Database migration error: {migration_error}")
+
+    # 4.5. If compatible, run dynamic column reconciliation for History DB
+    try:
+        with history_engine.begin() as conn:
+            inspector = inspect(history_engine)
+            for table_name, table_obj in HistoryBase.metadata.tables.items():
+                if not inspector.has_table(table_name):
+                    continue
+                
+                existing_cols = {col["name"].lower(): col for col in inspector.get_columns(table_name)}
+                
+                for col_name, col_obj in table_obj.columns.items():
+                    if col_name.lower() not in existing_cols:
+                        col_type_str = str(col_obj.type).split('(')[0]
+                        if "VARCHAR" in col_type_str.upper() or "STRING" in col_type_str.upper():
+                            col_type_str = "VARCHAR"
+                        elif "BOOLEAN" in col_type_str.upper():
+                            col_type_str = "BOOLEAN"
+                        elif "INTEGER" in col_type_str.upper():
+                            col_type_str = "INTEGER"
+                        elif "TEXT" in col_type_str.upper():
+                            col_type_str = "TEXT"
+                        elif "JSON" in col_type_str.upper():
+                            col_type_str = "JSON"
+                        elif "DATETIME" in col_type_str.upper():
+                            col_type_str = "DATETIME"
+                        
+                        default_clause = ""
+                        if col_obj.default is not None:
+                            if hasattr(col_obj.default, 'arg') and not callable(col_obj.default.arg):
+                                arg = col_obj.default.arg
+                                if isinstance(arg, bool):
+                                    default_clause = f" DEFAULT {1 if arg else 0}"
+                                elif isinstance(arg, (int, float)):
+                                    default_clause = f" DEFAULT {arg}"
+                                elif isinstance(arg, str):
+                                    default_clause = f" DEFAULT '{arg}'"
+                        
+                        alter_query = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type_str}{default_clause}"
+                        print(f"Migrating history schema: Running query '{alter_query}'")
+                        conn.execute(text(alter_query))
+                        
+            conn.execute(text(f"UPDATE history_settings SET schema_version = {CURRENT_HISTORY_SCHEMA_VERSION}"))
+            DB_HISTORY_SCHEMA_VERSION = CURRENT_HISTORY_SCHEMA_VERSION
+    except Exception as history_migration_error:
+        print(f"History Database migration error: {history_migration_error}")
 
     db = SessionLocal()
     try:
