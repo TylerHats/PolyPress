@@ -427,7 +427,7 @@
                         this.templates = {};
                         for (const t of templates) {
                             try {
-                                const res = await fetch(`/static/templates/${t}.html`);
+                                const res = await fetch(`/static/templates/${t}.html?_t=${Date.now()}`);
                                 if (res.ok) {
                                     this.templates[t] = await res.text();
                                 }
@@ -1933,10 +1933,6 @@
                     let currentSubs = this.stats.totalSubscribers;
                     let prevSubs = 0;
                     
-                    if (currentPeriodRecs.length > 0) {
-                        currentSubs = currentPeriodRecs[currentPeriodRecs.length - 1].subscriber_count;
-                    }
-                    
                     const olderRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') < currentStart);
                     if (olderRecs.length > 0) {
                         olderRecs.sort((a, b) => new Date(a.recorded_at + 'Z') - new Date(b.recorded_at + 'Z'));
@@ -2943,8 +2939,21 @@
                     }
                     this.reportsChartTimeoutId = setTimeout(() => {
                         this.reportsChartTimeoutId = null;
+                        
+                        // Guard: Only render if we are currently on the reports tab
+                        if (this.activeTab !== 'reports') return;
+                        
                         const ctx = document.getElementById('reportsChart');
                         if (!ctx) return;
+                        
+                        // Bulletproof chart instance retrieval to prevent Canvas already in use errors
+                        const existingChart = Chart.getChart(ctx);
+                        if (existingChart) {
+                            try {
+                                existingChart.stop();
+                                existingChart.destroy();
+                            } catch(e) {}
+                        }
                         
                         let days = 30;
                         let endingDate = null;

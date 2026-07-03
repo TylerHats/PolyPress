@@ -27,8 +27,8 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
     channel = settings.update_channel if settings else "stable"
     auto_update = settings.auto_update if settings else False
     
-    # Fetch origin to get latest updates state
-    run_git_command(["fetch", "origin", "--tags"])
+    # Fetch origin to get latest updates state forcing tags
+    run_git_command(["fetch", "origin", "--tags", "--force"])
     
     current_commit = run_git_command(["rev-parse", "--short", "HEAD"]) or "unknown"
     current_tag = run_git_command(["describe", "--tags", "--abbrev=0"]) or ""
@@ -36,13 +36,13 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
     branch = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"]) or "main"
     latest_main_commit = run_git_command(["rev-parse", "--short", f"origin/{branch}"]) or ""
     
-    update_available, latest_tag = check_for_updates_internal(channel)
+    update_available, latest_tag, latest_commit_sha = check_for_updates_internal(channel)
     
     if not latest_tag:
         latest_tag = run_git_command(["describe", "--tags", "--abbrev=0", f"origin/{branch}"]) or current_tag
+        latest_commit_sha = run_git_command(["rev-parse", "--short", latest_tag]) or ""
         
-    latest_tag_commit = run_git_command(["rev-parse", "--short", latest_tag]) or ""
-    latest_commit = latest_tag_commit
+    latest_commit = latest_commit_sha or latest_main_commit
     
     # If beta update channel, compare commits on main branch too
     if channel == "beta" and latest_main_commit and latest_main_commit != current_commit:
@@ -92,7 +92,7 @@ def install_updates(background_tasks: BackgroundTasks, db: Session = Depends(get
     channel = settings.update_channel if settings else "stable"
     
     # 1. Verify update is available
-    update_available, target_ver = check_for_updates_internal(channel)
+    update_available, target_ver, _ = check_for_updates_internal(channel)
     if not update_available:
         # Check if we can still try to pull
         pass

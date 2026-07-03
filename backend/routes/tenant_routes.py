@@ -89,46 +89,6 @@ def create_tenant(payload: dict = Body(...), db: Session = Depends(get_db), curr
     db.refresh(tenant)
     return tenant
 
-@router.put("/{tenant_id}")
-def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant not found")
-        
-    name = payload.get("name")
-    if name and name != tenant.name:
-        existing = db.query(Tenant).filter(Tenant.name == name).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Tenant name already exists")
-        tenant.name = name
-        
-    if "dkim_domain" in payload:
-        tenant.dkim_domain = payload["dkim_domain"]
-    if "direct_send" in payload:
-        tenant.direct_send = payload["direct_send"]
-        
-    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email"]:
-        if field in payload:
-            setattr(tenant, field, payload[field])
-            
-    if payload.get("smtp_password"):
-        tenant.smtp_password = payload["smtp_password"]
-    if payload.get("imap_password"):
-        tenant.imap_password = payload["imap_password"]
-        
-    db.commit()
-    db.refresh(tenant)
-    return tenant
-
-@router.delete("/{tenant_id}")
-def delete_tenant(tenant_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant not found")
-    db.delete(tenant)
-    db.commit()
-    return {"detail": "Tenant deleted"}
-
 # GLOBAL SETTINGS (Super Admin Only)
 
 @router.get("/global-settings")
@@ -188,6 +148,48 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     db.commit()
     db.refresh(settings)
     return settings
+
+@router.put("/{tenant_id}")
+def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    name = payload.get("name")
+    if name and name != tenant.name:
+        existing = db.query(Tenant).filter(Tenant.name == name).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Tenant name already exists")
+        tenant.name = name
+        
+    if "dkim_domain" in payload:
+        tenant.dkim_domain = payload["dkim_domain"]
+    if "direct_send" in payload:
+        tenant.direct_send = payload["direct_send"]
+        
+    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email"]:
+        if field in payload:
+            setattr(tenant, field, payload[field])
+            
+    if payload.get("smtp_password"):
+        tenant.smtp_password = payload["smtp_password"]
+    if payload.get("imap_password"):
+        tenant.imap_password = payload["imap_password"]
+        
+    db.commit()
+    db.refresh(tenant)
+    return tenant
+
+@router.delete("/{tenant_id}")
+def delete_tenant(tenant_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    db.delete(tenant)
+    db.commit()
+    return {"detail": "Tenant deleted"}
+
+
 
 # TENANT ADMIN / USER SETTINGS (Scoped to Current Tenant)
 
