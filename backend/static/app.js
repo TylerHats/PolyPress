@@ -275,6 +275,7 @@
                 testingImap: false,
                 isEditingOptIn: false,
                 optInSubject: 'Confirm Your Subscription',
+                loadingDashboardStats: false,
                 sslForm: { domain: '', email: '', use_staging: true },
                 sslStatus: { configured: false, expiry: '', issuer: '', subject: '' },
                 acmeLogs: [],
@@ -1008,6 +1009,9 @@
                         if (this.user.role === 'super_admin') {
                             await this.fetchGlobalSettings();
                             await this.fetchUpdateStatus();
+                            if (this.updateStatus && this.updateStatus.update_available) {
+                                this.showToast('System Update Available! Go to Admin Panel to install.', 'info');
+                            }
                         }
                         
                         // Load saved tenant context if not in host admin mode
@@ -1949,79 +1953,84 @@
 
                 // Dashboard Metrics calculator
                 async loadDashboardMetrics() {
-                    // Summarize current totals
-                    this.stats.totalSubscribers = 0;
-                    let sumSubs = 0;
-                    for (let l of this.lists) {
-                        try {
-                            const res = await fetch(`/api/lists/${l.id}/subscribers?limit=1&status=active`, { headers: this.getAuthHeaders() });
-                            const data = await res.json();
-                            sumSubs += data.total;
-                        } catch(e) {}
-                    }
-                    this.stats.totalSubscribers = sumSubs;
-                    
-                    // Fetch history data for current period (X days) and previous period (2X days)
-                    let historyData = [];
+                    this.loadingDashboardStats = true;
                     try {
-                        const daysToFetch = this.dashboardPeriod * 2;
-                        const startDateStr = new Date(Date.now() - (daysToFetch * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
-                        const res = await fetch(`/api/reports/history?start_date=${startDateStr}`, { headers: this.getAuthHeaders() });
-                        if (res.ok) {
-                            historyData = await res.json();
+                        // Summarize current totals
+                        this.stats.totalSubscribers = 0;
+                        let sumSubs = 0;
+                        for (let l of this.lists) {
+                            try {
+                                const res = await fetch(`/api/lists/${l.id}/subscribers?limit=1&status=active`, { headers: this.getAuthHeaders() });
+                                const data = await res.json();
+                                sumSubs += data.total;
+                            } catch(e) {}
                         }
-                    } catch(e) {}
-                    
-                    const now = new Date();
-                    const periodMs = this.dashboardPeriod * 24 * 60 * 60 * 1000;
-                    const currentStart = new Date(now.getTime() - periodMs);
-                    const prevStart = new Date(now.getTime() - 2 * periodMs);
-                    
-                    // 1. Total Subscribers (current vs previous final)
-                    const currentPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= currentStart);
-                    const prevPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= prevStart && new Date(r.recorded_at + 'Z') < currentStart);
-                    
-                    let currentSubs = this.stats.totalSubscribers;
-                    let prevSubs = 0;
-                    
-                    const olderRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') < currentStart);
-                    if (olderRecs.length > 0) {
-                        olderRecs.sort((a, b) => new Date(a.recorded_at + 'Z') - new Date(b.recorded_at + 'Z'));
-                        prevSubs = olderRecs[olderRecs.length - 1].subscriber_count;
-                    } else {
-                        prevSubs = 0;
+                        this.stats.totalSubscribers = sumSubs;
+                        
+                        // Fetch history data for current period (X days) and previous period (2X days)
+                        let historyData = [];
+                        try {
+                            const daysToFetch = this.dashboardPeriod * 2;
+                            const startDateStr = new Date(Date.now() - (daysToFetch * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
+                            const res = await fetch(`/api/reports/history?start_date=${startDateStr}`, { headers: this.getAuthHeaders() });
+                            if (res.ok) {
+                                historyData = await res.json();
+                            }
+                        } catch(e) {}
+                        
+                        const now = new Date();
+                        const periodMs = this.dashboardPeriod * 24 * 60 * 60 * 1000;
+                        const currentStart = new Date(now.getTime() - periodMs);
+                        const prevStart = new Date(now.getTime() - 2 * periodMs);
+                        
+                        // 1. Total Subscribers (current vs previous final)
+                        const currentPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= currentStart);
+                        const prevPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= prevStart && new Date(r.recorded_at + 'Z') < currentStart);
+                        
+                        let currentSubs = this.stats.totalSubscribers;
+                        let prevSubs = 0;
+                        
+                        const olderRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') < currentStart);
+                        if (olderRecs.length > 0) {
+                            olderRecs.sort((a, b) => new Date(a.recorded_at + 'Z') - new Date(b.recorded_at + 'Z'));
+                            prevSubs = olderRecs[olderRecs.length - 1].subscriber_count;
+                        } else {
+                            prevSubs = 0;
+                        }
+                        this.trends.subscribers.diff = currentSubs - prevSubs;
+                        
+                        // 2. Campaigns Sent in current vs previous
+                        const currentCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= currentStart);
+                        const prevCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= prevStart && new Date(c.created_at) < currentStart);
+                        
+                        this.trends.campaigns.diff = currentCampaigns.length - prevCampaigns.length;
+                        this.stats.campaignsSent = currentCampaigns.length;
+                        
+                        // 3. Open Rate and Bounce Rate averages for current period
+                        let currentSent = currentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                        let currentOpens = currentCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
+                        let currentBounces = currentCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
+                        
+                        this.stats.avgOpenRate = currentSent > 0 ? Math.round((currentOpens / currentSent) * 100) : 0;
+                        this.stats.avgBounceRate = currentSent > 0 ? Math.round((currentBounces / currentSent) * 100) : 0;
+                        
+                        // Previous period open/bounce averages
+                        let prevSent = prevCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                        let prevOpens = prevCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
+                        let prevBounces = prevCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
+                        
+                        let prevOpenRate = prevSent > 0 ? Math.round((prevOpens / prevSent) * 100) : 0;
+                        let prevBounceRate = prevSent > 0 ? Math.round((prevBounces / prevSent) * 100) : 0;
+                        
+                        this.trends.openRate.diff = this.stats.avgOpenRate - prevOpenRate;
+                        this.trends.bounceRate.diff = this.stats.avgBounceRate - prevBounceRate;
+                        
+                        // Generate padded history for chart rendering
+                        const chartPoints = this.preparePaddedHistory(currentPeriodRecs, this.dashboardPeriod, this.reportsTimezone);
+                        this.renderMetricsChart(chartPoints);
+                    } finally {
+                        this.loadingDashboardStats = false;
                     }
-                    this.trends.subscribers.diff = currentSubs - prevSubs;
-                    
-                    // 2. Campaigns Sent in current vs previous
-                    const currentCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= currentStart);
-                    const prevCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= prevStart && new Date(c.created_at) < currentStart);
-                    
-                    this.trends.campaigns.diff = currentCampaigns.length - prevCampaigns.length;
-                    this.stats.campaignsSent = currentCampaigns.length;
-                    
-                    // 3. Open Rate and Bounce Rate averages for current period
-                    let currentSent = currentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
-                    let currentOpens = currentCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
-                    let currentBounces = currentCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
-                    
-                    this.stats.avgOpenRate = currentSent > 0 ? Math.round((currentOpens / currentSent) * 100) : 0;
-                    this.stats.avgBounceRate = currentSent > 0 ? Math.round((currentBounces / currentSent) * 100) : 0;
-                    
-                    // Previous period open/bounce averages
-                    let prevSent = prevCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
-                    let prevOpens = prevCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
-                    let prevBounces = prevCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
-                    
-                    let prevOpenRate = prevSent > 0 ? Math.round((prevOpens / prevSent) * 100) : 0;
-                    let prevBounceRate = prevSent > 0 ? Math.round((prevBounces / prevSent) * 100) : 0;
-                    
-                    this.trends.openRate.diff = this.stats.avgOpenRate - prevOpenRate;
-                    this.trends.bounceRate.diff = this.stats.avgBounceRate - prevBounceRate;
-                    
-                    // Generate padded history for chart rendering
-                    const chartPoints = this.preparePaddedHistory(currentPeriodRecs, this.dashboardPeriod, this.reportsTimezone);
-                    this.renderMetricsChart(chartPoints);
                 },
                 
                 renderMetricsChart(chartPoints) {
@@ -3058,8 +3067,15 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 600,
-                                        easing: 'easeOutQuart'
+                                        duration: 1000,
+                                        easing: 'easeOutQuart',
+                                        delay: (context) => {
+                                            let delay = 0;
+                                            if (context.type === 'data' && context.mode === 'default') {
+                                                delay = context.dataIndex * (1000 / Math.max(1, context.dataset.data.length));
+                                            }
+                                            return Math.min(1000, delay);
+                                        }
                                     },
                                     scales: {
                                         y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },

@@ -23,40 +23,80 @@
                                 <span class="card-title">Total Subscribers</span>
                                 <i data-lucide="users" style="color: var(--color-primary);"></i>
                             </div>
-                            <div class="card-value" x-text="stats.totalSubscribers">0</div>
-                            <div class="card-trend" :class="trends.subscribers.diff >= 0 ? 'trend-up' : 'trend-down'">
-                                <span x-text="trends.subscribers.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.subscribers.diff"></span> active contacts
-                            </div>
+                            <template x-if="loadingDashboardStats">
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                                    <div style="width: 80px; height: 32px; border-radius: 4px; background: rgba(255,255,255,0.05); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                    <div style="width: 140px; height: 16px; border-radius: 4px; background: rgba(255,255,255,0.03); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                </div>
+                            </template>
+                            <template x-if="!loadingDashboardStats">
+                                <div>
+                                    <div class="card-value" x-text="stats.totalSubscribers">0</div>
+                                    <div class="card-trend" :class="trends.subscribers.diff >= 0 ? 'trend-up' : 'trend-down'">
+                                        <span x-text="trends.subscribers.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.subscribers.diff"></span> active contacts
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                         <div class="card">
                             <div class="card-header">
                                 <span class="card-title">Campaigns Sent</span>
                                 <i data-lucide="send" style="color: var(--color-accent);"></i>
                             </div>
-                            <div class="card-value" x-text="stats.campaignsSent">0</div>
-                            <div class="card-trend" :class="trends.campaigns.diff >= 0 ? 'trend-up' : 'trend-down'">
-                                <span x-text="trends.campaigns.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.campaigns.diff"></span> vs last period
-                            </div>
+                            <template x-if="loadingDashboardStats">
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                                    <div style="width: 60px; height: 32px; border-radius: 4px; background: rgba(255,255,255,0.05); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                    <div style="width: 120px; height: 16px; border-radius: 4px; background: rgba(255,255,255,0.03); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                </div>
+                            </template>
+                            <template x-if="!loadingDashboardStats">
+                                <div>
+                                    <div class="card-value" x-text="stats.campaignsSent">0</div>
+                                    <div class="card-trend" :class="trends.campaigns.diff >= 0 ? 'trend-up' : 'trend-down'">
+                                        <span x-text="trends.campaigns.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.campaigns.diff"></span> vs last period
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                         <div class="card">
                             <div class="card-header">
                                 <span class="card-title">Avg Open Rate</span>
                                 <i data-lucide="eye" style="color: var(--color-success);"></i>
                             </div>
-                            <div class="card-value" x-text="stats.avgOpenRate + '%'">0%</div>
-                            <div class="card-trend" :class="trends.openRate.diff >= 0 ? 'trend-up' : 'trend-down'">
-                                <span x-text="trends.openRate.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.openRate.diff + '%'"></span> vs last period
-                            </div>
+                            <template x-if="loadingDashboardStats">
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                                    <div style="width: 70px; height: 32px; border-radius: 4px; background: rgba(255,255,255,0.05); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                    <div style="width: 130px; height: 16px; border-radius: 4px; background: rgba(255,255,255,0.03); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                </div>
+                            </template>
+                            <template x-if="!loadingDashboardStats">
+                                <div>
+                                    <div class="card-value" x-text="stats.avgOpenRate + '%'">0%</div>
+                                    <div class="card-trend" :class="trends.openRate.diff >= 0 ? 'trend-up' : 'trend-down'">
+                                        <span x-text="trends.openRate.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.openRate.diff + '%'"></span> vs last period
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                         <div class="card">
                             <div class="card-header">
                                 <span class="card-title">Bounce / Spam Rate</span>
                                 <i data-lucide="alert-triangle" style="color: var(--color-danger);"></i>
                             </div>
-                            <div class="card-value" x-text="stats.avgBounceRate + '%'">0%</div>
-                            <div class="card-trend" :class="trends.bounceRate.diff <= 0 ? 'trend-up' : 'trend-down'">
-                                <span x-text="trends.bounceRate.diff <= 0 ? '▼ ' : '▲ +'"></span><span x-text="trends.bounceRate.diff + '%'"></span> vs last period
-                            </div>
+                            <template x-if="loadingDashboardStats">
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                                    <div style="width: 70px; height: 32px; border-radius: 4px; background: rgba(255,255,255,0.05); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                    <div style="width: 130px; height: 16px; border-radius: 4px; background: rgba(255,255,255,0.03); animation: pulse 1.5s infinite ease-in-out;"></div>
+                                </div>
+                            </template>
+                            <template x-if="!loadingDashboardStats">
+                                <div>
+                                    <div class="card-value" x-text="stats.avgBounceRate + '%'">0%</div>
+                                    <div class="card-trend" :class="trends.bounceRate.diff <= 0 ? 'trend-up' : 'trend-down'">
+                                        <span x-text="trends.bounceRate.diff <= 0 ? '▼ ' : '▲ +'"></span><span x-text="trends.bounceRate.diff + '%'"></span> vs last period
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
 

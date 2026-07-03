@@ -83,37 +83,33 @@
                             <span style="font-size: 13px; color: var(--text-muted); cursor: pointer;" @click="switchTab('campaigns')">← Back to campaigns</span>
                             <h1 class="page-title" style="font-size: 22px; margin-top: 4px;" x-text="'Design: ' + editingCampaign.name"></h1>
                         </div>
-                        <div x-show="isEditingOptIn" style="flex: 1; display: flex; flex-direction: column; gap: 4px; max-width: calc(100% - 280px);">
+                        <div x-show="isEditingOptIn" style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
                             <span style="font-size: 13px; color: var(--text-muted); cursor: pointer;" @click="switchTab('settings')">← Back to Settings</span>
-                            <div style="display: flex; gap: 15px; align-items: center; width: 100%;">
-                                <h1 class="page-title" style="font-size: 20px; margin: 0; white-space: nowrap;">Design: Double Opt-In Email</h1>
-                                <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
-                                    <span style="font-size: 12px; color: var(--text-secondary); white-space: nowrap;">Email Subject:</span>
-                                    <input type="text" x-model="optInSubject" placeholder="Confirm Your Subscription" style="height: 32px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 4px; color: #fff; padding: 0 10px; font-size: 13px; flex: 1; min-width: 0;">
-                                </div>
-                            </div>
+                            <h1 class="page-title" style="font-size: 22px; margin-top: 4px;">Design: Double Opt-In Email</h1>
                         </div>
                         
                         <div style="display: flex; gap: 12px; align-items: center;">
-                            <div x-show="!isEditingOptIn" style="display: flex; gap: 12px;">
-                                <button @click="saveCampaignDraft()" class="btn btn-secondary">
-                                    <i data-lucide="save"></i> Save Draft
+                            <div x-show="!isEditingOptIn" style="display: flex; gap: 12px; align-items: center;">
+                                <button @click="saveCampaignDraft()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="save" style="width: 16px; height: 16px;"></i> Save Draft
                                 </button>
-                                <button @click="openPreviewModal()" class="btn btn-secondary">
-                                    <i data-lucide="eye"></i> Live Preview
+                                <button @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
                                 </button>
-                                <button @click="openLaunchModal()" class="btn btn-primary">
-                                    <i data-lucide="send"></i> Queue & Send
+                                <button @click="openLaunchModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="send" style="width: 16px; height: 16px;"></i> Queue & Send
                                 </button>
                             </div>
-                            <div x-show="isEditingOptIn" style="display: flex; gap: 12px;">
-                                <button @click="saveOptInTemplate()" class="btn btn-primary">
-                                    <i data-lucide="save"></i> Save Template
+                            <div x-show="isEditingOptIn" style="display: flex; gap: 12px; align-items: center;">
+                                <button @click="saveOptInTemplate()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="save" style="width: 16px; height: 16px;"></i> Save Template
                                 </button>
-                                <button @click="openPreviewModal()" class="btn btn-secondary">
-                                    <i data-lucide="eye"></i> Live Preview
+                                <button @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
                                 </button>
-                                <button @click="switchTab('settings')" class="btn btn-secondary">Cancel</button>
+                                <button @click="switchTab('settings')" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="x" style="width: 16px; height: 16px;"></i> Cancel
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -251,15 +247,22 @@
                         <div class="editor-properties">
                             <!-- Campaign settings always visible at the top of properties panel -->
                             <div style="margin-bottom: 20px; border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
-                                <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Campaign Settings</h3>
+                                <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;" x-text="isEditingOptIn ? 'Double Opt-In Settings' : 'Campaign Settings'">Campaign Settings</h3>
                                 <div class="field" style="margin-bottom: 10px;">
                                     <label>Email Subject</label>
-                                    <input type="text" x-model="editingCampaign.subject">
+                                    <template x-if="!isEditingOptIn">
+                                        <input type="text" x-model="editingCampaign.subject">
+                                    </template>
+                                    <template x-if="isEditingOptIn">
+                                        <input type="text" x-model="optInSubject">
+                                    </template>
                                 </div>
-                                <div class="field">
-                                    <label>Email Snippet (Preheader Text)</label>
-                                    <input type="text" x-model="editingCampaign.preheader" placeholder="Snippet text seen in inbox list">
-                                </div>
+                                <template x-if="!isEditingOptIn">
+                                    <div class="field">
+                                        <label>Email Snippet (Preheader Text)</label>
+                                        <input type="text" x-model="editingCampaign.preheader" placeholder="Snippet text seen in inbox list">
+                                    </div>
+                                </template>
                             </div>
 
                             <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 15px;">Block Properties</h3>
