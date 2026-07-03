@@ -442,17 +442,22 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         if base_url:
             base_url = base_url.rstrip("/")
         confirm_url = f"{base_url}/api/embed/confirm-optin/{token}"
-        email_body = CONFIRMATION_EMAIL_TEMPLATE.format(
-            tenant_name=tenant.name,
-            confirm_url=confirm_url
-        )
+        # Determine subject and body template
+        subject = tenant.double_opt_in_subject or f"Confirm Your Subscription to {tenant.name}"
+        if tenant.double_opt_in_body_html:
+            email_body = tenant.double_opt_in_body_html.replace("{{confirm_url}}", confirm_url).replace("{confirm_url}", confirm_url)
+        else:
+            email_body = CONFIRMATION_EMAIL_TEMPLATE.format(
+                tenant_name=tenant.name,
+                confirm_url=confirm_url
+            )
         
         # Import transactional sender to avoid circular import issues
         from sending_worker import send_transactional_email
         background_tasks.add_task(
             send_transactional_email,
             to_email=email,
-            subject=f"Confirm Your Subscription to {tenant.name}",
+            subject=subject,
             body_html=email_body,
             tenant=tenant
         )

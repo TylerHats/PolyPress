@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 import hashlib
 import secrets
@@ -159,7 +159,7 @@ def delete_webhook(hook_id: int, db: Session = Depends(get_db), current_user: Us
 # PUBLIC DEVELOPER V1 REST API
 
 @router.post("/v1/subscribers")
-def developer_add_subscriber(payload: dict, x_polypress_key: str = Header(None), db: Session = Depends(get_db)):
+def developer_add_subscriber(payload: dict, request: Request, background_tasks: BackgroundTasks, x_polypress_key: str = Header(None), db: Session = Depends(get_db)):
     # Validate API key and retrieve associated tenant
     tenant = get_tenant_by_api_key(db, x_polypress_key)
     
@@ -219,9 +219,37 @@ def developer_add_subscriber(payload: dict, x_polypress_key: str = Header(None),
         "list_id": sub.list_id,
         "source": sub.source_tag
     })
-    
+
+    # Send transactional confirmation email if pending (Double Opt-In)
+    if is_double_optin:
+        from database import GlobalSettings
+        settings = db.query(GlobalSettings).first()
+        base_url = settings.public_url if (settings and settings.public_url) else f"{request.base_url.scheme}://{request.base_url.netloc}"
+        if base_url:
+            base_url = base_url.rstrip("/")
+        confirm_url = f"{base_url}/api/embed/confirm-optin/{token}"
+        
+        from routes.embed_routes import CONFIRMATION_EMAIL_TEMPLATE
+        subject = tenant.double_opt_in_subject or f"Confirm Your Subscription to {tenant.name}"
+        if tenant.double_opt_in_body_html:
+            email_body = tenant.double_opt_in_body_html.replace("{{confirm_url}}", confirm_url).replace("{confirm_url}", confirm_url)
+        else:
+            email_body = CONFIRMATION_EMAIL_TEMPLATE.format(
+                tenant_name=tenant.name,
+                confirm_url=confirm_url
+            )
+            
+        from sending_worker import send_transactional_email
+        background_tasks.add_task(
+            send_transactional_email,
+            to_email=email,
+            subject=subject,
+            body_html=email_body,
+            tenant=tenant
+        )
+        
     return {
         "id": sub.id,
         "status": sub.status,
-        "detail": "Subscriber added successfully via Developer API."
+        "detail": "Subscriber added successfully via Developer API. Verification sent if required."
     }

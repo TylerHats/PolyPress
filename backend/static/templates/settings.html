@@ -60,6 +60,15 @@
                                             <span>Use STARTTLS (587)</span>
                                         </div>
                                     </div>
+                                    
+                                    <!-- SMTP Queue Limitation Warning -->
+                                    <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.15); border-radius: 8px; padding: 15px; display: flex; gap: 12px; align-items: flex-start; margin-top: 10px;">
+                                        <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: #f59e0b; flex-shrink: 0; margin-top: 2px;"></i>
+                                        <div style="font-size: 12px; line-height: 1.4; color: var(--text-secondary);">
+                                            <strong style="color: #f59e0b; display: block; margin-bottom: 4px; font-size: 13px;">External SMTP Queue Limits</strong>
+                                            When using an external SMTP provider, PolyPress can only track connection errors and initial handoff issues. Once the email is accepted by your SMTP server, downstream delivery issues (e.g. recipient mailbox full or external rate-limiting blocks) are queued and managed on the provider's platform, and will not show up in the PolyPress outbox queue.
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -128,6 +137,26 @@
                                     <div style="font-size: 11px; color: var(--text-muted);">Send verification email link when user subscribes via embedded forms.</div>
                                 </div>
                             </div>
+                            
+                            <!-- Opt-In Template Edit Button -->
+                            <div x-show="tenant.double_opt_in" style="margin-top: 12px; margin-bottom: 5px; padding-left: 55px;">
+                                <button @click="editOptInTemplate()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px;">
+                                    <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i> Edit Double Opt-In Email Template
+                                </button>
+                            </div>
+
+                            <!-- Outgoing Test Send Block -->
+                            <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 20px; display: flex; align-items: flex-end; gap: 10px;">
+                                <div class="field" style="flex: 1; margin: 0;">
+                                    <label style="font-size: 11px;">Test Email Recipient</label>
+                                    <input type="email" x-model="smtpTestEmail" placeholder="yourmail@domain.com" style="height: 32px; font-size: 12px; margin-bottom: 0;">
+                                </div>
+                                <button @click="testSmtpConnection()" class="btn btn-secondary btn-sm" style="height: 32px; display: flex; align-items: center; gap: 6px; white-space: nowrap;" :disabled="testingSmtp">
+                                    <i data-lucide="send" style="width: 14px; height: 14px;"></i>
+                                    <span x-show="!testingSmtp">Test Outbound Send</span>
+                                    <span x-show="testingSmtp">Sending...</span>
+                                </button>
+                            </div>
 
                             <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save Outbound & Speed Settings</button>
                         </div>
@@ -172,6 +201,15 @@
                                     <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
                                     <span>Use SSL (Default Port 993)</span>
                                 </div>
+                            </div>
+
+                            <!-- Test IMAP connection -->
+                            <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 20px; display: flex; justify-content: flex-end;">
+                                <button @click="testImapConnection()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;" :disabled="testingImap">
+                                    <i data-lucide="inbox" style="width: 14px; height: 14px;"></i>
+                                    <span x-show="!testingImap">Test IMAP Connection</span>
+                                    <span x-show="testingImap">Connecting...</span>
+                                </button>
                             </div>
 
                             <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save IMAP Bounce settings</button>

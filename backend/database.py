@@ -15,7 +15,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -89,6 +89,9 @@ class Tenant(Base):
     max_sending_threads = Column(Integer, default=10)
     double_opt_in = Column(Boolean, default=False)
     retry_interval_minutes = Column(Integer, default=15)
+    double_opt_in_subject = Column(String, default="Confirm Your Subscription")
+    double_opt_in_body_blocks = Column(JSON, nullable=True)
+    double_opt_in_body_html = Column(Text, nullable=True)
     
     # History logs settings
     history_retention_days = Column(Integer, default=30)

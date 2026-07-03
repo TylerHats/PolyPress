@@ -270,6 +270,11 @@
                 schemaBypassing: false,
                 updateChecking: false,
                 updateInstalling: false,
+                smtpTestEmail: '',
+                testingSmtp: false,
+                testingImap: false,
+                isEditingOptIn: false,
+                optInSubject: 'Confirm Your Subscription',
                 sslForm: { domain: '', email: '', use_staging: true },
                 sslStatus: { configured: false, expiry: '', issuer: '', subject: '' },
                 acmeLogs: [],
@@ -760,6 +765,24 @@
                 },
                 
                 async openPreviewModal() {
+                    if (this.isEditingOptIn) {
+                        this.previewIframeSrc = 'about:blank';
+                        this.modals.campaignPreview = true;
+                        this.refreshIcons();
+                        setTimeout(() => {
+                            const iframe = document.getElementById('previewIframe');
+                            if (iframe) {
+                                const html = compileBlocksToHtml(this.editorBlocks);
+                                const mockHtml = html.replaceAll('{{confirm_url}}', 'https://newsletter.yourdomain.com/api/embed/confirm-optin/mock_token').replaceAll('{confirm_url}', 'https://newsletter.yourdomain.com/api/embed/confirm-optin/mock_token');
+                                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                                doc.open();
+                                doc.write(mockHtml);
+                                doc.close();
+                            }
+                        }, 150);
+                        return;
+                    }
+                    
                     await this.saveCampaignDraft();
                     this.modals.campaignPreview = true;
                     this.updatePreviewIframe();
@@ -1636,28 +1659,55 @@
                 },
                 
                 switchTab(tab) {
-                    if (this.reportsChart && tab !== 'reports') {
-                        try {
-                            this.reportsChart.stop();
-                            this.reportsChart.destroy();
-                        } catch(e) {}
-                        this.reportsChart = null;
+                    if (tab !== 'editor') {
+                        this.isEditingOptIn = false;
                     }
-                    if (this.reportsChartTimeoutId) {
-                        clearTimeout(this.reportsChartTimeoutId);
-                        this.reportsChartTimeoutId = null;
+                    if (tab !== 'reports') {
+                        const canvas = document.getElementById('reportsChart');
+                        if (canvas) {
+                            const existingChart = Chart.getChart(canvas);
+                            if (existingChart) {
+                                try {
+                                    existingChart.stop();
+                                    existingChart.destroy();
+                                } catch(e) {}
+                            }
+                        }
+                        if (this.reportsChart) {
+                            try {
+                                this.reportsChart.stop();
+                                this.reportsChart.destroy();
+                            } catch(e) {}
+                            this.reportsChart = null;
+                        }
+                        if (this.reportsChartTimeoutId) {
+                            clearTimeout(this.reportsChartTimeoutId);
+                            this.reportsChartTimeoutId = null;
+                        }
                     }
                     
-                    if (this.dashboardChart && tab !== 'dashboard') {
-                        try {
-                            this.dashboardChart.stop();
-                            this.dashboardChart.destroy();
-                        } catch(e) {}
-                        this.dashboardChart = null;
-                    }
-                    if (this.chartTimeoutId) {
-                        clearTimeout(this.chartTimeoutId);
-                        this.chartTimeoutId = null;
+                    if (tab !== 'dashboard') {
+                        const canvas = document.getElementById('subscriberChart');
+                        if (canvas) {
+                            const existingChart = Chart.getChart(canvas);
+                            if (existingChart) {
+                                try {
+                                    existingChart.stop();
+                                    existingChart.destroy();
+                                } catch(e) {}
+                            }
+                        }
+                        if (this.dashboardChart) {
+                            try {
+                                this.dashboardChart.stop();
+                                this.dashboardChart.destroy();
+                            } catch(e) {}
+                            this.dashboardChart = null;
+                        }
+                        if (this.chartTimeoutId) {
+                            clearTimeout(this.chartTimeoutId);
+                            this.chartTimeoutId = null;
+                        }
                     }
                     
                     this.activeTab = tab;
@@ -3007,7 +3057,10 @@
                                 options: {
                                     responsive: true,
                                     maintainAspectRatio: false,
-                                    animation: false,
+                                    animation: {
+                                        duration: 600,
+                                        easing: 'easeOutQuart'
+                                    },
                                     scales: {
                                         y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
                                         x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
@@ -3156,6 +3209,122 @@
                     } else {
                         const mins = Math.floor(diffMs / (60 * 1000));
                         return `${mins}m left`;
+                    }
+                },
+                
+                editOptInTemplate() {
+                    this.isEditingOptIn = true;
+                    this.optInSubject = this.tenant.double_opt_in_subject || 'Confirm Your Subscription';
+                    
+                    const defaultBlocks = [
+                        { type: 'heading', text: 'Confirm Your Subscription', align: 'center', color: '#ffffff', size: '28px', padding: '12px 0px' },
+                        { type: 'paragraph', text: 'Thank you for signing up! Please click the button below to confirm your subscription and start receiving newsletter updates from us.', align: 'center', color: '#cbd5e1', size: '16px', padding: '10px 0px' },
+                        { type: 'button', text: 'Confirm Subscription', url: '{{confirm_url}}', align: 'center', bg_color: '#6366f1', text_color: '#ffffff', border_radius: '8px', padding: '12px 24px' }
+                    ];
+                    
+                    let blocks = this.tenant.double_opt_in_body_blocks;
+                    if (typeof blocks === 'string') {
+                        try {
+                            blocks = JSON.parse(blocks);
+                        } catch(e) {
+                            blocks = null;
+                        }
+                    }
+                    this.editorBlocks = blocks || defaultBlocks;
+                    this.selectedBlockIndex = null;
+                    this.switchTab('editor');
+                },
+                
+                async saveOptInTemplate() {
+                    const html = compileBlocksToHtml(this.editorBlocks);
+                    try {
+                        const res = await fetch('/api/tenants/my', {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                double_opt_in_subject: this.optInSubject,
+                                double_opt_in_body_blocks: this.editorBlocks,
+                                double_opt_in_body_html: html
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Double Opt-In email template saved');
+                            await this.fetchTenant();
+                            this.switchTab('settings');
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to save template', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                async testSmtpConnection() {
+                    if (!this.smtpTestEmail) {
+                        this.showToast('Please enter a recipient email address for the test', 'warning');
+                        return;
+                    }
+                    this.testingSmtp = true;
+                    try {
+                        const payload = {
+                            name: this.tenant.name,
+                            smtp_host: this.tenant.smtp_host,
+                            smtp_port: this.tenant.smtp_port ? parseInt(this.tenant.smtp_port) : null,
+                            smtp_username: this.tenant.smtp_username,
+                            smtp_password: this.tenant.smtp_password,
+                            smtp_use_ssl: this.tenant.smtp_use_ssl,
+                            smtp_use_tls: this.tenant.smtp_use_tls,
+                            direct_send: this.tenant.direct_send,
+                            dkim_domain: this.tenant.dkim_domain,
+                            dkim_selector: this.tenant.dkim_selector,
+                            dkim_private_key: this.tenant.dkim_private_key,
+                            bounce_email: this.tenant.bounce_email,
+                            test_email: this.smtpTestEmail
+                        };
+                        const res = await fetch('/api/tenants/test-smtp', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            this.showToast(data.detail);
+                        } else {
+                            this.showToast(data.detail || 'Test send failed', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    } finally {
+                        this.testingSmtp = false;
+                    }
+                },
+                
+                async testImapConnection() {
+                    this.testingImap = true;
+                    try {
+                        const payload = {
+                            imap_host: this.tenant.imap_host,
+                            imap_port: this.tenant.imap_port ? parseInt(this.tenant.imap_port) : null,
+                            imap_username: this.tenant.imap_username,
+                            imap_password: this.tenant.imap_password,
+                            imap_use_ssl: this.tenant.imap_use_ssl
+                        };
+                        const res = await fetch('/api/tenants/test-imap', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            this.showToast(data.detail);
+                        } else {
+                            this.showToast(data.detail || 'IMAP test failed', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    } finally {
+                        this.testingImap = false;
                     }
                 }
             };

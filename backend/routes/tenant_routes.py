@@ -167,7 +167,7 @@ def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depen
     if "direct_send" in payload:
         tenant.direct_send = payload["direct_send"]
         
-    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes"]:
+    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes", "double_opt_in_subject", "double_opt_in_body_blocks", "double_opt_in_body_html"]:
         if field in payload:
             setattr(tenant, field, payload[field])
             
@@ -227,7 +227,10 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "speed_emails_per_hour": tenant.speed_emails_per_hour,
         "bounce_email": tenant.bounce_email,
         "double_opt_in": tenant.double_opt_in,
-        "retry_interval_minutes": tenant.retry_interval_minutes
+        "retry_interval_minutes": tenant.retry_interval_minutes,
+        "double_opt_in_subject": tenant.double_opt_in_subject,
+        "double_opt_in_body_blocks": tenant.double_opt_in_body_blocks,
+        "double_opt_in_body_html": tenant.double_opt_in_body_html
     }
 
 @router.put("/my")
@@ -267,9 +270,111 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
     tenant.double_opt_in = payload.get("double_opt_in", tenant.double_opt_in)
     tenant.retry_interval_minutes = payload.get("retry_interval_minutes", tenant.retry_interval_minutes)
     
+    if "double_opt_in_subject" in payload:
+        tenant.double_opt_in_subject = payload["double_opt_in_subject"]
+    if "double_opt_in_body_blocks" in payload:
+        tenant.double_opt_in_body_blocks = payload["double_opt_in_body_blocks"]
+    if "double_opt_in_body_html" in payload:
+        tenant.double_opt_in_body_html = payload["double_opt_in_body_html"]
+        
     db.commit()
     db.refresh(tenant)
     return {"detail": "Settings updated successfully"}
+
+@router.post("/test-smtp")
+def test_smtp_settings(payload: dict = Body(...), current_user: User = Depends(auth.require_tenant_admin)):
+    to_email = payload.get("test_email")
+    if not to_email:
+        raise HTTPException(status_code=400, detail="Test recipient email address is required")
+        
+    mock_tenant = Tenant(
+        id=current_user.tenant_id or 0,
+        name=payload.get("name", "PolyPress Test Tenant"),
+        smtp_host=payload.get("smtp_host"),
+        smtp_port=payload.get("smtp_port"),
+        smtp_username=payload.get("smtp_username"),
+        smtp_password=payload.get("smtp_password"),
+        smtp_use_ssl=payload.get("smtp_use_ssl", False),
+        smtp_use_tls=payload.get("smtp_use_tls", True),
+        direct_send=payload.get("direct_send", False),
+        dkim_selector=payload.get("dkim_selector", "polypress"),
+        dkim_domain=payload.get("dkim_domain"),
+        dkim_private_key=payload.get("dkim_private_key"),
+        bounce_email=payload.get("bounce_email")
+    )
+    
+    test_subject = f"Test Email from {mock_tenant.name}"
+    test_body = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>PolyPress Email Connection Test</title>
+</head>
+<body style="background-color: #0b0f19; color: #f1f5f9; font-family: sans-serif; padding: 40px 20px; text-align: center;">
+    <div style="max-width: 500px; margin: 0 auto; background-color: #1e293b; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
+        <h1 style="color: #6366f1; font-size: 22px; margin-bottom: 10px;">Connection Test Successful!</h1>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6; margin-bottom: 25px;">
+            This email confirms that your outgoing mail server configuration is correct and PolyPress is successfully connected to your SMTP provider.
+        </p>
+        <div style="background-color: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 12px; font-size: 13px; color: #94a3b8; text-align: left; font-family: monospace;">
+            <strong>Server Host:</strong> {mock_tenant.smtp_host}<br>
+            <strong>Port:</strong> {mock_tenant.smtp_port}<br>
+            <strong>Direct Send (MTA):</strong> {mock_tenant.direct_send}
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin-top: 25px;">
+            Sent via PolyPress Newsletter System.
+        </p>
+    </div>
+</body>
+</html>"""
+
+    from sending_worker import send_direct_mta, send_external_smtp, QueueItem
+    mock_item = QueueItem(
+        id=0,
+        tenant_id=current_user.tenant_id or 0,
+        email=to_email,
+        subject=test_subject,
+        body_html=test_body
+    )
+    
+    try:
+        if mock_tenant.direct_send:
+            success, is_transient, code, msg = send_direct_mta(mock_item, mock_tenant)
+        else:
+            success, is_transient, code, msg = send_external_smtp(mock_item, mock_tenant)
+            
+        if success:
+            return {"success": True, "detail": "Test email dispatched successfully! Please check your inbox."}
+        else:
+            raise Exception(f"SMTP Error [{code}]: {msg}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Mail dispatch failed: {e}")
+
+@router.post("/test-imap")
+def test_imap_settings(payload: dict = Body(...), current_user: User = Depends(auth.require_tenant_admin)):
+    host = payload.get("imap_host")
+    port = payload.get("imap_port")
+    username = payload.get("imap_username")
+    password = payload.get("imap_password")
+    use_ssl = payload.get("imap_use_ssl", True)
+    
+    if not host or not username or not password:
+        raise HTTPException(status_code=400, detail="imap_host, imap_username, and imap_password are required")
+        
+    import imaplib
+    try:
+        if use_ssl:
+            client = imaplib.IMAP4_SSL(host, port or 993, timeout=10)
+        else:
+            client = imaplib.IMAP4(host, port or 143, timeout=10)
+            
+        client.login(username, password)
+        client.select("INBOX")
+        client.close()
+        client.logout()
+        return {"success": True, "detail": "IMAP connection and authentication test successful! INBOX select OK."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"IMAP Test Failed: {e}")
 
 @router.post("/my/dkim")
 def generate_my_dkim(db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
