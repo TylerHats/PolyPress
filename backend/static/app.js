@@ -262,7 +262,7 @@
                 // Session details
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
                 tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500 },
-                globalSettings: { app_name: 'PolyPress', public_url: '', oidc_enabled: false, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
+                globalSettings: { app_name: 'PolyPress', public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
                 updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
                 schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
                 schemaBypassForm: { email: '', password: '' },
@@ -557,6 +557,7 @@
                             this.globalSettings.app_name = data.app_name || 'PolyPress';
                             this.globalSettings.app_logo = data.app_logo;
                             this.globalSettings.oidc_enabled = data.oidc_enabled;
+                            this.globalSettings.local_login_enabled = data.local_login_enabled !== undefined ? data.local_login_enabled : true;
                             document.title = this.globalSettings.app_name;
                         }
                     } catch(e) {
@@ -1653,15 +1654,20 @@
                 },
 
                 // Helper to pad metrics with zeros and convert UTC to timezone
-                preparePaddedHistory(historyData, days, tz) {
+                preparePaddedHistory(historyData, days, tz, endingDate = null) {
                     const resultPoints = [];
-                    const now = new Date();
+                    const referenceDate = endingDate ? new Date(endingDate) : new Date();
+                    if (endingDate) {
+                        referenceDate.setHours(23, 59, 59, 999);
+                    }
+                    
+                    const firstRecordDate = historyData.length > 0 ? new Date(historyData[0].recorded_at + 'Z') : null;
                     
                     if (days === 1) {
                         // Hourly points for the last 24 hours
                         const hourlyPoints = [];
                         for (let i = 23; i >= 0; i--) {
-                            const d = new Date(now.getTime() - i * 60 * 60 * 1000);
+                            const d = new Date(referenceDate.getTime() - i * 60 * 60 * 1000);
                             const label = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz === 'local' ? undefined : tz });
                             
                             const hourRecords = historyData.filter(r => {
@@ -1678,22 +1684,26 @@
                         
                         let lastSubs = 0;
                         let lastSent = null, lastOpens = null, lastClicks = null, lastBounces = null;
-                        if (historyData.length > 0) {
-                            lastSubs = historyData[0].subscriber_count;
-                            lastSent = historyData[0].emails_sent;
-                            lastOpens = historyData[0].email_opens;
-                            lastClicks = historyData[0].link_clicks;
-                            lastBounces = historyData[0].bounces;
-                        }
                         
                         for (let pt of hourlyPoints) {
+                            const isBeforeFirstRecord = firstRecordDate && pt.rawDate < firstRecordDate;
+                            
                             if (pt.records.length > 0) {
                                 pt.records.sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
                                 const latest = pt.records[pt.records.length - 1];
-                                const sentDiff = lastSent !== null ? Math.max(0, latest.emails_sent - lastSent) : 0;
-                                const opensDiff = lastOpens !== null ? Math.max(0, latest.email_opens - lastOpens) : 0;
-                                const clicksDiff = lastClicks !== null ? Math.max(0, latest.link_clicks - lastClicks) : 0;
-                                const bouncesDiff = lastBounces !== null ? Math.max(0, latest.bounces - lastBounces) : 0;
+                                
+                                if (lastSent === null) {
+                                    lastSubs = latest.subscriber_count;
+                                    lastSent = latest.emails_sent;
+                                    lastOpens = latest.email_opens;
+                                    lastClicks = latest.link_clicks;
+                                    lastBounces = latest.bounces;
+                                }
+                                
+                                const sentDiff = Math.max(0, latest.emails_sent - lastSent);
+                                const opensDiff = Math.max(0, latest.email_opens - lastOpens);
+                                const clicksDiff = Math.max(0, latest.link_clicks - lastClicks);
+                                const bouncesDiff = Math.max(0, latest.bounces - lastBounces);
                                 
                                 resultPoints.push({
                                     date: pt.label,
@@ -1711,22 +1721,34 @@
                                 lastClicks = latest.link_clicks;
                                 lastBounces = latest.bounces;
                             } else {
-                                resultPoints.push({
-                                    date: pt.label,
-                                    subscriber_count: lastSubs,
-                                    emails_sent: 0,
-                                    email_opens: 0,
-                                    link_clicks: 0,
-                                    bounces: 0,
-                                    recorded_at: pt.rawDate.toISOString()
-                                });
+                                if (isBeforeFirstRecord) {
+                                    resultPoints.push({
+                                        date: pt.label,
+                                        subscriber_count: 0,
+                                        emails_sent: 0,
+                                        email_opens: 0,
+                                        link_clicks: 0,
+                                        bounces: 0,
+                                        recorded_at: pt.rawDate.toISOString()
+                                    });
+                                } else {
+                                    resultPoints.push({
+                                        date: pt.label,
+                                        subscriber_count: lastSubs,
+                                        emails_sent: 0,
+                                        email_opens: 0,
+                                        link_clicks: 0,
+                                        bounces: 0,
+                                        recorded_at: pt.rawDate.toISOString()
+                                    });
+                                }
                             }
                         }
                     } else {
                         // Daily points for X days
                         const dailyPoints = [];
                         for (let i = days - 1; i >= 0; i--) {
-                            const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+                            const d = new Date(referenceDate.getTime() - i * 24 * 60 * 60 * 1000);
                             const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz === 'local' ? undefined : tz });
                             
                             const dayRecords = historyData.filter(r => {
@@ -1744,22 +1766,26 @@
                         
                         let lastSubs = 0;
                         let lastSent = null, lastOpens = null, lastClicks = null, lastBounces = null;
-                        if (historyData.length > 0) {
-                            lastSubs = historyData[0].subscriber_count;
-                            lastSent = historyData[0].emails_sent;
-                            lastOpens = historyData[0].email_opens;
-                            lastClicks = historyData[0].link_clicks;
-                            lastBounces = historyData[0].bounces;
-                        }
                         
                         for (let pt of dailyPoints) {
+                            const isBeforeFirstRecord = firstRecordDate && pt.rawDate < firstRecordDate;
+                            
                             if (pt.records.length > 0) {
                                 pt.records.sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
                                 const latest = pt.records[pt.records.length - 1];
-                                const sentDiff = lastSent !== null ? Math.max(0, latest.emails_sent - lastSent) : 0;
-                                const opensDiff = lastOpens !== null ? Math.max(0, latest.email_opens - lastOpens) : 0;
-                                const clicksDiff = lastClicks !== null ? Math.max(0, latest.link_clicks - lastClicks) : 0;
-                                const bouncesDiff = lastBounces !== null ? Math.max(0, latest.bounces - lastBounces) : 0;
+                                
+                                if (lastSent === null) {
+                                    lastSubs = latest.subscriber_count;
+                                    lastSent = latest.emails_sent;
+                                    lastOpens = latest.email_opens;
+                                    lastClicks = latest.link_clicks;
+                                    lastBounces = latest.bounces;
+                                }
+                                
+                                const sentDiff = Math.max(0, latest.emails_sent - lastSent);
+                                const opensDiff = Math.max(0, latest.email_opens - lastOpens);
+                                const clicksDiff = Math.max(0, latest.link_clicks - lastClicks);
+                                const bouncesDiff = Math.max(0, latest.bounces - lastBounces);
                                 
                                 resultPoints.push({
                                     date: pt.label,
@@ -1777,15 +1803,27 @@
                                 lastClicks = latest.link_clicks;
                                 lastBounces = latest.bounces;
                             } else {
-                                resultPoints.push({
-                                    date: pt.label,
-                                    subscriber_count: lastSubs,
-                                    emails_sent: 0,
-                                    email_opens: 0,
-                                    link_clicks: 0,
-                                    bounces: 0,
-                                    recorded_at: pt.rawDate.toISOString()
-                                });
+                                if (isBeforeFirstRecord) {
+                                    resultPoints.push({
+                                        date: pt.label,
+                                        subscriber_count: 0,
+                                        emails_sent: 0,
+                                        email_opens: 0,
+                                        link_clicks: 0,
+                                        bounces: 0,
+                                        recorded_at: pt.rawDate.toISOString()
+                                    });
+                                } else {
+                                    resultPoints.push({
+                                        date: pt.label,
+                                        subscriber_count: lastSubs,
+                                        emails_sent: 0,
+                                        email_opens: 0,
+                                        link_clicks: 0,
+                                        bounces: 0,
+                                        recorded_at: pt.rawDate.toISOString()
+                                    });
+                                }
                             }
                         }
                     }
@@ -1873,19 +1911,19 @@
                 renderMetricsChart(chartPoints) {
                     if (this.chartTimeoutId) {
                         clearTimeout(this.chartTimeoutId);
+                        this.chartTimeoutId = null;
+                    }
+                    if (this.dashboardChart) {
+                        try {
+                            this.dashboardChart.stop();
+                            this.dashboardChart.destroy();
+                        } catch(e) {}
+                        this.dashboardChart = null;
                     }
                     this.chartTimeoutId = setTimeout(() => {
                         this.chartTimeoutId = null;
                         const ctx = document.getElementById('dashboardChart');
                         if (!ctx) return;
-                        
-                        if (this.dashboardChart) {
-                            try {
-                                this.dashboardChart.stop();
-                                this.dashboardChart.destroy();
-                            } catch(e) {}
-                            this.dashboardChart = null;
-                        }
                         
                         const labels = chartPoints.map(p => p.date);
                         const opensData = chartPoints.map(p => p.email_opens);
@@ -1919,14 +1957,14 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 2000,
+                                        duration: 1000,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             let delay = 0;
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                delay = context.dataIndex * (2000 / Math.max(1, context.dataset.data.length));
+                                                delay = context.dataIndex * (1000 / Math.max(1, context.dataset.data.length));
                                             }
-                                            return Math.min(2000, delay);
+                                            return Math.min(1000, delay);
                                         }
                                     },
                                     plugins: {
@@ -1947,7 +1985,7 @@
                                 }
                             });
                         } catch(e) {
-                            console.error("Chart creation error: ", e);
+                            console.error('Failed to create dashboard chart:', e);
                         }
                     }, 50);
                 },
@@ -2789,28 +2827,31 @@
                 renderReportsChart() {
                     if (this.reportsChartTimeoutId) {
                         clearTimeout(this.reportsChartTimeoutId);
+                        this.reportsChartTimeoutId = null;
+                    }
+                    if (this.reportsChart) {
+                        try {
+                            this.reportsChart.stop();
+                            this.reportsChart.destroy();
+                        } catch(e) {}
+                        this.reportsChart = null;
                     }
                     this.reportsChartTimeoutId = setTimeout(() => {
                         this.reportsChartTimeoutId = null;
                         const ctx = document.getElementById('reportsChart');
                         if (!ctx) return;
                         
-                        if (this.reportsChart) {
-                            try {
-                                this.reportsChart.stop();
-                                this.reportsChart.destroy();
-                            } catch(e) {}
-                            this.reportsChart = null;
-                        }
-                        
                         let days = 30;
+                        let endingDate = null;
                         if (this.reportsFilterStartDate && this.reportsFilterEndDate) {
                             const start = new Date(this.reportsFilterStartDate);
                             const end = new Date(this.reportsFilterEndDate);
+                            end.setHours(23, 59, 59, 999);
                             days = Math.max(1, Math.round((end - start) / (24 * 60 * 60 * 1000)));
+                            endingDate = this.reportsFilterEndDate;
                         }
                         
-                        const paddedReports = this.preparePaddedHistory(this.reportsData, days, this.reportsTimezone);
+                        const paddedReports = this.preparePaddedHistory(this.reportsData, days, this.reportsTimezone, endingDate);
                         const labels = paddedReports.map(r => r.date);
                         const subsData = paddedReports.map(r => r.subscriber_count);
                         const sentData = paddedReports.map(r => r.emails_sent);
@@ -2852,14 +2893,14 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 2000,
+                                        duration: 1000,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             let delay = 0;
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                delay = context.dataIndex * (2000 / Math.max(1, context.dataset.data.length));
+                                                delay = context.dataIndex * (1000 / Math.max(1, context.dataset.data.length));
                                             }
-                                            return Math.min(2000, delay);
+                                            return Math.min(1000, delay);
                                         }
                                     },
                                     scales: {
@@ -2877,6 +2918,26 @@
                     }, 50);
                 },
                 
+                async forceRecordSnapshot() {
+                    try {
+                        const res = await fetch('/api/reports/record-snapshot', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.showToast(data.message);
+                            await this.fetchReportData();
+                            await this.loadDashboardMetrics();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to record snapshot', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
                 printReport() {
                     window.print();
                 },

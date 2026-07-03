@@ -160,7 +160,7 @@
             <p class="login-subtitle">Email newsletter management</p>
             
             <!-- Standard Login Form -->
-            <form x-show="!totpRequired" @submit.prevent="handleLogin()">
+            <form x-show="!totpRequired && (!globalSettings.oidc_enabled || globalSettings.local_login_enabled)" @submit.prevent="handleLogin()">
                 <div class="form-grid" style="grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
                     <div class="field" style="text-align: left;">
                         <label>Email Address</label>
@@ -188,7 +188,7 @@
             </form>
             
             <div x-show="globalSettings.oidc_enabled && !totpRequired" style="display: none;">
-                <div class="login-separator">or</div>
+                <div class="login-separator" x-show="globalSettings.local_login_enabled">or</div>
                 <button @click="triggerOidcLogin()" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
                     <i data-lucide="shield-check"></i>
                     Single Sign-On (OIDC)

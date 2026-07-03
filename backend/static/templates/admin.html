@@ -107,6 +107,11 @@
                                             <div class="toggle-switch" @click="globalSettings.auto_create_tenants = !globalSettings.auto_create_tenants"></div>
                                             <span>Auto-Create Tenant per Email Domain</span>
                                         </div>
+                                        <div class="toggle-field" style="margin-top: 10px;">
+                                            <input type="checkbox" x-model="globalSettings.local_login_enabled" style="display:none;">
+                                            <div class="toggle-switch" @click="globalSettings.local_login_enabled = !globalSettings.local_login_enabled"></div>
+                                            <span>Allow Standard Password Login (Local Auth)</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

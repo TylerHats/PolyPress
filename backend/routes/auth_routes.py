@@ -129,6 +129,10 @@ def login(payload: dict, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
         
+    settings = db.query(GlobalSettings).first()
+    if settings and not settings.local_login_enabled and user.role != "super_admin":
+        raise HTTPException(status_code=400, detail="Standard password login is disabled. Please use OIDC (SSO).")
+        
     if user.auth_type == "oidc":
         raise HTTPException(status_code=400, detail="This account is configured for OIDC (SSO) authentication only")
         
@@ -216,12 +220,14 @@ def get_public_settings(db: Session = Depends(get_db)):
         return {
             "app_name": "PolyPress",
             "app_logo": None,
-            "oidc_enabled": False
+            "oidc_enabled": False,
+            "local_login_enabled": True
         }
     return {
         "app_name": settings.app_name,
         "app_logo": settings.app_logo,
-        "oidc_enabled": settings.oidc_enabled
+        "oidc_enabled": settings.oidc_enabled,
+        "local_login_enabled": settings.local_login_enabled
     }
 
 @router.get("/oidc/url")

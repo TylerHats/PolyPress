@@ -153,6 +153,7 @@ def update_global_settings(payload: dict, db: Session = Depends(get_db), current
     settings.oidc_redirect_url = payload.get("oidc_redirect_url", settings.oidc_redirect_url)
     settings.allowed_domains = payload.get("allowed_domains", settings.allowed_domains)
     settings.auto_create_tenants = payload.get("auto_create_tenants", settings.auto_create_tenants)
+    settings.local_login_enabled = payload.get("local_login_enabled", settings.local_login_enabled)
     
     # Auto-updates and Backups API
     settings.auto_update = payload.get("auto_update", settings.auto_update)

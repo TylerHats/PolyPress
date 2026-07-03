@@ -127,3 +127,81 @@ def update_report_settings(
             "retention_days": tenant.history_retention_days,
             "frequency_hours": tenant.history_record_frequency_hours
         }}
+
+@router.post("/record-snapshot")
+def force_record_snapshot(
+    db: Session = Depends(get_db),
+    history_db: Session = Depends(get_history_db),
+    current_user: User = Depends(auth.require_tenant_admin)
+):
+    now = datetime.utcnow()
+    
+    if current_user.tenant_id is None:
+        if current_user.role != "super_admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        sub_count = db.query(Subscriber).filter(Subscriber.status == "active").count()
+        campaigns = db.query(Campaign).all()
+        sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
+        opens = sum(c.open_count for c in campaigns if c.open_count)
+        clicks = sum(c.click_count for c in campaigns if c.click_count)
+        bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+        
+        metric = HistoricalMetric(
+            tenant_id=None,
+            recorded_at=now,
+            subscriber_count=sub_count,
+            emails_sent=sent,
+            email_opens=opens,
+            link_clicks=clicks,
+            bounces=bounces
+        )
+        history_db.add(metric)
+        
+        tenants = db.query(Tenant).all()
+        for tenant in tenants:
+            t_sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == tenant.id, Subscriber.status == "active").count()
+            t_campaigns = db.query(Campaign).filter(Campaign.tenant_id == tenant.id).all()
+            t_sent = sum(c.total_recipients for c in t_campaigns if c.total_recipients)
+            t_opens = sum(c.open_count for c in t_campaigns if c.open_count)
+            t_clicks = sum(c.click_count for c in t_campaigns if c.click_count)
+            t_bounces = sum(c.bounce_count for c in t_campaigns if c.bounce_count)
+            
+            t_metric = HistoricalMetric(
+                tenant_id=tenant.id,
+                recorded_at=now,
+                subscriber_count=t_sub_count,
+                emails_sent=t_sent,
+                email_opens=t_opens,
+                link_clicks=t_clicks,
+                bounces=t_bounces
+            )
+            history_db.add(t_metric)
+            
+        history_db.commit()
+        return {"status": "success", "message": "Global and all workspace snapshots recorded successfully."}
+        
+    else:
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+            
+        sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == tenant.id, Subscriber.status == "active").count()
+        campaigns = db.query(Campaign).filter(Campaign.tenant_id == tenant.id).all()
+        sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
+        opens = sum(c.open_count for c in campaigns if c.open_count)
+        clicks = sum(c.click_count for c in campaigns if c.click_count)
+        bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+        
+        metric = HistoricalMetric(
+            tenant_id=tenant.id,
+            recorded_at=now,
+            subscriber_count=sub_count,
+            emails_sent=sent,
+            email_opens=opens,
+            link_clicks=clicks,
+            bounces=bounces
+        )
+        history_db.add(metric)
+        history_db.commit()
+        return {"status": "success", "message": f"Snapshot recorded successfully for workspace: {tenant.name}."}

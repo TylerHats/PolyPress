@@ -502,8 +502,25 @@ input[type="checkbox"]:checked + .toggle-switch::after {
 
 .data-table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     text-align: left;
+}
+
+.data-table thead tr:first-child th:first-child {
+    border-top-left-radius: 12px;
+}
+
+.data-table thead tr:first-child th:last-child {
+    border-top-right-radius: 12px;
+}
+
+.data-table tbody tr:last-child td:first-child {
+    border-bottom-left-radius: 12px;
+}
+
+.data-table tbody tr:last-child td:last-child {
+    border-bottom-right-radius: 12px;
 }
 
 .data-table th {
@@ -889,8 +906,8 @@ input[type="checkbox"]:checked + .toggle-switch::after {
         padding: 15px !important;
     }
     canvas {
-        width: 100% !important;
-        height: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
         max-height: none !important;
     }
     .table-container {

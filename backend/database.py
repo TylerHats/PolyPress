@@ -37,6 +37,7 @@ class GlobalSettings(Base):
     # Access controls
     allowed_domains = Column(String, nullable=True) # Comma-separated domains (e.g. "company.com,org.net")
     auto_create_tenants = Column(Boolean, default=True) # Automatically create a tenant for a new OIDC domain
+    local_login_enabled = Column(Boolean, default=True) # Disable local email/pass login if OIDC is only option
     
     # Auto-updates and Backups API
     auto_update = Column(Boolean, default=False)

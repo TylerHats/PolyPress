@@ -25,11 +25,21 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(auth.
         
     result = []
     for u in users:
-        tenant_name = None
-        if u.tenant_id:
-            tenant = db.query(Tenant).filter(Tenant.id == u.tenant_id).first()
-            if tenant:
-                tenant_name = tenant.name
+        allowed_names = []
+        if u.role == "super_admin":
+            allowed_names_str = "Global System"
+        else:
+            if u.allowed_tenants:
+                for tid in u.allowed_tenants:
+                    t = db.query(Tenant).filter(Tenant.id == tid).first()
+                    if t:
+                        allowed_names.append(t.name)
+            if not allowed_names and u.tenant_id:
+                t = db.query(Tenant).filter(Tenant.id == u.tenant_id).first()
+                if t:
+                    allowed_names.append(t.name)
+            allowed_names_str = ", ".join(allowed_names) if allowed_names else "None/No Workspaces"
+            
         result.append({
             "id": u.id,
             "email": u.email,
@@ -37,7 +47,7 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(auth.
             "role": u.role,
             "is_active": u.is_active,
             "tenant_id": u.tenant_id,
-            "tenant_name": tenant_name,
+            "tenant_name": allowed_names_str,
             "totp_enabled": u.totp_enabled,
             "auth_type": u.auth_type,
             "allowed_tenants": u.allowed_tenants or []

@@ -353,12 +353,14 @@ def preview_campaign(
     if not user:
         raise HTTPException(status_code=401, detail="Authentication token required")
         
-    if not user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == user.tenant_id).first()
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    # Enforce tenant scoping check unless user is a super_admin
+    if user.role != "super_admin":
+        if not user.tenant_id or campaign.tenant_id != user.tenant_id:
+            raise HTTPException(status_code=403, detail="Permission denied")
         
     # Create mock subscriber
     mock_sub = Subscriber(

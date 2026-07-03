@@ -9,6 +9,9 @@
             </div>
         </div>
         <div style="display: flex; gap: 10px;">
+            <button x-show="user.role === 'super_admin' || user.role === 'tenant_admin'" @click="forceRecordSnapshot()" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 8px;">
+                <i data-lucide="camera" style="width: 16px; height: 16px;"></i> Take Snapshot
+            </button>
             <button @click="printReport()" class="btn btn-primary">
                 <i data-lucide="printer"></i> Print / Export PDF
             </button>
