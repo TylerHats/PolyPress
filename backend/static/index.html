@@ -16,9 +16,9 @@
 <body x-data="polyPressApp()" x-init="initApp()">
     
     <!-- Sleek Loading Overlay -->
-    <div x-show="loadingSession" class="loading-overlay" style="display: flex; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: var(--bg-main, #0b0f19); z-index: 99999;">
+    <div x-show="loadingSession" class="loading-overlay" style="display: none;">
         <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
-            <div class="spinner" style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.05); border-top-color: var(--color-primary, #6366f1); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <div class="spinner"></div>
             <div style="font-size: 14px; color: var(--text-secondary, #94a3b8); font-weight: 500;">Loading PolyPress...</div>
         </div>
     </div>

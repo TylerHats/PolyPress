@@ -106,10 +106,17 @@
                             </div>
 
                             <!-- Speed settings -->
-                            <div class="field" style="margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
-                                <label>Queue Sending Speed (Emails per Hour)</label>
-                                <input type="number" x-model="tenant.speed_emails_per_hour" placeholder="500">
-                                <span style="font-size: 11px; color: var(--text-muted);">Set to 0 for unlimited speed. Slow sending reduces host IP blocks.</span>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                                <div class="field">
+                                    <label>Queue Sending Speed (Emails / Hour)</label>
+                                    <input type="number" x-model="tenant.speed_emails_per_hour" placeholder="500">
+                                    <span style="font-size: 11px; color: var(--text-muted);">Set to 0 for unlimited speed.</span>
+                                </div>
+                                <div class="field">
+                                    <label>Failed Email Retry Period (Minutes)</label>
+                                    <input type="number" x-model="tenant.retry_interval_minutes" placeholder="15" min="1">
+                                    <span style="font-size: 11px; color: var(--text-muted);">Cooldown period before retrying deferred queue items.</span>
+                                </div>
                             </div>
 
                             <!-- Double Opt-In settings -->

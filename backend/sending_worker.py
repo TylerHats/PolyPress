@@ -295,7 +295,8 @@ def deliver_item_task(item_id: int):
             
             if is_transient:
                 item.status = "deferred"
-                item.next_attempt = datetime.utcnow() + timedelta(minutes=15)
+                retry_mins = getattr(tenant, "retry_interval_minutes", 15) or 15
+                item.next_attempt = datetime.utcnow() + timedelta(minutes=retry_mins)
             else:
                 item.status = "failed"
                 campaign.failed_count += 1

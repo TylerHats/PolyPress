@@ -1362,6 +1362,7 @@
                         if (res.ok) {
                             this.showToast('Global settings updated');
                             await this.fetchGlobalSettings();
+                            await this.fetchUpdateStatus();
                         } else {
                             const err = await res.json();
                             let msg = 'Failed to save settings';
@@ -3006,17 +3007,7 @@
                                 options: {
                                     responsive: true,
                                     maintainAspectRatio: false,
-                                    animation: {
-                                        duration: 1000,
-                                        easing: 'easeOutQuart',
-                                        delay: (context) => {
-                                            let delay = 0;
-                                            if (context.type === 'data' && context.mode === 'default') {
-                                                delay = context.dataIndex * (1000 / Math.max(1, context.dataset.data.length));
-                                            }
-                                            return Math.min(1000, delay);
-                                        }
-                                    },
+                                    animation: false,
                                     scales: {
                                         y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
                                         x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }

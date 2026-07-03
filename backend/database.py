@@ -88,6 +88,7 @@ class Tenant(Base):
     speed_emails_per_hour = Column(Integer, default=500) # 0 means unlimited
     max_sending_threads = Column(Integer, default=10)
     double_opt_in = Column(Boolean, default=False)
+    retry_interval_minutes = Column(Integer, default=15)
     
     # History logs settings
     history_retention_days = Column(Integer, default=30)

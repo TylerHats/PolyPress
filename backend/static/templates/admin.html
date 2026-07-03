@@ -146,7 +146,7 @@
 
                                 <div class="field">
                                     <label>Update Channel</label>
-                                    <select x-model="globalSettings.update_channel">
+                                    <select x-model="globalSettings.update_channel" @change="saveGlobalSettings()">
                                         <option value="stable">Stable (GitHub Releases)</option>
                                         <option value="beta">Beta (Latest Tag on Main)</option>
                                     </select>

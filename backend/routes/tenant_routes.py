@@ -167,7 +167,7 @@ def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depen
     if "direct_send" in payload:
         tenant.direct_send = payload["direct_send"]
         
-    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email"]:
+    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes"]:
         if field in payload:
             setattr(tenant, field, payload[field])
             
@@ -226,7 +226,8 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "imap_use_ssl": tenant.imap_use_ssl,
         "speed_emails_per_hour": tenant.speed_emails_per_hour,
         "bounce_email": tenant.bounce_email,
-        "double_opt_in": tenant.double_opt_in
+        "double_opt_in": tenant.double_opt_in,
+        "retry_interval_minutes": tenant.retry_interval_minutes
     }
 
 @router.put("/my")
@@ -264,6 +265,7 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
     tenant.speed_emails_per_hour = payload.get("speed_emails_per_hour", tenant.speed_emails_per_hour)
     tenant.bounce_email = payload.get("bounce_email", tenant.bounce_email)
     tenant.double_opt_in = payload.get("double_opt_in", tenant.double_opt_in)
+    tenant.retry_interval_minutes = payload.get("retry_interval_minutes", tenant.retry_interval_minutes)
     
     db.commit()
     db.refresh(tenant)

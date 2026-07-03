@@ -947,18 +947,18 @@ input[type="checkbox"]:checked + .toggle-switch::after {
 
 /* spinner & loading-overlay styling */
 .loading-overlay {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    background-color: #0b0f19 !important;
-    z-index: 999999 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: #0b0f19;
+    z-index: 999999;
 }
 
 .spinner {
@@ -967,7 +967,7 @@ input[type="checkbox"]:checked + .toggle-switch::after {
     border: 3px solid rgba(255, 255, 255, 0.05);
     border-top-color: var(--color-primary, #6366f1);
     border-radius: 50%;
-    animation: spin 0.8s linear infinite !important;
+    animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
