@@ -27,11 +27,23 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
     channel = settings.update_channel if settings else "stable"
     auto_update = settings.auto_update if settings else False
     
+    # Fetch origin to get latest updates state
+    run_git_command(["fetch", "origin", "--tags"])
+    
     current_commit = run_git_command(["rev-parse", "--short", "HEAD"]) or "unknown"
     current_tag = run_git_command(["describe", "--tags", "--abbrev=0"]) or ""
     
+    branch = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"]) or "main"
+    latest_commit = run_git_command(["rev-parse", "--short", f"origin/{branch}"]) or ""
+    
     update_available, latest_tag = check_for_updates_internal(channel)
-    latest_commit = ""
+    
+    # If beta update channel, compare commits too
+    if channel == "beta" and latest_commit and latest_commit != current_commit:
+        update_available = True
+        
+    if not latest_tag:
+        latest_tag = run_git_command(["describe", "--tags", "--abbrev=0", f"origin/{branch}"]) or current_tag
     
     is_systemd = "INVOCATION_ID" in os.environ
     

@@ -889,9 +889,22 @@ input[type="checkbox"]:checked + .toggle-switch::after {
         padding: 15px !important;
     }
     canvas {
-        max-width: 100% !important;
-        max-height: 280px !important;
-        height: auto !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-height: none !important;
+    }
+    .table-container {
+        overflow: visible !important;
+        width: 100% !important;
+    }
+    .data-table {
+        width: 100% !important;
+        table-layout: auto !important;
+    }
+    .data-table th, .data-table td {
+        padding: 8px 12px !important;
+        word-break: break-word !important;
+        font-size: 12px !important;
     }
     .page-header {
         margin-bottom: 20px !important;

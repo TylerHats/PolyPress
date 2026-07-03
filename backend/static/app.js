@@ -359,6 +359,14 @@
                 reportsSettings: { retention_days: 30, frequency_hours: 24 },
                 reportsChart: null,
                 reportsChartTimeoutId: null,
+                reportsTimezone: 'local',
+                dashboardPeriod: 30,
+                trends: {
+                    subscribers: { diff: 0 },
+                    campaigns: { diff: 0 },
+                    openRate: { diff: 0 },
+                    bounceRate: { diff: 0 }
+                },
 
                 askConfirm(message, title = 'Confirm Action', isDanger = false) {
                     return new Promise((resolve) => {
@@ -1633,15 +1641,163 @@
                     }
                 },
 
+                // Helper to format date in timezone
+                formatReportDateTime(dateStr) {
+                    if (!dateStr) return '';
+                    const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
+                    const tz = this.reportsTimezone;
+                    if (tz === 'local') {
+                        return d.toLocaleString();
+                    }
+                    return d.toLocaleString('en-US', { timeZone: tz });
+                },
+
+                // Helper to pad metrics with zeros and convert UTC to timezone
+                preparePaddedHistory(historyData, days, tz) {
+                    const resultPoints = [];
+                    const now = new Date();
+                    
+                    if (days === 1) {
+                        // Hourly points for the last 24 hours
+                        const hourlyPoints = [];
+                        for (let i = 23; i >= 0; i--) {
+                            const d = new Date(now.getTime() - i * 60 * 60 * 1000);
+                            const label = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz === 'local' ? undefined : tz });
+                            
+                            const hourRecords = historyData.filter(r => {
+                                const recDate = new Date(r.recorded_at + 'Z');
+                                return Math.abs(recDate.getTime() - d.getTime()) <= 30 * 60 * 1000;
+                            });
+                            
+                            hourlyPoints.push({
+                                label: label,
+                                records: hourRecords,
+                                rawDate: d
+                            });
+                        }
+                        
+                        let lastSubs = 0;
+                        let lastSent = null, lastOpens = null, lastClicks = null, lastBounces = null;
+                        if (historyData.length > 0) {
+                            lastSubs = historyData[0].subscriber_count;
+                            lastSent = historyData[0].emails_sent;
+                            lastOpens = historyData[0].email_opens;
+                            lastClicks = historyData[0].link_clicks;
+                            lastBounces = historyData[0].bounces;
+                        }
+                        
+                        for (let pt of hourlyPoints) {
+                            if (pt.records.length > 0) {
+                                pt.records.sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+                                const latest = pt.records[pt.records.length - 1];
+                                const sentDiff = lastSent !== null ? Math.max(0, latest.emails_sent - lastSent) : 0;
+                                const opensDiff = lastOpens !== null ? Math.max(0, latest.email_opens - lastOpens) : 0;
+                                const clicksDiff = lastClicks !== null ? Math.max(0, latest.link_clicks - lastClicks) : 0;
+                                const bouncesDiff = lastBounces !== null ? Math.max(0, latest.bounces - lastBounces) : 0;
+                                
+                                resultPoints.push({
+                                    date: pt.label,
+                                    subscriber_count: latest.subscriber_count,
+                                    emails_sent: sentDiff,
+                                    email_opens: opensDiff,
+                                    link_clicks: clicksDiff,
+                                    bounces: bouncesDiff,
+                                    recorded_at: latest.recorded_at
+                                });
+                                
+                                lastSubs = latest.subscriber_count;
+                                lastSent = latest.emails_sent;
+                                lastOpens = latest.email_opens;
+                                lastClicks = latest.link_clicks;
+                                lastBounces = latest.bounces;
+                            } else {
+                                resultPoints.push({
+                                    date: pt.label,
+                                    subscriber_count: lastSubs,
+                                    emails_sent: 0,
+                                    email_opens: 0,
+                                    link_clicks: 0,
+                                    bounces: 0,
+                                    recorded_at: pt.rawDate.toISOString()
+                                });
+                            }
+                        }
+                    } else {
+                        // Daily points for X days
+                        const dailyPoints = [];
+                        for (let i = days - 1; i >= 0; i--) {
+                            const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+                            const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz === 'local' ? undefined : tz });
+                            
+                            const dayRecords = historyData.filter(r => {
+                                const recDate = new Date(r.recorded_at + 'Z');
+                                const recLabel = recDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz === 'local' ? undefined : tz });
+                                return recLabel === label;
+                            });
+                            
+                            dailyPoints.push({
+                                label: label,
+                                records: dayRecords,
+                                rawDate: d
+                            });
+                        }
+                        
+                        let lastSubs = 0;
+                        let lastSent = null, lastOpens = null, lastClicks = null, lastBounces = null;
+                        if (historyData.length > 0) {
+                            lastSubs = historyData[0].subscriber_count;
+                            lastSent = historyData[0].emails_sent;
+                            lastOpens = historyData[0].email_opens;
+                            lastClicks = historyData[0].link_clicks;
+                            lastBounces = historyData[0].bounces;
+                        }
+                        
+                        for (let pt of dailyPoints) {
+                            if (pt.records.length > 0) {
+                                pt.records.sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+                                const latest = pt.records[pt.records.length - 1];
+                                const sentDiff = lastSent !== null ? Math.max(0, latest.emails_sent - lastSent) : 0;
+                                const opensDiff = lastOpens !== null ? Math.max(0, latest.email_opens - lastOpens) : 0;
+                                const clicksDiff = lastClicks !== null ? Math.max(0, latest.link_clicks - lastClicks) : 0;
+                                const bouncesDiff = lastBounces !== null ? Math.max(0, latest.bounces - lastBounces) : 0;
+                                
+                                resultPoints.push({
+                                    date: pt.label,
+                                    subscriber_count: latest.subscriber_count,
+                                    emails_sent: sentDiff,
+                                    email_opens: opensDiff,
+                                    link_clicks: clicksDiff,
+                                    bounces: bouncesDiff,
+                                    recorded_at: latest.recorded_at
+                                });
+                                
+                                lastSubs = latest.subscriber_count;
+                                lastSent = latest.emails_sent;
+                                lastOpens = latest.email_opens;
+                                lastClicks = latest.link_clicks;
+                                lastBounces = latest.bounces;
+                            } else {
+                                resultPoints.push({
+                                    date: pt.label,
+                                    subscriber_count: lastSubs,
+                                    emails_sent: 0,
+                                    email_opens: 0,
+                                    link_clicks: 0,
+                                    bounces: 0,
+                                    recorded_at: pt.rawDate.toISOString()
+                                });
+                            }
+                        }
+                    }
+                    return resultPoints;
+                },
+
                 // Dashboard Metrics calculator
                 async loadDashboardMetrics() {
-                    // Summarize totals from local data arrays
+                    // Summarize current totals
                     this.stats.totalSubscribers = 0;
-                    
-                    // Fetch all lists count
                     let sumSubs = 0;
                     for (let l of this.lists) {
-                        // Normally fetch actual count, let's query lists to approximate
                         try {
                             const res = await fetch(`/api/lists/${l.id}/subscribers?limit=1`, { headers: this.getAuthHeaders() });
                             const data = await res.json();
@@ -1650,26 +1806,71 @@
                     }
                     this.stats.totalSubscribers = sumSubs;
                     
-                    let sentCampaigns = this.campaigns.filter(c => c.status === 'sent' || c.status === 'sending');
-                    this.stats.campaignsSent = sentCampaigns.length;
+                    // Fetch history data for current period (X days) and previous period (2X days)
+                    let historyData = [];
+                    try {
+                        const daysToFetch = this.dashboardPeriod * 2;
+                        const startDateStr = new Date(Date.now() - (daysToFetch * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
+                        const res = await fetch(`/api/reports/history?start_date=${startDateStr}`, { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            historyData = await res.json();
+                        }
+                    } catch(e) {}
                     
-                    let totalSentCount = 0;
-                    let totalOpens = 0;
-                    let totalBounces = 0;
+                    const now = new Date();
+                    const periodMs = this.dashboardPeriod * 24 * 60 * 60 * 1000;
+                    const currentStart = new Date(now.getTime() - periodMs);
+                    const prevStart = new Date(now.getTime() - 2 * periodMs);
                     
-                    for (let c of sentCampaigns) {
-                        totalSentCount += c.sent_count;
-                        totalOpens += c.open_count;
-                        totalBounces += c.bounce_count;
+                    // 1. Total Subscribers (current vs previous final)
+                    const currentPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= currentStart);
+                    const prevPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= prevStart && new Date(r.recorded_at + 'Z') < currentStart);
+                    
+                    let currentSubs = this.stats.totalSubscribers;
+                    let prevSubs = 0;
+                    
+                    if (currentPeriodRecs.length > 0) {
+                        currentSubs = currentPeriodRecs[currentPeriodRecs.length - 1].subscriber_count;
                     }
+                    if (prevPeriodRecs.length > 0) {
+                        prevSubs = prevPeriodRecs[prevPeriodRecs.length - 1].subscriber_count;
+                    } else if (currentPeriodRecs.length > 0) {
+                        prevSubs = currentPeriodRecs[0].subscriber_count;
+                    }
+                    this.trends.subscribers.diff = currentSubs - prevSubs;
                     
-                    this.stats.avgOpenRate = totalSentCount > 0 ? Math.round((totalOpens / totalSentCount) * 100) : 0;
-                    this.stats.avgBounceRate = totalSentCount > 0 ? Math.round((totalBounces / totalSentCount) * 100) : 0;
+                    // 2. Campaigns Sent in current vs previous
+                    const currentCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= currentStart);
+                    const prevCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= prevStart && new Date(c.created_at) < currentStart);
                     
-                    this.renderMetricsChart(sentCampaigns);
+                    this.trends.campaigns.diff = currentCampaigns.length - prevCampaigns.length;
+                    this.stats.campaignsSent = currentCampaigns.length;
+                    
+                    // 3. Open Rate and Bounce Rate averages for current period
+                    let currentSent = currentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                    let currentOpens = currentCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
+                    let currentBounces = currentCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
+                    
+                    this.stats.avgOpenRate = currentSent > 0 ? Math.round((currentOpens / currentSent) * 100) : 0;
+                    this.stats.avgBounceRate = currentSent > 0 ? Math.round((currentBounces / currentSent) * 100) : 0;
+                    
+                    // Previous period open/bounce averages
+                    let prevSent = prevCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                    let prevOpens = prevCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
+                    let prevBounces = prevCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
+                    
+                    let prevOpenRate = prevSent > 0 ? Math.round((prevOpens / prevSent) * 100) : 0;
+                    let prevBounceRate = prevSent > 0 ? Math.round((prevBounces / prevSent) * 100) : 0;
+                    
+                    this.trends.openRate.diff = this.stats.avgOpenRate - prevOpenRate;
+                    this.trends.bounceRate.diff = this.stats.avgBounceRate - prevBounceRate;
+                    
+                    // Generate padded history for chart rendering
+                    const chartPoints = this.preparePaddedHistory(currentPeriodRecs, this.dashboardPeriod, this.reportsTimezone);
+                    this.renderMetricsChart(chartPoints);
                 },
                 
-                renderMetricsChart(sentCampaigns) {
+                renderMetricsChart(chartPoints) {
                     if (this.chartTimeoutId) {
                         clearTimeout(this.chartTimeoutId);
                     }
@@ -1680,16 +1881,15 @@
                         
                         if (this.dashboardChart) {
                             try {
+                                this.dashboardChart.stop();
                                 this.dashboardChart.destroy();
                             } catch(e) {}
                             this.dashboardChart = null;
                         }
                         
-                        // Prepare data coordinates
-                        const reversed = [...sentCampaigns].reverse().slice(-7);
-                        const labels = reversed.map(c => c.name);
-                        const opensData = reversed.map(c => c.open_count);
-                        const clicksData = reversed.map(c => c.click_count);
+                        const labels = chartPoints.map(p => p.date);
+                        const opensData = chartPoints.map(p => p.email_opens);
+                        const clicksData = chartPoints.map(p => p.link_clicks);
                         
                         try {
                             this.dashboardChart = new Chart(ctx, {
@@ -1718,6 +1918,17 @@
                                 options: {
                                     responsive: true,
                                     maintainAspectRatio: false,
+                                    animation: {
+                                        duration: 2000,
+                                        easing: 'easeOutQuart',
+                                        delay: (context) => {
+                                            let delay = 0;
+                                            if (context.type === 'data' && context.mode === 'default') {
+                                                delay = context.dataIndex * (2000 / Math.max(1, context.dataset.data.length));
+                                            }
+                                            return Math.min(2000, delay);
+                                        }
+                                    },
                                     plugins: {
                                         legend: {
                                             labels: { color: '#94a3b8' }
@@ -2586,15 +2797,24 @@
                         
                         if (this.reportsChart) {
                             try {
+                                this.reportsChart.stop();
                                 this.reportsChart.destroy();
                             } catch(e) {}
                             this.reportsChart = null;
                         }
                         
-                        const labels = this.reportsData.map(r => new Date(r.recorded_at).toLocaleDateString());
-                        const subsData = this.reportsData.map(r => r.subscriber_count);
-                        const sentData = this.reportsData.map(r => r.emails_sent);
-                        const opensData = this.reportsData.map(r => r.email_opens);
+                        let days = 30;
+                        if (this.reportsFilterStartDate && this.reportsFilterEndDate) {
+                            const start = new Date(this.reportsFilterStartDate);
+                            const end = new Date(this.reportsFilterEndDate);
+                            days = Math.max(1, Math.round((end - start) / (24 * 60 * 60 * 1000)));
+                        }
+                        
+                        const paddedReports = this.preparePaddedHistory(this.reportsData, days, this.reportsTimezone);
+                        const labels = paddedReports.map(r => r.date);
+                        const subsData = paddedReports.map(r => r.subscriber_count);
+                        const sentData = paddedReports.map(r => r.emails_sent);
+                        const opensData = paddedReports.map(r => r.email_opens);
                         
                         try {
                             this.reportsChart = new Chart(ctx, {
@@ -2631,6 +2851,17 @@
                                 options: {
                                     responsive: true,
                                     maintainAspectRatio: false,
+                                    animation: {
+                                        duration: 2000,
+                                        easing: 'easeOutQuart',
+                                        delay: (context) => {
+                                            let delay = 0;
+                                            if (context.type === 'data' && context.mode === 'default') {
+                                                delay = context.dataIndex * (2000 / Math.max(1, context.dataset.data.length));
+                                            }
+                                            return Math.min(2000, delay);
+                                        }
+                                    },
                                     scales: {
                                         y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
                                         x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }

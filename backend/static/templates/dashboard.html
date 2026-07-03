@@ -5,6 +5,15 @@
                             <h1 class="page-title">Welcome back, <span x-text="user.name || 'User'"></span></h1>
                             <p class="page-subtitle">Here is what's happening with your newsletters today.</p>
                         </div>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <label style="font-size: 13px; color: var(--text-secondary);">Period:</label>
+                            <select x-model.number="dashboardPeriod" @change="loadDashboardMetrics()" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff; border-radius: 6px; padding: 6px 12px; width: 155px; color-scheme: dark; font-size: 13px;">
+                                <option value="1">Last 24 Hours</option>
+                                <option value="7">Last 7 Days</option>
+                                <option value="30">Last 30 Days</option>
+                                <option value="90">Last 90 Days</option>
+                            </select>
+                        </div>
                     </div>
                     
                     <!-- Stats Grid -->
@@ -15,8 +24,8 @@
                                 <i data-lucide="users" style="color: var(--color-primary);"></i>
                             </div>
                             <div class="card-value" x-text="stats.totalSubscribers">0</div>
-                            <div class="card-trend trend-up">
-                                <i data-lucide="trending-up" style="width: 12px; height: 12px;"></i> Active contacts
+                            <div class="card-trend" :class="trends.subscribers.diff >= 0 ? 'trend-up' : 'trend-down'">
+                                <span x-text="trends.subscribers.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.subscribers.diff"></span> active contacts
                             </div>
                         </div>
                         <div class="card">
@@ -25,8 +34,8 @@
                                 <i data-lucide="send" style="color: var(--color-accent);"></i>
                             </div>
                             <div class="card-value" x-text="stats.campaignsSent">0</div>
-                            <div class="card-trend trend-up">
-                                Historical broadcasts
+                            <div class="card-trend" :class="trends.campaigns.diff >= 0 ? 'trend-up' : 'trend-down'">
+                                <span x-text="trends.campaigns.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.campaigns.diff"></span> vs last period
                             </div>
                         </div>
                         <div class="card">
@@ -35,8 +44,8 @@
                                 <i data-lucide="eye" style="color: var(--color-success);"></i>
                             </div>
                             <div class="card-value" x-text="stats.avgOpenRate + '%'">0%</div>
-                            <div class="card-trend trend-up">
-                                Click-through ratio
+                            <div class="card-trend" :class="trends.openRate.diff >= 0 ? 'trend-up' : 'trend-down'">
+                                <span x-text="trends.openRate.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.openRate.diff + '%'"></span> vs last period
                             </div>
                         </div>
                         <div class="card">
@@ -45,8 +54,8 @@
                                 <i data-lucide="alert-triangle" style="color: var(--color-danger);"></i>
                             </div>
                             <div class="card-value" x-text="stats.avgBounceRate + '%'">0%</div>
-                            <div class="card-trend trend-down" :class="stats.avgBounceRate > 5 ? 'trend-down' : 'trend-up'">
-                                Target: under 3%
+                            <div class="card-trend" :class="trends.bounceRate.diff <= 0 ? 'trend-up' : 'trend-down'">
+                                <span x-text="trends.bounceRate.diff <= 0 ? '▼ ' : '▲ +'"></span><span x-text="trends.bounceRate.diff + '%'"></span> vs last period
                             </div>
                         </div>
                     </div>
