@@ -40,9 +40,6 @@
                                                      <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Design/Content">
                                                          <i data-lucide="edit-3"></i> Design
                                                      </button>
-                                                     <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="openEditCampaignModal(c)" class="btn btn-secondary btn-sm" title="Edit Details/Lists">
-                                                         <i data-lucide="settings"></i> Edit Settings
-                                                     </button>
                                                      <button x-show="user.role === 'tenant_user'" @click="openPreviewOnlyModal(c)" class="btn btn-secondary btn-sm" title="Preview Campaign">
                                                          <i data-lucide="eye"></i> Preview
                                                      </button>

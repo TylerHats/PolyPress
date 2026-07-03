@@ -260,6 +260,7 @@
                 profileForm: { name: '', password: '' },
                 
                 // Session details
+                loadingSession: true,
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
                 tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500 },
                 globalSettings: { app_name: 'PolyPress', public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
@@ -296,8 +297,13 @@
                     confirmLaunch: false,
                     stats: false,
                     campaignPreview: false,
-                    createWebhook: false
+                    createWebhook: false,
+                    targetPreview: false
                 },
+                targetPreviewData: [],
+                targetPreviewTotal: 0,
+                targetPreviewPage: 1,
+                targetPreviewFilter: { search: '', status: '' },
                 
                 // Subscriber sub list bindings
                 listSelected: null,
@@ -328,7 +334,7 @@
                 csvImportStep: 1,
                 
                 // Visual block editor state
-                editingCampaign: { id: null, name: '', subject: '', target_rules: { tag: '', engagement: '', signup_after: '', signup_before: '' } },
+                editingCampaign: { id: null, name: '', subject: '', target_rules: { tag: '', engagement: [], signup_after: '', signup_before: '' } },
                 targetingCollapsed: true,
                 editorBlocks: [],
                 selectedBlockIndex: null,
@@ -414,110 +420,115 @@
                 },
 
                 async initApp() {
-                    // Pre-fetch sub-templates
-                    const templates = ['dashboard', 'campaigns', 'subscribers', 'settings', 'users', 'reports', 'admin'];
-                    this.templates = {};
-                    for (const t of templates) {
+                    this.loadingSession = true;
+                    try {
+                        // Pre-fetch sub-templates
+                        const templates = ['dashboard', 'campaigns', 'subscribers', 'settings', 'users', 'reports', 'admin'];
+                        this.templates = {};
+                        for (const t of templates) {
+                            try {
+                                const res = await fetch(`/static/templates/${t}.html`);
+                                if (res.ok) {
+                                    this.templates[t] = await res.text();
+                                }
+                            } catch(e) {
+                                console.error(`Failed to pre-fetch template ${t}:`, e);
+                            }
+                        }
+
+                        // Check schema status first
                         try {
-                            const res = await fetch(`/static/templates/${t}.html`);
-                            if (res.ok) {
-                                this.templates[t] = await res.text();
+                            const statusRes = await fetch('/api/admin/update/schema-status');
+                            if (statusRes.ok) {
+                                const statusData = await statusRes.json();
+                                if (statusData.schema_mismatch) {
+                                    this.schemaMismatch.active = true;
+                                    this.schemaMismatch.code_ver = statusData.current_code_version;
+                                    this.schemaMismatch.db_ver = statusData.db_schema_version;
+                                    this.refreshIcons();
+                                    return;
+                                }
                             }
                         } catch(e) {
-                            console.error(`Failed to pre-fetch template ${t}:`, e);
+                            console.error('Error fetching schema status:', e);
                         }
-                    }
 
-                    // Check schema status first
-                    try {
-                        const statusRes = await fetch('/api/admin/update/schema-status');
-                        if (statusRes.ok) {
+                        // Check if setup completed
+                        try {
+                            const statusRes = await fetch('/api/auth/setup/status');
                             const statusData = await statusRes.json();
-                            if (statusData.schema_mismatch) {
-                                this.schemaMismatch.active = true;
-                                this.schemaMismatch.code_ver = statusData.current_code_version;
-                                this.schemaMismatch.db_ver = statusData.db_schema_version;
-                                this.refreshIcons();
-                                return;
-                            }
+                            this.setupCompleted = statusData.setup_completed;
+                        } catch(e) {
+                            this.setupCompleted = true;
                         }
-                    } catch(e) {
-                        console.error('Error fetching schema status:', e);
-                    }
 
-                    // Check if setup completed
-                    try {
-                        const statusRes = await fetch('/api/auth/setup/status');
-                        const statusData = await statusRes.json();
-                        this.setupCompleted = statusData.setup_completed;
-                    } catch(e) {
-                        this.setupCompleted = true;
-                    }
-
-                    this.token = localStorage.getItem('polypress_token');
-                    await this.loadGlobalConfig();
-                    
-                    const urlParams = new URLSearchParams(window.location.search);
-                    // Check for OIDC error in URL query params or hash query params
-                    let urlError = urlParams.get('error');
-                    if (!urlError && window.location.hash.includes('?')) {
-                        const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
-                        urlError = hashParams.get('error');
-                    }
-                    if (urlError) {
-                        this.showToast(decodeURIComponent(urlError), 'error');
-                        // Clean url
-                        let cleanUrl = window.location.pathname;
-                        if (window.location.hash) {
-                            const hashParts = window.location.hash.split('?');
-                            if (hashParts.length > 1) {
-                                const hashParams = new URLSearchParams(hashParts[1]);
-                                hashParams.delete('error');
-                                const remaining = hashParams.toString();
-                                cleanUrl += hashParts[0] + (remaining ? '?' + remaining : '');
+                        this.token = localStorage.getItem('polypress_token');
+                        await this.loadGlobalConfig();
+                        
+                        const urlParams = new URLSearchParams(window.location.search);
+                        // Check for OIDC error in URL query params or hash query params
+                        let urlError = urlParams.get('error');
+                        if (!urlError && window.location.hash.includes('?')) {
+                            const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
+                            urlError = hashParams.get('error');
+                        }
+                        if (urlError) {
+                            this.showToast(decodeURIComponent(urlError), 'error');
+                            // Clean url
+                            let cleanUrl = window.location.pathname;
+                            if (window.location.hash) {
+                                const hashParts = window.location.hash.split('?');
+                                if (hashParts.length > 1) {
+                                    const hashParams = new URLSearchParams(hashParts[1]);
+                                    hashParams.delete('error');
+                                    const remaining = hashParams.toString();
+                                    cleanUrl += hashParts[0] + (remaining ? '?' + remaining : '');
+                                } else {
+                                    cleanUrl += window.location.hash;
+                                }
                             } else {
-                                cleanUrl += window.location.hash;
+                                const searchParams = new URLSearchParams(window.location.search);
+                                searchParams.delete('error');
+                                const remaining = searchParams.toString();
+                                cleanUrl += remaining ? '?' + remaining : '';
                             }
-                        } else {
-                            const searchParams = new URLSearchParams(window.location.search);
-                            searchParams.delete('error');
-                            const remaining = searchParams.toString();
-                            cleanUrl += remaining ? '?' + remaining : '';
+                            window.history.replaceState({}, document.title, cleanUrl);
                         }
-                        window.history.replaceState({}, document.title, cleanUrl);
-                    }
 
-                    // Look for OIDC tokens in URL query params or hash query params
-                    let oidcToken = null;
-                    if (urlParams.has('token')) {
-                        oidcToken = urlParams.get('token');
-                    } else {
-                        const hash = window.location.hash;
-                        if (hash.includes('?')) {
-                            const hashParams = new URLSearchParams(hash.split('?')[1]);
-                            if (hashParams.has('token')) {
-                                oidcToken = hashParams.get('token');
+                        // Look for OIDC tokens in URL query params or hash query params
+                        let oidcToken = null;
+                        if (urlParams.has('token')) {
+                            oidcToken = urlParams.get('token');
+                        } else {
+                            const hash = window.location.hash;
+                            if (hash.includes('?')) {
+                                const hashParams = new URLSearchParams(hash.split('?')[1]);
+                                if (hashParams.has('token')) {
+                                    oidcToken = hashParams.get('token');
+                                }
                             }
                         }
-                    }
-                    if (oidcToken) {
-                        this.token = oidcToken;
-                        localStorage.setItem('polypress_token', oidcToken);
-                        // Clean url (remove token completely and reset hash to root)
-                        let cleanUrl = window.location.pathname;
-                        if (window.location.search) {
-                            const searchParams = new URLSearchParams(window.location.search);
-                            searchParams.delete('token');
-                            const remaining = searchParams.toString();
-                            if (remaining) {
-                                cleanUrl += '?' + remaining;
+                        if (oidcToken) {
+                            this.token = oidcToken;
+                            localStorage.setItem('polypress_token', oidcToken);
+                            // Clean url (remove token completely and reset hash to root)
+                            let cleanUrl = window.location.pathname;
+                            if (window.location.search) {
+                                const searchParams = new URLSearchParams(window.location.search);
+                                searchParams.delete('token');
+                                const remaining = searchParams.toString();
+                                if (remaining) {
+                                    cleanUrl += '?' + remaining;
+                                }
                             }
+                            window.history.replaceState({}, document.title, cleanUrl);
                         }
-                        window.history.replaceState({}, document.title, cleanUrl);
-                    }
-                    
-                    if (this.token) {
-                        await this.verifySession();
+                        
+                        if (this.token) {
+                            await this.verifySession();
+                        }
+                    } finally {
+                        this.loadingSession = false;
                     }
                 },
                 
@@ -1353,7 +1364,17 @@
                             await this.fetchGlobalSettings();
                         } else {
                             const err = await res.json();
-                            this.showToast(err.detail || 'Failed to save settings', 'error');
+                            let msg = 'Failed to save settings';
+                            if (err.detail) {
+                                if (typeof err.detail === 'string') {
+                                    msg = err.detail;
+                                } else if (Array.isArray(err.detail)) {
+                                    msg = err.detail.map(d => `${d.loc.join('.')}: ${d.msg}`).join(', ');
+                                } else if (typeof err.detail === 'object') {
+                                    msg = JSON.stringify(err.detail);
+                                }
+                            }
+                            this.showToast(msg, 'error');
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');
@@ -2441,7 +2462,14 @@
                 startVisualEditor(campaign) {
                     this.editingCampaign = campaign;
                     if (!this.editingCampaign.target_rules) {
-                        this.editingCampaign.target_rules = { tag: '', engagement: '', signup_after: '', signup_before: '' };
+                        this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '' };
+                    } else {
+                        if (typeof this.editingCampaign.target_rules.engagement === 'string') {
+                            const prev = this.editingCampaign.target_rules.engagement;
+                            this.editingCampaign.target_rules.engagement = prev ? [parseInt(prev)] : [];
+                        } else if (!this.editingCampaign.target_rules.engagement) {
+                            this.editingCampaign.target_rules.engagement = [];
+                        }
                     }
                     if (!this.editingCampaign.list_ids) {
                         this.editingCampaign.list_ids = this.editingCampaign.list_id ? [this.editingCampaign.list_id] : [];
@@ -2836,8 +2864,16 @@
                 async fetchReportData() {
                     let url = '/api/reports/history';
                     const params = [];
-                    if (this.reportsFilterStartDate) params.push(`start_date=${this.reportsFilterStartDate}`);
-                    if (this.reportsFilterEndDate) params.push(`end_date=${this.reportsFilterEndDate}`);
+                    if (this.reportsFilterStartDate) {
+                        const parts = this.reportsFilterStartDate.split('-');
+                        const localStart = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+                        params.push(`start_date=${localStart.toISOString()}`);
+                    }
+                    if (this.reportsFilterEndDate) {
+                        const parts = this.reportsFilterEndDate.split('-');
+                        const localEnd = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
+                        params.push(`end_date=${localEnd.toISOString()}`);
+                    }
                     if (params.length > 0) {
                         url += '?' + params.join('&');
                     }
@@ -3045,6 +3081,82 @@
                     this.previewIframeSrc = `/api/campaigns/${campaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&_t=${Date.now()}`;
                     this.modals.campaignPreview = true;
                     this.refreshIcons();
+                },
+
+                toggleTargetEngagement(star) {
+                    if (!this.editingCampaign.target_rules) {
+                        this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '' };
+                    }
+                    if (typeof this.editingCampaign.target_rules.engagement === 'string') {
+                        const prev = this.editingCampaign.target_rules.engagement;
+                        this.editingCampaign.target_rules.engagement = prev ? [parseInt(prev)] : [];
+                    } else if (!this.editingCampaign.target_rules.engagement) {
+                        this.editingCampaign.target_rules.engagement = [];
+                    }
+                    const idx = this.editingCampaign.target_rules.engagement.indexOf(star);
+                    if (idx > -1) {
+                        this.editingCampaign.target_rules.engagement.splice(idx, 1);
+                    } else {
+                        this.editingCampaign.target_rules.engagement.push(star);
+                    }
+                },
+                
+                openTargetPreviewModal() {
+                    this.targetPreviewPage = 1;
+                    this.targetPreviewFilter = { search: '', status: '' };
+                    this.modals.targetPreview = true;
+                    this.fetchTargetPreview();
+                },
+                
+                async fetchTargetPreview() {
+                    try {
+                        const payload = {
+                            list_ids: this.editingCampaign.list_ids || (this.editingCampaign.list_id ? [this.editingCampaign.list_id] : []),
+                            target_rules: this.editingCampaign.target_rules || {}
+                        };
+                        const searchParams = new URLSearchParams({
+                            search: this.targetPreviewFilter.search,
+                            status: this.targetPreviewFilter.status,
+                            page: this.targetPreviewPage,
+                            limit: 50
+                        });
+                        
+                        const res = await fetch(`/api/campaigns/${this.editingCampaign.id}/preview-target-subscribers?${searchParams.toString()}`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(payload)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.targetPreviewData = data.subscribers;
+                            this.targetPreviewTotal = data.total;
+                            this.refreshIcons();
+                        }
+                    } catch(e) {
+                        console.error('Failed to fetch target preview:', e);
+                    }
+                },
+                
+                formatPurgeTime(createdAtStr) {
+                    if (!createdAtStr) return 'N/A';
+                    const createdDate = new Date(createdAtStr.endsWith('Z') ? createdAtStr : createdAtStr + 'Z');
+                    const purgeDate = new Date(createdDate.getTime() + 3 * 24 * 60 * 60 * 1000);
+                    const now = new Date();
+                    const diffMs = purgeDate - now;
+                    if (diffMs <= 0) return 'Expired/Processing';
+                    
+                    const diffHours = Math.floor(diffMs / (60 * 60 * 1000));
+                    if (diffHours >= 24) {
+                        const days = Math.floor(diffHours / 24);
+                        const hours = diffHours % 24;
+                        return `${days}d ${hours}h left`;
+                    } else if (diffHours > 0) {
+                        const mins = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
+                        return `${diffHours}h ${mins}m left`;
+                    } else {
+                        const mins = Math.floor(diffMs / (60 * 1000));
+                        return `${mins}m left`;
+                    }
                 }
             };
         }

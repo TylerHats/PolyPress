@@ -279,6 +279,9 @@ def deliver_item_task(item_id: int):
         else:
             success, is_transient, code, msg = send_external_smtp(item, tenant)
             
+        # Increment attempts counter
+        item.retries = (item.retries or 0) + 1
+            
         # Update status
         if success:
             item.status = "sent"

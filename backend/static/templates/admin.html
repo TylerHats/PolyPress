@@ -135,7 +135,7 @@
                                     </div>
                                     <div>
                                         <div style="font-weight: 600; color: var(--color-success); margin-bottom: 6px; border-bottom: 1px solid var(--border-glass); padding-bottom: 4px;">Latest Online</div>
-                                        <div><strong>Online Tag:</strong> <span style="font-family: monospace;" x-text="updateStatus.latest_tag || 'N/A'"></span></div>
+                                        <div><strong x-text="globalSettings.update_channel === 'stable' ? 'Online Release:' : 'Online Tag:'"></strong> <span style="font-family: monospace;" x-text="updateStatus.latest_tag || 'N/A'"></span></div>
                                         <div style="margin-top: 4px;"><strong>Online Commit:</strong> <span style="font-family: monospace;" x-text="updateStatus.latest_commit || 'N/A'"></span></div>
                                         <div style="margin-top: 4px; color: var(--text-muted);">
                                             <span x-show="updateStatus.update_available" style="color: var(--color-warning); font-weight: 600;">Update Available!</span>
@@ -148,7 +148,7 @@
                                     <label>Update Channel</label>
                                     <select x-model="globalSettings.update_channel">
                                         <option value="stable">Stable (GitHub Releases)</option>
-                                        <option value="beta">Beta (Latest Commits on Main)</option>
+                                        <option value="beta">Beta (Latest Tag on Main)</option>
                                     </select>
                                 </div>
 
@@ -215,7 +215,7 @@
                                 <div style="border-top: 1px solid var(--border-glass); padding-top: 15px; margin-top: 5px;">
                                     <h4 style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Developer Testing / Beta</h4>
                                     <button @click="forceBetaUpdate()" class="btn btn-danger" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;" :disabled="updateInstalling">
-                                        <span>Force Pull Main Branch (Beta)</span>
+                                        <span>Force Pull Main Branch (Alpha)</span>
                                         <span x-show="updateStatus.latest_main_commit" style="opacity: 0.85; font-size: 11px; font-family: monospace;" x-text="'(Latest Commit: ' + updateStatus.latest_main_commit + ')'"></span>
                                     </button>
                                     <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">

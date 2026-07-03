@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
@@ -49,7 +49,7 @@ def list_accessible_tenants(db: Session = Depends(get_db), current_user: User = 
     return []
 
 @router.post("")
-def create_tenant(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+def create_tenant(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
     name = payload.get("name")
     if not name:
         raise HTTPException(status_code=400, detail="Tenant name required")
@@ -90,7 +90,7 @@ def create_tenant(payload: dict, db: Session = Depends(get_db), current_user: Us
     return tenant
 
 @router.put("/{tenant_id}")
-def update_tenant(tenant_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -137,7 +137,7 @@ def get_global_settings(db: Session = Depends(get_db), current_user: User = Depe
     return settings
 
 @router.put("/global-settings")
-def update_global_settings(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
     settings = db.query(GlobalSettings).first()
     if not settings:
         settings = GlobalSettings()
@@ -228,7 +228,7 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
     }
 
 @router.put("/my")
-def update_my_tenant(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
+def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User is not associated with any tenant")
         

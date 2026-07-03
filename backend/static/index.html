@@ -15,6 +15,14 @@
 </head>
 <body x-data="polyPressApp()" x-init="initApp()">
     
+    <!-- Sleek Loading Overlay -->
+    <div x-show="loadingSession" class="loading-overlay" style="display: flex; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: var(--bg-main, #0b0f19); z-index: 99999;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
+            <div class="spinner" style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.05); border-top-color: var(--color-primary, #6366f1); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <div style="font-size: 14px; color: var(--text-secondary, #94a3b8); font-weight: 500;">Loading PolyPress...</div>
+        </div>
+    </div>
+    
     <div class="bg-glow"></div>
     
     <!-- Toast Notifications -->
@@ -71,7 +79,7 @@
     </template>
 
     <!-- Setup Wizard Page -->
-    <div x-show="!setupCompleted" class="login-container" style="display: none;">
+    <div x-show="!loadingSession && !setupCompleted" class="login-container" style="display: none;">
         <div class="login-card" style="max-width: 550px; text-align: left;">
             <img :src="'/branding/logo.png?v=' + logoVersion" alt="PolyPress Logo" class="login-logo" style="margin-left: auto; margin-right: auto;" onerror="this.src='https://raw.githubusercontent.com/FortAwesome/Font-Awesome/master/svgs/solid/newspaper.svg'">
             <h1 class="login-title" style="text-align: center; margin-bottom: 5px;">Welcome to PolyPress</h1>
@@ -153,7 +161,7 @@
     </div>
 
     <!-- Login Page -->
-    <div x-show="setupCompleted && !authenticated" class="login-container" style="display: none;">
+    <div x-show="!loadingSession && setupCompleted && !authenticated" class="login-container" style="display: none;">
         <div class="login-card">
             <img :src="'/branding/logo.png?v=' + logoVersion" alt="PolyPress Logo" class="login-logo" onerror="this.src='https://raw.githubusercontent.com/FortAwesome/Font-Awesome/solid/newspaper.svg'">
             <h1 class="login-title" x-text="globalSettings.app_name || 'PolyPress'"></h1>
@@ -694,15 +702,17 @@
                             <input type="text" x-model="editingCampaign.target_rules.tag" placeholder="e.g. VIP" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
                         </div>
                         <div class="field">
-                            <label style="font-size:11px;">Minimum Engagement Stars (1-5)</label>
-                            <select x-model="editingCampaign.target_rules.engagement" style="font-size:12px; padding:4px 8px; border-radius:4px; height:32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
-                                <option value="">Target All Ratings</option>
-                                <option value="5">★★★★★ (5 Stars)</option>
-                                <option value="4">★★★★☆ (4 Stars)</option>
-                                <option value="3">★★★☆☆ (3 Stars)</option>
-                                <option value="2">★★☆☆☆ (2 Stars)</option>
-                                <option value="1">★☆☆☆☆ (1 Star)</option>
-                            </select>
+                            <label style="font-size:11px;">Target Engagement Ratings</label>
+                            <div style="display: flex; gap: 12px; margin-top: 5px; flex-wrap: wrap;">
+                                <template x-for="star in [5,4,3,2,1]">
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; margin: 0; user-select: none; color: #fff;">
+                                        <input type="checkbox" :value="star" 
+                                               :checked="editingCampaign.target_rules && editingCampaign.target_rules.engagement && editingCampaign.target_rules.engagement.includes(star)"
+                                               @change="toggleTargetEngagement(star)">
+                                        <span x-text="'★'.repeat(star) + '☆'.repeat(5 - star)"></span>
+                                    </label>
+                                </template>
+                            </div>
                         </div>
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                             <div class="field">
@@ -744,8 +754,11 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px;">
                 <button @click="modals.confirmLaunch = false" class="btn btn-secondary">Cancel</button>
+                <button @click="openTargetPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="eye" style="width: 14px; height: 14px;"></i> Preview Target List
+                </button>
                 <button @click="submitLaunchCampaign()" class="btn btn-primary" x-text="launchScheduling.enabled ? 'Schedule Send' : 'Launch Broadcast'"></button>
             </div>
         </div>
@@ -1090,6 +1103,78 @@
             <button @click="handleLogout()" class="btn btn-secondary" style="width: 100%;">
                 <i data-lucide="log-out"></i> Return to Sign In
             </button>
+        </div>
+    </div>
+
+    <!-- Targeted Subscribers Preview Modal -->
+    <div x-show="modals.targetPreview" class="modal-overlay" style="display: none; z-index: 2000;">
+        <div class="modal-content large" style="width: 800px; max-width: 95%;">
+            <div class="modal-header">
+                <h3>Targeted Subscribers Preview</h3>
+                <button @click="modals.targetPreview = false; openLaunchModal()" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 15px;">
+                    <div style="position: relative; flex: 1;">
+                        <input type="text" x-model="targetPreviewFilter.search" @input.debounce.300ms="fetchTargetPreview()" placeholder="Search name or email..." style="width: 100%; height: 36px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 4px; padding: 0 10px 0 35px; color: #fff;">
+                        <i data-lucide="search" style="position: absolute; left: 10px; top: 10px; width: 16px; height: 16px; color: var(--text-muted);"></i>
+                    </div>
+                    <select x-model="targetPreviewFilter.status" @change="fetchTargetPreview()" style="width: 150px; height: 36px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 4px; padding: 0 10px; color: #fff;">
+                        <option value="">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="deferred">Deferred</option>
+                    </select>
+                </div>
+                
+                <div class="table-container" style="max-height: 350px; overflow-y: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Rating</th>
+                                <th>Signed Up</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-if="targetPreviewData.length === 0">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 30px;">
+                                        No subscribers match the current targeting filters.
+                                    </td>
+                                </tr>
+                            </template>
+                            <template x-for="sub in targetPreviewData" :key="sub.id">
+                                <tr>
+                                    <td style="font-weight: 600;" x-text="sub.email"></td>
+                                    <td x-text="sub.name || 'N/A'"></td>
+                                    <td>
+                                        <span class="badge" :class="sub.status === 'active' ? 'badge-success' : 'badge-warning'" x-text="sub.status"></span>
+                                    </td>
+                                    <td style="color: var(--color-warning);" x-text="'★'.repeat(sub.engagement_score) + '☆'.repeat(5 - sub.engagement_score)"></td>
+                                    <td x-text="sub.created_at ? new Date(sub.created_at).toLocaleDateString() : 'N/A'"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination controls -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
+                    <div style="font-size: 13px; color: var(--text-secondary);">
+                        Total targeted: <strong style="color: #fff;" x-text="targetPreviewTotal"></strong> contacts
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button @click="targetPreviewPage--; fetchTargetPreview()" :disabled="targetPreviewPage <= 1" class="btn btn-secondary btn-sm">Prev</button>
+                        <span style="align-self: center; font-size: 13px;" x-text="'Page ' + targetPreviewPage"></span>
+                        <button @click="targetPreviewPage++; fetchTargetPreview()" :disabled="targetPreviewPage * 50 >= targetPreviewTotal" class="btn btn-secondary btn-sm">Next</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.targetPreview = false; openLaunchModal()" class="btn btn-primary">Close Preview</button>
+            </div>
         </div>
     </div>
 

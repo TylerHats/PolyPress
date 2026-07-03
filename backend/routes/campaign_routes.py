@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, Body
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import datetime
 import zoneinfo
 import re
@@ -217,11 +217,19 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
     if rules:
         target_tag = rules.get("tag")
         if target_tag:
-            query = query.filter(Subscriber.tags.like(f'%"{target_tag}"%'))
+            tags_list = [t.strip() for t in target_tag.split(",") if t.strip()]
+            if tags_list:
+                tag_filters = [Subscriber.tags.like(f'%"{t}"%') for t in tags_list]
+                query = query.filter(or_(*tag_filters))
             
-        target_engagement = rules.get("engagement")
-        if target_engagement is not None and target_engagement != "":
-            query = query.filter(Subscriber.engagement_score == int(target_engagement))
+        target_engagements = rules.get("engagement")
+        if target_engagements:
+            if isinstance(target_engagements, list):
+                scores = [int(e) for e in target_engagements if str(e).isdigit()]
+                if scores:
+                    query = query.filter(Subscriber.engagement_score.in_(scores))
+            elif str(target_engagements).isdigit():
+                query = query.filter(Subscriber.engagement_score == int(target_engagements))
             
         signup_after = rules.get("signup_after")
         if signup_after and str(signup_after).strip():
@@ -299,6 +307,107 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
         campaign.scheduled_send_at = None
         db.commit()
         return {"detail": f"Campaign launched successfully. {len(queue_items)} emails queued."}
+
+@router.post("/{campaign_id}/preview-target-subscribers")
+def preview_target_subscribers(
+    campaign_id: int,
+    payload: dict = Body(...),
+    search: str = "",
+    status: str = "",
+    page: int = 1,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.get_current_user)
+):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    target_lists = payload.get("list_ids", [])
+    if not target_lists:
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+        if campaign:
+            target_lists = campaign.list_ids or ([campaign.list_id] if campaign.list_id else [])
+            
+    if not target_lists:
+        return {"total": 0, "page": page, "limit": limit, "subscribers": []}
+        
+    query = db.query(Subscriber).filter(
+        Subscriber.list_id.in_(target_lists),
+        Subscriber.tenant_id == current_user.tenant_id,
+        Subscriber.status.in_(["active", "deferred"])
+    )
+    
+    rules = payload.get("target_rules", {})
+    if rules:
+        target_tag = rules.get("tag")
+        if target_tag:
+            tags_list = [t.strip() for t in target_tag.split(",") if t.strip()]
+            if tags_list:
+                tag_filters = [Subscriber.tags.like(f'%"{t}"%') for t in tags_list]
+                query = query.filter(or_(*tag_filters))
+                
+        target_engagements = rules.get("engagement")
+        if target_engagements:
+            if isinstance(target_engagements, list):
+                scores = [int(e) for e in target_engagements if str(e).isdigit()]
+                if scores:
+                    query = query.filter(Subscriber.engagement_score.in_(scores))
+            elif str(target_engagements).isdigit():
+                query = query.filter(Subscriber.engagement_score == int(target_engagements))
+                
+        signup_after = rules.get("signup_after")
+        if signup_after and str(signup_after).strip():
+            try:
+                dt = datetime.fromisoformat(str(signup_after).replace("Z", ""))
+                query = query.filter(Subscriber.created_at >= dt)
+            except Exception:
+                pass
+                
+        signup_before = rules.get("signup_before")
+        if signup_before and str(signup_before).strip():
+            try:
+                dt = datetime.fromisoformat(str(signup_before).replace("Z", ""))
+                query = query.filter(Subscriber.created_at <= dt)
+            except Exception:
+                pass
+                
+    if search:
+        query = query.filter(
+            (Subscriber.email.ilike(f"%{search}%")) | (Subscriber.name.ilike(f"%{search}%"))
+        )
+    if status:
+        query = query.filter(Subscriber.status == status)
+        
+    all_subs = query.order_by(Subscriber.created_at.desc()).all()
+    
+    unique_subs = {}
+    for sub in all_subs:
+        if sub.email.lower() not in unique_subs:
+            unique_subs[sub.email.lower()] = sub
+            
+    deduped_subs = list(unique_subs.values())
+    total = len(deduped_subs)
+    
+    offset = (page - 1) * limit
+    paginated_subs = deduped_subs[offset : offset + limit]
+    
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "subscribers": [
+            {
+                "id": s.id,
+                "email": s.email,
+                "name": s.name,
+                "status": s.status,
+                "tags": s.tags,
+                "engagement_score": s.engagement_score,
+                "created_at": s.created_at.isoformat() if s.created_at else None
+            }
+            for s in paginated_subs
+        ]
+    }
 
 @router.get("/{campaign_id}/stats")
 def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
@@ -386,6 +495,16 @@ def preview_campaign(
         campaign_id=campaign.id,
         subscriber_id=0
     )
+    
+    # Inject upgrade-insecure-requests CSP meta tag to prevent mixed content warnings in iframe
+    meta_tag = '<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">'
+    if "<head>" in rendered:
+        rendered = rendered.replace("<head>", f"<head>{meta_tag}")
+    elif "<html>" in rendered:
+        rendered = rendered.replace("<html>", f"<html><head>{meta_tag}</head>")
+    else:
+        rendered = f"<html><head>{meta_tag}</head><body>{rendered}</body></html>"
+        
     return HTMLResponse(content=rendered)
 
 @router.post("/{campaign_id}/pause")

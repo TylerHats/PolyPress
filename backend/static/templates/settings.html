@@ -277,6 +277,7 @@
                                         <th>Status</th>
                                         <th>Attempts</th>
                                         <th>Next Retry</th>
+                                        <th>Auto Purge</th>
                                         <th>Last SMTP/MX Response</th>
                                         <th>Actions</th>
                                     </tr>
@@ -284,7 +285,7 @@
                                 <tbody>
                                     <template x-if="outboxQueue.length === 0">
                                         <tr>
-                                            <td colspan="7" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 30px;">
+                                            <td colspan="8" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 30px;">
                                                 No emails currently in the outbox queue.
                                             </td>
                                         </tr>
@@ -300,6 +301,7 @@
                                             </td>
                                             <td x-text="item.retries"></td>
                                             <td x-text="item.status === 'deferred' ? new Date(item.next_attempt + 'Z').toLocaleTimeString() : 'Immediate'"></td>
+                                            <td x-text="formatPurgeTime(item.created_at)"></td>
                                             <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
                                                 :title="item.last_mx_response || item.error_message || 'None'" 
                                                 x-text="item.last_mx_response || item.error_message || 'None'"></td>

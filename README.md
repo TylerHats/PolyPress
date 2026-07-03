@@ -148,6 +148,84 @@ For questions or issues, consult the logs generated in the standard server outpu
 
 ---
 
+## Developer REST API & Webhooks Guide
+
+PolyPress exposes a developer API for programmatic subscriber synchronization and signed HMAC webhooks for event subscriptions.
+
+### 1. Developer REST API
+
+All developer API requests must include the API key in the `X-PolyPress-Key` HTTP header.
+
+#### Add / Update Subscriber
+Synchronize contacts to specific mailing lists.
+
+- **Endpoint**: `POST /api/developer/v1/subscribers`
+- **Headers**:
+  - `X-PolyPress-Key: pp_live_...`
+  - `Content-Type: application/json`
+- **Request Body**:
+  ```json
+  {
+    "list_id": 1,
+    "email": "subscriber@domain.com",
+    "name": "Jane Doe",
+    "custom_data": {
+      "city": "Boston",
+      "company": "ACME Corp"
+    },
+    "source_tag": "API Integration"
+  }
+  ```
+- **Response (200 OK)**:
+  ```json
+  {
+    "id": 42,
+    "status": "active",
+    "detail": "Subscriber added successfully via Developer API."
+  }
+  ```
+
+---
+
+### 2. HMAC-SHA256 Webhook Signatures
+
+When configuring webhook subscriptions, PolyPress sends a `POST` request to the target destination URL with the following headers:
+- `Content-Type: application/json`
+- `X-PolyPress-Signature: <hex_signature>`
+- `User-Agent: PolyPress-Webhook-Dispatcher/1.0`
+
+The signature is computed using the HMAC-SHA256 algorithm with your webhook endpoint's specific secret as the key, run over the raw JSON payload.
+
+#### Supported Webhook Events
+- `subscriber.subscribe`: Triggered when a new subscriber joins.
+- `subscriber.bounce`: Triggered on hard bounces.
+- `email.sent`: Dispatched when an outbound mail is successfully sent.
+- `email.deferred`: Dispatched on transient delivery deferrals.
+
+#### Signature Verification Example (Node.js/Express)
+```javascript
+const crypto = require('crypto');
+
+app.post('/webhook-receiver', (req, res) => {
+    const signature = req.headers['x-polypress-signature'];
+    const secret = 'your_webhook_secret';
+    const computed = crypto
+        .createHmac('sha256', secret)
+        .update(JSON.stringify(req.body))
+        .digest('hex');
+
+    if (signature !== computed) {
+        return res.status(401).send('Signature mismatch');
+    }
+    
+    // Process webhook event
+    console.log('Verified Event:', req.body.event);
+    res.sendStatus(200);
+});
+```
+
+---
+
 ## Clean Uninstallation
 
 To cleanly stop the background service, delete python dependencies, and optionally wipe database tables and local TLS certificates, run:
