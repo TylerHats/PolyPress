@@ -347,6 +347,7 @@
                 
                 // Custom logo versioning
                 logoVersion: Date.now(),
+                logoFileName: '',
                 
                 // Chart timeout identifier
                 chartTimeoutId: null,
@@ -494,17 +495,14 @@
                     if (oidcToken) {
                         this.token = oidcToken;
                         localStorage.setItem('polypress_token', oidcToken);
-                        // Clean url
+                        // Clean url (remove token completely and reset hash to root)
                         let cleanUrl = window.location.pathname;
-                        if (window.location.hash) {
-                            const hashParts = window.location.hash.split('?');
-                            if (hashParts.length > 1) {
-                                const hashParams = new URLSearchParams(hashParts[1]);
-                                hashParams.delete('token');
-                                const remaining = hashParams.toString();
-                                cleanUrl += hashParts[0] + (remaining ? '?' + remaining : '');
-                            } else {
-                                cleanUrl += window.location.hash;
+                        if (window.location.search) {
+                            const searchParams = new URLSearchParams(window.location.search);
+                            searchParams.delete('token');
+                            const remaining = searchParams.toString();
+                            if (remaining) {
+                                cleanUrl += '?' + remaining;
                             }
                         }
                         window.history.replaceState({}, document.title, cleanUrl);
@@ -1012,7 +1010,7 @@
                     return headers;
                 },
                 
-                toggleHostAdminMode() {
+                async toggleHostAdminMode() {
                     this.hostAdminMode = !this.hostAdminMode;
                     localStorage.setItem('polypress_host_admin_mode', this.hostAdminMode);
                     
@@ -1023,12 +1021,15 @@
                         this.switchTab('dashboard');
                         this.fetchTenants();
                         this.fetchGlobalSettings();
+                        await this.fetchCampaigns();
+                        await this.fetchLists();
+                        await this.loadDashboardMetrics();
                     } else {
                         // Switching to client workspace mode: select first tenant if any
                         if (this.tenants.length > 0 && !this.activeTenantId) {
                             this.activeTenantId = this.tenants[0].id;
                         }
-                        this.changeActiveTenantContext();
+                        await this.changeActiveTenantContext();
                     }
                     this.refreshIcons();
                 },
@@ -1586,11 +1587,7 @@
                     } catch(e) {}
                 },
                 
-                // Navigation Tabs control
                 switchTab(tab) {
-                    this.activeTab = tab;
-                    this.refreshIcons();
-                    
                     if (this.reportsChart && tab !== 'reports') {
                         try {
                             this.reportsChart.destroy();
@@ -1612,6 +1609,9 @@
                         clearTimeout(this.chartTimeoutId);
                         this.chartTimeoutId = null;
                     }
+                    
+                    this.activeTab = tab;
+                    this.refreshIcons();
                     
                     if (tab === 'dashboard') {
                         this.loadDashboardMetrics();
@@ -2654,6 +2654,7 @@
                     const file = event.target.files[0];
                     if (!file) return;
                     
+                    this.logoFileName = file.name;
                     const formData = new FormData();
                     formData.append('file', file);
                     

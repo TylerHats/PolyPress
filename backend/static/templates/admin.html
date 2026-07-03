@@ -58,8 +58,14 @@
                                 </div>
                                 <div class="field">
                                     <label>Upload App Logo (PNG/JPEG/GIF)</label>
-                                    <input type="file" @change="uploadAppLogo($event)" accept="image/png, image/jpeg, image/gif" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; padding: 10px; width: 100%; color: #fff; cursor: pointer;">
-                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Replaces the branding logo globally. Accepts PNG, JPEG, or GIF.</span>
+                                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 5px;">
+                                        <button type="button" @click="$refs.logoInput.click()" class="btn btn-secondary" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 8px;">
+                                            <i data-lucide="upload-cloud" style="width: 16px; height: 16px;"></i> Choose Image File
+                                        </button>
+                                        <span style="font-size: 13px; color: var(--text-secondary);" x-text="logoFileName || 'No file chosen'"></span>
+                                    </div>
+                                    <input type="file" x-ref="logoInput" @change="uploadAppLogo($event)" accept="image/png, image/jpeg, image/gif" style="display: none;">
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 6px;">Replaces the branding logo globally. Accepts PNG, JPEG, or GIF.</span>
                                 </div>
                                 <div class="field">
                                     <label>Public System URL</label>
