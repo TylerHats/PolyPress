@@ -34,16 +34,19 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
     current_tag = run_git_command(["describe", "--tags", "--abbrev=0"]) or ""
     
     branch = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"]) or "main"
-    latest_commit = run_git_command(["rev-parse", "--short", f"origin/{branch}"]) or ""
+    latest_main_commit = run_git_command(["rev-parse", "--short", f"origin/{branch}"]) or ""
     
     update_available, latest_tag = check_for_updates_internal(channel)
     
-    # If beta update channel, compare commits too
-    if channel == "beta" and latest_commit and latest_commit != current_commit:
-        update_available = True
-        
     if not latest_tag:
         latest_tag = run_git_command(["describe", "--tags", "--abbrev=0", f"origin/{branch}"]) or current_tag
+        
+    latest_tag_commit = run_git_command(["rev-parse", "--short", latest_tag]) or ""
+    latest_commit = latest_tag_commit
+    
+    # If beta update channel, compare commits on main branch too
+    if channel == "beta" and latest_main_commit and latest_main_commit != current_commit:
+        update_available = True
     
     is_systemd = "INVOCATION_ID" in os.environ
     
@@ -63,6 +66,7 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
         "current_tag": current_tag,
         "latest_commit": latest_commit,
         "latest_tag": latest_tag or "",
+        "latest_main_commit": latest_main_commit,
         "update_available": update_available,
         "update_channel": channel,
         "auto_update": auto_update,

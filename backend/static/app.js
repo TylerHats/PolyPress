@@ -756,7 +756,7 @@
                 },
                 
                 updatePreviewIframe() {
-                    this.previewIframeSrc = `/api/campaigns/${this.editingCampaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&token=${encodeURIComponent(this.token)}`;
+                    this.previewIframeSrc = `/api/campaigns/${this.editingCampaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&token=${encodeURIComponent(this.token)}&_t=${Date.now()}`;
                 },
                 
                 async fetchSslStatus() {
@@ -1325,6 +1325,22 @@
                     } catch(e) {}
                 },
                 
+                toggleOidcSetting() {
+                    this.globalSettings.oidc_enabled = !this.globalSettings.oidc_enabled;
+                    if (!this.globalSettings.oidc_enabled && !this.globalSettings.local_login_enabled) {
+                        this.globalSettings.local_login_enabled = true;
+                        this.showToast('At least one authentication method must be enabled. Local Auth remains on.', 'warning');
+                    }
+                },
+                
+                toggleLocalLoginSetting() {
+                    this.globalSettings.local_login_enabled = !this.globalSettings.local_login_enabled;
+                    if (!this.globalSettings.local_login_enabled && !this.globalSettings.oidc_enabled) {
+                        this.globalSettings.oidc_enabled = true;
+                        this.showToast('At least one authentication method must be enabled. OIDC Auth remains on.', 'warning');
+                    }
+                },
+
                 async saveGlobalSettings() {
                     try {
                         const res = await fetch('/api/tenants/global-settings', {
@@ -1336,7 +1352,8 @@
                             this.showToast('Global settings updated');
                             await this.fetchGlobalSettings();
                         } else {
-                            throw new Error('Failed to save');
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to save settings', 'error');
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');
@@ -1599,6 +1616,7 @@
                 switchTab(tab) {
                     if (this.reportsChart && tab !== 'reports') {
                         try {
+                            this.reportsChart.stop();
                             this.reportsChart.destroy();
                         } catch(e) {}
                         this.reportsChart = null;
@@ -1610,6 +1628,7 @@
                     
                     if (this.dashboardChart && tab !== 'dashboard') {
                         try {
+                            this.dashboardChart.stop();
                             this.dashboardChart.destroy();
                         } catch(e) {}
                         this.dashboardChart = null;
@@ -1827,6 +1846,32 @@
                             }
                         }
                     }
+                    if (historyData.length > 0) {
+                        let firstActiveIdx = -1;
+                        let lastActiveIdx = -1;
+                        
+                        const activeLabels = new Set(historyData.map(r => {
+                            const recDate = new Date(r.recorded_at + 'Z');
+                            if (days === 1) {
+                                return recDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz === 'local' ? undefined : tz });
+                            } else {
+                                return recDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz === 'local' ? undefined : tz });
+                            }
+                        }));
+                        
+                        for (let i = 0; i < resultPoints.length; i++) {
+                            if (activeLabels.has(resultPoints[i].date)) {
+                                if (firstActiveIdx === -1) {
+                                    firstActiveIdx = i;
+                                }
+                                lastActiveIdx = i;
+                            }
+                        }
+                        
+                        if (firstActiveIdx !== -1 && lastActiveIdx !== -1) {
+                            return resultPoints.slice(firstActiveIdx, lastActiveIdx + 1);
+                        }
+                    }
                     return resultPoints;
                 },
 
@@ -1837,7 +1882,7 @@
                     let sumSubs = 0;
                     for (let l of this.lists) {
                         try {
-                            const res = await fetch(`/api/lists/${l.id}/subscribers?limit=1`, { headers: this.getAuthHeaders() });
+                            const res = await fetch(`/api/lists/${l.id}/subscribers?limit=1&status=active`, { headers: this.getAuthHeaders() });
                             const data = await res.json();
                             sumSubs += data.total;
                         } catch(e) {}
@@ -1870,10 +1915,13 @@
                     if (currentPeriodRecs.length > 0) {
                         currentSubs = currentPeriodRecs[currentPeriodRecs.length - 1].subscriber_count;
                     }
-                    if (prevPeriodRecs.length > 0) {
-                        prevSubs = prevPeriodRecs[prevPeriodRecs.length - 1].subscriber_count;
-                    } else if (currentPeriodRecs.length > 0) {
-                        prevSubs = currentPeriodRecs[0].subscriber_count;
+                    
+                    const olderRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') < currentStart);
+                    if (olderRecs.length > 0) {
+                        olderRecs.sort((a, b) => new Date(a.recorded_at + 'Z') - new Date(b.recorded_at + 'Z'));
+                        prevSubs = olderRecs[olderRecs.length - 1].subscriber_count;
+                    } else {
+                        prevSubs = 0;
                     }
                     this.trends.subscribers.diff = currentSubs - prevSubs;
                     
@@ -1997,6 +2045,18 @@
                     this.refreshIcons();
                 },
                 
+                openEditCampaignModal(campaign) {
+                    this.campaignForm = {
+                        id: campaign.id,
+                        name: campaign.name,
+                        subject: campaign.subject,
+                        list_id: campaign.list_id,
+                        list_ids: campaign.list_ids ? [...campaign.list_ids] : (campaign.list_id ? [campaign.list_id] : [])
+                    };
+                    this.modals.createCampaign = true;
+                    this.refreshIcons();
+                },
+                
                 toggleCampaignFormList(id) {
                     if (!this.campaignForm.list_ids) {
                         this.campaignForm.list_ids = [];
@@ -2016,18 +2076,27 @@
                 
                 async submitCreateCampaign() {
                     try {
-                        const res = await fetch('/api/campaigns', {
-                            method: 'POST',
+                        const isEdit = !!this.campaignForm.id;
+                        const url = isEdit ? `/api/campaigns/${this.campaignForm.id}` : '/api/campaigns';
+                        const method = isEdit ? 'PUT' : 'POST';
+                        
+                        const res = await fetch(url, {
+                            method: method,
                             headers: this.getAuthHeaders(),
                             body: JSON.stringify(this.campaignForm)
                         });
                         if (res.ok) {
-                            const newCamp = await res.json();
+                            const data = await res.json();
                             this.modals.createCampaign = false;
                             await this.fetchCampaigns();
-                            this.startVisualEditor(newCamp);
+                            if (!isEdit) {
+                                this.startVisualEditor(data);
+                            } else {
+                                this.showToast('Campaign settings updated successfully!');
+                            }
                         } else {
-                            throw new Error('Failed to create campaign');
+                            const err = await res.json();
+                            throw new Error(err.detail || `Failed to ${isEdit ? 'update' : 'create'} campaign`);
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');
@@ -2973,7 +3042,7 @@
 
                 openPreviewOnlyModal(campaign) {
                     this.editingCampaign = campaign;
-                    this.previewIframeSrc = `/api/campaigns/${campaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}`;
+                    this.previewIframeSrc = `/api/campaigns/${campaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&_t=${Date.now()}`;
                     this.modals.campaignPreview = true;
                     this.refreshIcons();
                 }

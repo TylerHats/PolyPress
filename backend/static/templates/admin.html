@@ -74,46 +74,46 @@
                                 </div>
                                 
                                 <div class="toggle-field" style="margin-top: 10px;">
-                                    <input type="checkbox" x-model="globalSettings.oidc_enabled" style="display:none;">
-                                    <div class="toggle-switch" @click="globalSettings.oidc_enabled = !globalSettings.oidc_enabled"></div>
-                                    <span>Enable OpenID Connect Login</span>
-                                </div>
-                                
-                                <div x-show="globalSettings.oidc_enabled">
-                                    <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
-                                        <div class="field">
-                                            <label>OIDC Provider Issuer URI</label>
-                                            <input type="text" x-model="globalSettings.oidc_issuer" placeholder="https://keycloak.local/realms/master">
-                                        </div>
-                                        <div class="field">
-                                            <label>Client ID</label>
-                                            <input type="text" x-model="globalSettings.oidc_client_id">
-                                        </div>
-                                        <div class="field">
-                                            <label>Client Secret</label>
-                                            <input type="password" x-model="globalSettings.oidc_client_secret" placeholder="••••••••">
-                                        </div>
-                                        <div class="field">
-                                            <label>Redirect URI</label>
-                                            <input type="text" x-model="globalSettings.oidc_redirect_url" placeholder="http://localhost:8000/api/auth/oidc/callback">
-                                        </div>
-                                        <div class="field">
-                                            <label>Restricted Domains (comma-separated)</label>
-                                            <input type="text" x-model="globalSettings.allowed_domains" placeholder="company.com, org.net">
-                                            <span style="font-size:11px; color:var(--text-muted);">Leave empty to allow all OIDC domains.</span>
-                                        </div>
-                                        <div class="toggle-field">
-                                            <input type="checkbox" x-model="globalSettings.auto_create_tenants" style="display:none;">
-                                            <div class="toggle-switch" @click="globalSettings.auto_create_tenants = !globalSettings.auto_create_tenants"></div>
-                                            <span>Auto-Create Tenant per Email Domain</span>
-                                        </div>
-                                        <div class="toggle-field" style="margin-top: 10px;">
-                                            <input type="checkbox" x-model="globalSettings.local_login_enabled" style="display:none;">
-                                            <div class="toggle-switch" @click="globalSettings.local_login_enabled = !globalSettings.local_login_enabled"></div>
-                                            <span>Allow Standard Password Login (Local Auth)</span>
-                                        </div>
-                                    </div>
-                                </div>
+                                     <input type="checkbox" x-model="globalSettings.oidc_enabled" style="display:none;">
+                                     <div class="toggle-switch" @click="toggleOidcSetting()"></div>
+                                     <span>Enable OpenID Connect Login</span>
+                                 </div>
+                                 
+                                 <div x-show="globalSettings.oidc_enabled">
+                                     <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
+                                         <div class="field">
+                                             <label>OIDC Provider Issuer URI</label>
+                                             <input type="text" x-model="globalSettings.oidc_issuer" placeholder="https://keycloak.local/realms/master">
+                                         </div>
+                                         <div class="field">
+                                             <label>Client ID</label>
+                                             <input type="text" x-model="globalSettings.oidc_client_id">
+                                         </div>
+                                         <div class="field">
+                                             <label>Client Secret</label>
+                                             <input type="password" x-model="globalSettings.oidc_client_secret" placeholder="••••••••">
+                                         </div>
+                                         <div class="field">
+                                             <label>Redirect URI</label>
+                                             <input type="text" x-model="globalSettings.oidc_redirect_url" placeholder="http://localhost:8000/api/auth/oidc/callback">
+                                         </div>
+                                         <div class="field">
+                                             <label>Restricted Domains (comma-separated)</label>
+                                             <input type="text" x-model="globalSettings.allowed_domains" placeholder="company.com, org.net">
+                                             <span style="font-size:11px; color:var(--text-muted);">Leave empty to allow all OIDC domains.</span>
+                                         </div>
+                                         <div class="toggle-field">
+                                             <input type="checkbox" x-model="globalSettings.auto_create_tenants" style="display:none;">
+                                             <div class="toggle-switch" @click="globalSettings.auto_create_tenants = !globalSettings.auto_create_tenants"></div>
+                                             <span>Auto-Create Tenant per Email Domain</span>
+                                         </div>
+                                         <div class="toggle-field" style="margin-top: 10px;">
+                                             <input type="checkbox" x-model="globalSettings.local_login_enabled" style="display:none;">
+                                             <div class="toggle-switch" @click="toggleLocalLoginSetting()"></div>
+                                             <span>Allow Standard Password Login (Local Auth)</span>
+                                         </div>
+                                     </div>
+                                 </div>
                             </div>
                             <button @click="saveGlobalSettings()" class="btn btn-primary" style="width: 100%; margin-top: 25px;">Save Global Admin Configuration</button>
                         </div>
@@ -214,8 +214,9 @@
 
                                 <div style="border-top: 1px solid var(--border-glass); padding-top: 15px; margin-top: 5px;">
                                     <h4 style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Developer Testing / Beta</h4>
-                                    <button @click="forceBetaUpdate()" class="btn btn-danger" style="width: 100%;" :disabled="updateInstalling">
-                                        Force Pull Main Branch (Beta)
+                                    <button @click="forceBetaUpdate()" class="btn btn-danger" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;" :disabled="updateInstalling">
+                                        <span>Force Pull Main Branch (Beta)</span>
+                                        <span x-show="updateStatus.latest_main_commit" style="opacity: 0.85; font-size: 11px; font-family: monospace;" x-text="'(Latest Commit: ' + updateStatus.latest_main_commit + ')'"></span>
                                     </button>
                                     <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">
                                         Pulls origin/main, runs pip install, stashes local code changes, and restarts.

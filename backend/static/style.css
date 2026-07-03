@@ -905,6 +905,11 @@ input[type="checkbox"]:checked + .toggle-switch::after {
         margin-bottom: 20px !important;
         padding: 15px !important;
     }
+    .reports-chart-card {
+        max-width: 680px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
     canvas {
         max-width: 100% !important;
         height: auto !important;

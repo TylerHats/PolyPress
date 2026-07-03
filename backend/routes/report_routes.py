@@ -37,6 +37,8 @@ def get_history(
     if end_date:
         try:
             end_dt = datetime.fromisoformat(end_date.replace("Z", ""))
+            if len(end_date.strip()) <= 10 or (end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0):
+                end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
             query = query.filter(HistoricalMetric.recorded_at <= end_dt)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid end_date format. Use ISO format.")

@@ -37,8 +37,11 @@
                                             <td x-text="c.click_count + ' (' + calculatePercentage(c.click_count, c.sent_count) + '%)'"></td>
                                             <td>
                                                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                                     <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Content">
+                                                     <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Design/Content">
                                                          <i data-lucide="edit-3"></i> Design
+                                                     </button>
+                                                     <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="openEditCampaignModal(c)" class="btn btn-secondary btn-sm" title="Edit Details/Lists">
+                                                         <i data-lucide="settings"></i> Edit Settings
                                                      </button>
                                                      <button x-show="user.role === 'tenant_user'" @click="openPreviewOnlyModal(c)" class="btn btn-secondary btn-sm" title="Preview Campaign">
                                                          <i data-lucide="eye"></i> Preview
@@ -46,7 +49,7 @@
                                                      <button x-show="user.role !== 'tenant_user'" @click="duplicateCampaign(c.id)" class="btn btn-secondary btn-sm" title="Duplicate/Clone">
                                                          <i data-lucide="copy"></i> Duplicate
                                                      </button>
-                                                     <button @click="openStatsModal(c.id)" class="btn btn-secondary btn-sm" title="View Metrics">
+                                                     <button x-show="c.status !== 'draft'" @click="openStatsModal(c.id)" class="btn btn-secondary btn-sm" title="View Metrics">
                                                          <i data-lucide="bar-chart-2"></i> Stats
                                                      </button>
                                                      <button x-show="c.status === 'sending'" @click="pauseCampaign(c.id)" class="btn btn-secondary btn-sm" title="Pause Broadcast" style="background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); color: var(--color-warning); padding: 4px 8px; font-size: 11px;">

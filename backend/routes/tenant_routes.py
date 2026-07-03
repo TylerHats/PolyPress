@@ -143,17 +143,40 @@ def update_global_settings(payload: dict, db: Session = Depends(get_db), current
         settings = GlobalSettings()
         db.add(settings)
         
+    new_oidc = payload.get("oidc_enabled", settings.oidc_enabled)
+    new_local = payload.get("local_login_enabled", settings.local_login_enabled)
+    
+    # Safely force at least one to be enabled
+    if not new_oidc and not new_local:
+        new_local = True
+        
+    # Enforce having at least one active super admin of the selected authentication type
+    if new_oidc and not new_local:
+        oidc_admins = db.query(User).filter(User.role == "super_admin", User.auth_type == "oidc", User.is_active == True).count()
+        if oidc_admins == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot disable Local Auth: There are no active Global Admin accounts configured to use OIDC (SSO) login. You would be locked out."
+            )
+    elif new_local and not new_oidc:
+        local_admins = db.query(User).filter(User.role == "super_admin", User.auth_type == "local", User.is_active == True).count()
+        if local_admins == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot disable OIDC: There are no active Global Admin accounts configured to use Local password login."
+            )
+            
     settings.app_name = payload.get("app_name", settings.app_name)
     settings.app_logo = payload.get("app_logo", settings.app_logo)
     settings.public_url = payload.get("public_url", settings.public_url)
-    settings.oidc_enabled = payload.get("oidc_enabled", settings.oidc_enabled)
+    settings.oidc_enabled = new_oidc
     settings.oidc_issuer = payload.get("oidc_issuer", settings.oidc_issuer)
     settings.oidc_client_id = payload.get("oidc_client_id", settings.oidc_client_id)
     settings.oidc_client_secret = payload.get("oidc_client_secret", settings.oidc_client_secret)
     settings.oidc_redirect_url = payload.get("oidc_redirect_url", settings.oidc_redirect_url)
     settings.allowed_domains = payload.get("allowed_domains", settings.allowed_domains)
     settings.auto_create_tenants = payload.get("auto_create_tenants", settings.auto_create_tenants)
-    settings.local_login_enabled = payload.get("local_login_enabled", settings.local_login_enabled)
+    settings.local_login_enabled = new_local
     
     # Auto-updates and Backups API
     settings.auto_update = payload.get("auto_update", settings.auto_update)

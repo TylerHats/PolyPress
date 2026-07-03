@@ -83,22 +83,21 @@ def check_for_updates_internal(channel: str):
     current_tag = run_git_command(["describe", "--tags", "--abbrev=0"]) or "v0.0.0"
     current_semver = parse_semver(current_tag)
     
+    latest_tag = None
     if channel == "beta":
         latest_tag = get_latest_github_tag()
-        if latest_tag:
-            latest_semver = parse_semver(latest_tag)
-            if latest_semver > current_semver:
-                return True, latest_tag
     else:
         latest_release = get_latest_github_release()
         if latest_release:
-            tag_name = latest_release.get("tag_name")
-            if tag_name:
-                latest_semver = parse_semver(tag_name)
-                if latest_semver > current_semver:
-                    return True, tag_name
-                    
-    return False, None
+            latest_tag = latest_release.get("tag_name")
+            
+    if not latest_tag:
+        latest_tag = run_git_command(["describe", "--tags", "--abbrev=0", "origin/main"]) or current_tag
+        
+    latest_semver = parse_semver(latest_tag)
+    update_available = latest_semver > current_semver
+    
+    return update_available, latest_tag
 
 def run_update_process(channel: str, target: str = None):
     try:

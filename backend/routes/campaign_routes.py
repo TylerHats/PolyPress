@@ -369,7 +369,15 @@ def preview_campaign(
         custom_data={"city": "Metropolis", "company": "Daily Planet"}
     )
     
-    scheme = request.headers.get("x-forwarded-proto", request.base_url.scheme)
+    scheme = request.headers.get("x-forwarded-proto")
+    if not scheme:
+        from database import GlobalSettings
+        settings = db.query(GlobalSettings).first()
+        if settings and settings.public_url and settings.public_url.startswith("https"):
+            scheme = "https"
+        else:
+            scheme = request.base_url.scheme
+            
     tracking_domain = f"{scheme}://{request.base_url.netloc}".rstrip("/")
     rendered = render_email_template(
         body_html=campaign.body_html,
