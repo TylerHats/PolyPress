@@ -3366,6 +3366,24 @@
                     }
                 },
                 
+                insertLinkIntoBlock(blockIndex, field) {
+                    const text = prompt("Enter the link text (e.g. 'Click Here'):");
+                    if (text === null || text.trim() === '') return;
+                    const url = prompt("Enter the URL (e.g. 'https://example.com'):", "https://");
+                    if (url === null || url.trim() === '') return;
+                    
+                    const linkHtml = `<a href="${url}" style="color: #6366f1; text-decoration: underline;">${text}</a>`;
+                    
+                    if (field === 'text') {
+                        this.editorBlocks[blockIndex].text = (this.editorBlocks[blockIndex].text || '') + linkHtml;
+                    } else if (field === 'left') {
+                        this.editorBlocks[blockIndex].left.text = (this.editorBlocks[blockIndex].left.text || '') + linkHtml;
+                    } else if (field === 'right') {
+                        this.editorBlocks[blockIndex].right.text = (this.editorBlocks[blockIndex].right.text || '') + linkHtml;
+                    }
+                    this.reRenderCanvas();
+                },
+                
                 async testSmtpConnection() {
                     if (!this.smtpTestEmail) {
                         this.showToast('Please enter a recipient email address for the test', 'warning');

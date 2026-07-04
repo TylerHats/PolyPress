@@ -188,10 +188,10 @@
                                         <!-- Block Renderings -->
                                         <div style="pointer-events: none;">
                                             <template x-if="b.type === 'heading'">
-                                                <h1 :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding" x-text="b.text"></h1>
+                                                <h1 :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding" x-html="b.text"></h1>
                                             </template>
                                             <template x-if="b.type === 'paragraph'">
-                                                <p :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding + '; white-space: pre-line;'" x-text="b.text"></p>
+                                                <p :style="'margin:0; text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding + '; white-space: pre-line;'" x-html="(b.text || '').replace(/\n/g, '<br>')"></p>
                                             </template>
                                             <template x-if="b.type === 'button'">
                                                 <div :style="'text-align:' + b.align + '; padding: 12px 0;'">
@@ -207,10 +207,10 @@
                                                 <div style="display: flex; width: 100%; justify-content: space-between; align-items: stretch;">
                                                     <div :style="(b.layout === '70-30' ? 'flex:0 0 68%; width:68%;' : (b.layout === '30-70' ? 'flex:0 0 28%; width:28%;' : 'flex:0 0 48%; width:48%;')) + '; align-self: ' + (b.left.valign === 'middle' ? 'center' : (b.left.valign === 'bottom' ? 'flex-end' : 'flex-start'))" style="border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; box-sizing: border-box;">
                                                         <template x-if="b.left.type === 'paragraph'">
-                                                            <div :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#334155') + '; font-size:' + (b.left.size || '15px')" x-text="b.left.text"></div>
+                                                            <div :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#334155') + '; font-size:' + (b.left.size || '15px')" x-html="(b.left.text || '').replace(/\n/g, '<br>')"></div>
                                                         </template>
                                                         <template x-if="b.left.type === 'heading'">
-                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#1e293b') + '; font-size:' + (b.left.size || '22px') + '; margin: 0 0 10px 0;'" x-text="b.left.text"></h3>
+                                                            <h3 :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#1e293b') + '; font-size:' + (b.left.size || '22px') + '; margin: 0 0 10px 0;'" x-html="b.left.text"></h3>
                                                         </template>
                                                         <template x-if="b.left.type === 'image'">
                                                             <img :src="b.left.url || 'https://picsum.photos/300/150'" :alt="b.left.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
@@ -223,10 +223,10 @@
                                                     </div>
                                                     <div :style="(b.layout === '70-30' ? 'flex:0 0 28%; width:28%;' : (b.layout === '30-70' ? 'flex:0 0 68%; width:68%;' : 'flex:0 0 48%; width:48%;')) + '; align-self: ' + (b.right.valign === 'middle' ? 'center' : (b.right.valign === 'bottom' ? 'flex-end' : 'flex-start'))" style="border: 1px dashed rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; box-sizing: border-box;">
                                                         <template x-if="b.right.type === 'paragraph'">
-                                                            <div :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#334155') + '; font-size:' + (b.right.size || '15px')" x-text="b.right.text"></div>
+                                                            <div :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#334155') + '; font-size:' + (b.right.size || '15px')" x-html="(b.right.text || '').replace(/\n/g, '<br>')"></div>
                                                         </template>
                                                         <template x-if="b.right.type === 'heading'">
-                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#1e293b') + '; font-size:' + (b.right.size || '22px') + '; margin: 0 0 10px 0;'" x-text="b.right.text"></h3>
+                                                            <h3 :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#1e293b') + '; font-size:' + (b.right.size || '22px') + '; margin: 0 0 10px 0;'" x-html="b.right.text"></h3>
                                                         </template>
                                                         <template x-if="b.right.type === 'image'">
                                                             <img :src="b.right.url || 'https://picsum.photos/300/150'" :alt="b.right.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
@@ -292,9 +292,17 @@
                                         <div class="field">
                                             <label>Text Content</label>
                                             <textarea x-model="editorBlocks[selectedBlockIndex].text" @input="reRenderCanvas()"></textarea>
-                                            <template x-if="isEditingOptIn">
-                                                <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Tip: Use <code style="color: var(--color-accent);">{{confirm_url}}</code> to embed the confirmation link anywhere.</span>
-                                            </template>
+                                            <div style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                                <template x-if="isEditingOptIn">
+                                                    <span style="font-size: 11px; color: var(--text-muted); display: block;">Tip: Use <code style="color: var(--color-accent);">{{confirm_url}}</code> to embed link.</span>
+                                                </template>
+                                                <template x-if="!isEditingOptIn">
+                                                    <span></span>
+                                                </template>
+                                                <button @click="insertLinkIntoBlock(selectedBlockIndex, 'text')" class="btn btn-secondary btn-xs" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <i data-lucide="link" style="width: 12px; height: 12px;"></i> Insert Link
+                                                </button>
+                                            </div>
                                         </div>
                                     </template>
                                     
@@ -358,8 +366,12 @@
                                                 
                                                 <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].left.type)">
                                                     <div class="field" style="margin-bottom: 8px;">
-                                                        <label>Text Content</label>
                                                         <input type="text" x-model="editorBlocks[selectedBlockIndex].left.text" @input="reRenderCanvas()">
+                                                        <div style="margin-top: 4px; display: flex; justify-content: flex-end;">
+                                                            <button @click="insertLinkIntoBlock(selectedBlockIndex, 'left')" class="btn btn-secondary btn-xs" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
+                                                                <i data-lucide="link" style="width: 10px; height: 10px;"></i> Insert Link
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </template>
                                                 
@@ -447,8 +459,12 @@
                                                 
                                                 <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].right.type)">
                                                     <div class="field" style="margin-bottom: 8px;">
-                                                        <label>Text Content</label>
                                                         <input type="text" x-model="editorBlocks[selectedBlockIndex].right.text" @input="reRenderCanvas()">
+                                                        <div style="margin-top: 4px; display: flex; justify-content: flex-end;">
+                                                            <button @click="insertLinkIntoBlock(selectedBlockIndex, 'right')" class="btn btn-secondary btn-xs" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
+                                                                <i data-lucide="link" style="width: 10px; height: 10px;"></i> Insert Link
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </template>
                                                 
