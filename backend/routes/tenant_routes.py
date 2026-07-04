@@ -191,7 +191,8 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "retry_interval_minutes": tenant.retry_interval_minutes,
         "double_opt_in_subject": tenant.double_opt_in_subject,
         "double_opt_in_body_blocks": tenant.double_opt_in_body_blocks,
-        "double_opt_in_body_html": tenant.double_opt_in_body_html
+        "double_opt_in_body_html": tenant.double_opt_in_body_html,
+        "sending_ip_override": tenant.sending_ip_override
     }
 
 @router.put("/my")
@@ -231,6 +232,9 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
     tenant.double_opt_in = payload.get("double_opt_in", tenant.double_opt_in)
     tenant.retry_interval_minutes = payload.get("retry_interval_minutes", tenant.retry_interval_minutes)
     
+    if "sending_ip_override" in payload:
+        tenant.sending_ip_override = payload["sending_ip_override"].strip() if payload["sending_ip_override"] else None
+        
     if "double_opt_in_subject" in payload:
         tenant.double_opt_in_subject = payload["double_opt_in_subject"]
     if "double_opt_in_body_blocks" in payload:
@@ -359,6 +363,7 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     import socket
     import urllib.request
     import concurrent.futures
+    import dns.reversename
     
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
@@ -369,15 +374,20 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             "mx": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}},
             "spf": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}, "spf_warning": ""},
             "dkim": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}},
-            "dmarc": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}}
+            "dmarc": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}},
+            "ptr": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}},
+            "blacklist": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}}
         }
 
-    # Fetch public IP of the PolyPress outbound server
+    # Fetch public IP of the PolyPress outbound server (or use override if provided)
     public_ip = None
-    try:
-        public_ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
-    except Exception:
-        pass
+    if tenant.sending_ip_override:
+        public_ip = tenant.sending_ip_override.strip()
+    else:
+        try:
+            public_ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
+        except Exception:
+            pass
 
     servers = {
         "local": None,
@@ -396,10 +406,15 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             answers = resolver.resolve(host, rtype)
             if rtype == 'MX':
                 return {"records": [str(ans.exchange).rstrip('.') for ans in answers], "error": None}
-            else: # TXT
+            elif rtype == 'PTR':
+                return {"records": [str(ans.target).rstrip('.') for ans in answers], "error": None}
+            else: # TXT / A
                 records = []
                 for ans in answers:
-                    txt = "".join([t.decode('utf-8') for t in ans.strings])
+                    if rtype == 'TXT':
+                        txt = "".join([t.decode('utf-8') for t in ans.strings])
+                    else: # A
+                        txt = str(ans)
                     records.append(txt)
                 return {"records": records, "error": None}
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
@@ -559,6 +574,72 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     dmarc_sources = run_concurrently(get_dmarc_record)
     results["dmarc"] = {"sources": dmarc_sources, "status": calculate_status(dmarc_sources)}
 
+    # 5. Reverse DNS (PTR) Check
+    def get_ptr_record(name, srv):
+        if not public_ip:
+            return {"records": [], "error": "No sending IP detected/configured", "success": False}
+        try:
+            rev_name = dns.reversename.from_address(public_ip)
+            res = resolve_dns(str(rev_name), 'PTR', srv)
+            records = res["records"]
+            err = res["error"]
+            success = False
+            if err is None and records:
+                for r in records:
+                    r_clean = r.rstrip('.').lower()
+                    if domain.lower() in r_clean or r_clean.endswith(domain.lower()):
+                        success = True
+            return {
+                "records": records,
+                "error": err,
+                "success": success
+            }
+        except Exception as e:
+            return {
+                "records": [],
+                "error": f"PTR Exception: {type(e).__name__}",
+                "success": False
+            }
+    ptr_sources = run_concurrently(get_ptr_record)
+    results["ptr"] = {"sources": ptr_sources, "status": calculate_status(ptr_sources)}
+
+    # 6. IP Blacklist Check
+    def get_blacklist_record(name, srv):
+        if not public_ip:
+            return {"records": [], "error": "No sending IP detected/configured", "success": False}
+        try:
+            ipaddress.IPv4Address(public_ip)
+        except Exception:
+            return {"records": ["Blacklist check only supported for IPv4"], "error": None, "success": True}
+        
+        parts = public_ip.split('.')
+        rev_ip = f"{parts[3]}.{parts[2]}.{parts[1]}.{parts[0]}"
+        
+        blacklists = {
+            "Spamhaus (zen.spamhaus.org)": "zen.spamhaus.org",
+            "Spamcop (bl.spamcop.net)": "bl.spamcop.net",
+            "SORBS (dnsbl.sorbs.net)": "dnsbl.sorbs.net"
+        }
+        
+        listed_on = []
+        resolver_errors = []
+        for label, dnsbl in blacklists.items():
+            query_host = f"{rev_ip}.{dnsbl}"
+            res = resolve_dns(query_host, 'A', srv)
+            if res["error"] is not None:
+                resolver_errors.append(f"{label}: {res['error']}")
+            elif res["records"]:
+                listed_on.append(f"Listed on {label} (resolved {', '.join(res['records'])})")
+                
+        err_msg = "; ".join(resolver_errors) if resolver_errors else None
+        return {
+            "records": listed_on if listed_on else ["Clean (not listed on checked DNSBLs)"],
+            "error": err_msg,
+            "success": len(listed_on) == 0
+        }
+    blacklist_sources = run_concurrently(get_blacklist_record)
+    results["blacklist"] = {"sources": blacklist_sources, "status": calculate_status(blacklist_sources)}
+
     return results
 
 @router.get("/my/queue")
@@ -624,7 +705,7 @@ def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depen
     if "direct_send" in payload:
         tenant.direct_send = payload["direct_send"]
         
-    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes", "double_opt_in_subject", "double_opt_in_body_blocks", "double_opt_in_body_html"]:
+    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes", "double_opt_in_subject", "double_opt_in_body_blocks", "double_opt_in_body_html", "sending_ip_override"]:
         if field in payload:
             setattr(tenant, field, payload[field])
             

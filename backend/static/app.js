@@ -234,7 +234,9 @@
                     mx: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
                     spf: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] }, spf_warning: '' },
                     dkim: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
-                    dmarc: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
+                    dmarc: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                    ptr: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                    blacklist: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
                 },
                 dnsTesting: false,
                 outboxQueue: [],
@@ -1088,7 +1090,9 @@
                         mx: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
                         spf: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] }, spf_warning: '' },
                         dkim: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
-                        dmarc: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
+                        dmarc: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                        ptr: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                        blacklist: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
                     };
                     if (this.activeTenantId) {
                         localStorage.setItem('polypress_active_tenant', this.activeTenantId);

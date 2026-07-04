@@ -65,8 +65,9 @@
                                     <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.15); border-radius: 8px; padding: 15px; display: flex; gap: 12px; align-items: flex-start; margin-top: 10px;">
                                         <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: #f59e0b; flex-shrink: 0; margin-top: 2px;"></i>
                                         <div style="font-size: 12px; line-height: 1.4; color: var(--text-secondary);">
-                                            <strong style="color: #f59e0b; display: block; margin-bottom: 4px; font-size: 13px;">External SMTP Queue Limits</strong>
+                                            <strong style="color: #f59e0b; display: block; margin-bottom: 4px; font-size: 13px;">External SMTP Queue Limits & Setup Responsibility</strong>
                                             When using an external SMTP provider, PolyPress can only track connection errors and initial handoff issues. Once the email is accepted by your SMTP server, downstream delivery issues (e.g. recipient mailbox full or external rate-limiting blocks) are queued and managed on the provider's platform, and will not show up in the PolyPress outbox queue.
+                                            Additionally, you are responsible for ensuring that all DNS configurations (SPF, DKIM, DMARC), email error handling, and bounce handlers are correctly configured directly at your external SMTP provider's server dashboard.
                                         </div>
                                     </div>
                                 </div>
@@ -86,6 +87,11 @@
                                     <div class="field">
                                         <label>DKIM Selector</label>
                                         <input type="text" x-model="tenant.dkim_selector" placeholder="polypress">
+                                    </div>
+                                    <div class="field">
+                                        <label>Sending IP Override (Optional)</label>
+                                        <input type="text" x-model="tenant.sending_ip_override" placeholder="e.g. 203.0.113.5">
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Override the auto-detected server public IP for reverse DNS PTR and blacklist checks.</div>
                                     </div>
                                     
                                     <!-- DKIM Keys rendering block -->
@@ -219,19 +225,19 @@
                     <!-- DNS & Security Config Section -->
                     <div style="margin-top: 30px; display: flex; flex-direction: column; gap: 30px;">
                         
-                        <!-- DNS Verification Checklist -->
-                        <div class="card">
+                        <!-- Domain Diagnostics Checklist -->
+                        <div class="card" x-show="tenant.direct_send">
                             <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
                                 <i data-lucide="shield-alert" style="color: var(--color-accent);"></i>
-                                Domain DNS Diagnostics
+                                Domain Diagnostics
                             </h2>
                             <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
-                                Verify that your domain DNS settings are correctly configured for optimal inbox delivery.
+                                Verify that your domain settings and network configuration are correctly set up for optimal inbox delivery.
                             </p>
                             
                             <template x-if="!tenant.dkim_domain">
                                 <div style="color: var(--text-muted); font-size: 13px; font-style: italic; padding: 20px; text-align: center;">
-                                    Please save a sending domain name in SMTP/Outbound Settings first to run DNS diagnostics.
+                                    Please save a sending domain name in SMTP/Outbound Settings first to run diagnostics.
                                 </div>
                             </template>
                             
@@ -288,7 +294,7 @@
                                     </div>
 
                                     <!-- DMARC Check -->
-                                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
                                         <div>
                                             <div style="font-weight: 600; font-size:14px;">4. DMARC Policy</div>
                                             <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Instructs recipient servers how to handle alignment failures.</div>
@@ -301,9 +307,37 @@
                                         </div>
                                     </div>
 
+                                    <!-- PTR Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">5. Reverse DNS (PTR) Record</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Resolves sending IP back to your domain (crucial for spam filters).</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;" x-text="'Checking reverse lookup PTR matches: ' + tenant.dkim_domain"></div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" style="cursor: pointer;" @click="openDnsDetailsModal('ptr', 'Reverse DNS PTR')"
+                                                  :class="dnsTestResults.ptr ? (dnsTestResults.ptr.status === 'verified' ? 'badge-success' : (dnsTestResults.ptr.status === 'partial' ? 'badge-warning' : 'badge-danger')) : 'badge-danger'"
+                                                  x-text="dnsTestResults.ptr ? (dnsTestResults.ptr.status === 'verified' ? 'Verified' : (dnsTestResults.ptr.status === 'partial' ? 'Partial' : 'Missing')) : 'Missing'"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Blacklist Check -->
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size:14px;">6. IP Blacklist Status</div>
+                                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Checks if sending IP is listed on major spam blocklists (Spamhaus, Spamcop, SORBS).</div>
+                                            <div style="font-size: 11px; font-family: monospace; color: var(--text-muted); margin-top: 4px;">Should be clean (not listed)</div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge" style="cursor: pointer;" @click="openDnsDetailsModal('blacklist', 'IP Blacklist Status')"
+                                                  :class="dnsTestResults.blacklist ? (dnsTestResults.blacklist.status === 'verified' ? 'badge-success' : (dnsTestResults.blacklist.status === 'partial' ? 'badge-warning' : 'badge-danger')) : 'badge-danger'"
+                                                  x-text="dnsTestResults.blacklist ? (dnsTestResults.blacklist.status === 'verified' ? 'Verified' : (dnsTestResults.blacklist.status === 'partial' ? 'Partial' : 'Missing')) : 'Missing'"></span>
+                                        </div>
+                                    </div>
+
                                     <button @click="runDnsDiagnostics()" class="btn btn-secondary" style="width: 100%; margin-top: 10px;" :disabled="dnsTesting">
                                         <i data-lucide="refresh-cw" :class="dnsTesting ? 'animate-spin' : ''" style="width: 16px; height: 16px;"></i>
-                                        <span x-text="dnsTesting ? 'Testing DNS Records...' : 'Verify DNS Records Live'"></span>
+                                        <span x-text="dnsTesting ? 'Running Diagnostics...' : 'Verify Domain Setup Live'"></span>
                                     </button>
                                 </div>
                             </template>

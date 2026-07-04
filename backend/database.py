@@ -15,7 +15,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -88,6 +88,7 @@ class Tenant(Base):
     speed_emails_per_hour = Column(Integer, default=500) # 0 means unlimited
     max_sending_threads = Column(Integer, default=10)
     double_opt_in = Column(Boolean, default=False)
+    sending_ip_override = Column(String, nullable=True)
     retry_interval_minutes = Column(Integer, default=15)
     double_opt_in_subject = Column(String, default="Confirm Your Subscription")
     double_opt_in_body_blocks = Column(JSON, nullable=True)
