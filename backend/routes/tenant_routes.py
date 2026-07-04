@@ -671,14 +671,25 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     results["ptr"] = {"sources": ptr_sources, "status": calculate_status(ptr_sources)}
 
     # 6. IP Blacklist Check
-    def get_blacklist_record(name, srv):
+    def get_blacklist_status_per_dnsbl():
         if not public_ip:
-            return {"records": [], "error": "No sending IP detected/configured", "success": False}
+            empty_res = {"records": ["No sending IP detected/configured"], "error": None, "success": False}
+            return {
+                "Spamhaus (zen.spamhaus.org)": empty_res,
+                "Spamcop (bl.spamcop.net)": empty_res,
+                "SORBS (dnsbl.sorbs.net)": empty_res
+            }
+        
         try:
             ipaddress.IPv4Address(public_ip)
         except Exception:
-            return {"records": ["Blacklist check only supported for IPv4"], "error": None, "success": True}
-        
+            clean_res = {"records": ["Blacklist check only supported for IPv4"], "error": None, "success": True}
+            return {
+                "Spamhaus (zen.spamhaus.org)": clean_res,
+                "Spamcop (bl.spamcop.net)": clean_res,
+                "SORBS (dnsbl.sorbs.net)": clean_res
+            }
+            
         parts = public_ip.split('.')
         rev_ip = f"{parts[3]}.{parts[2]}.{parts[1]}.{parts[0]}"
         
@@ -688,26 +699,44 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             "SORBS (dnsbl.sorbs.net)": "dnsbl.sorbs.net"
         }
         
-        listed_on = []
-        resolver_errors = []
+        dnsbl_results = {}
         for label, dnsbl in blacklists.items():
             query_host = f"{rev_ip}.{dnsbl}"
-            res = resolve_dns(query_host, 'A', srv)
-            if res["error"] is not None:
-                resolver_errors.append(f"{label}: {res['error']}")
-            elif res["records"]:
-                for rec in res["records"]:
-                    if rec.startswith("127.0.0."):
-                        listed_on.append(f"Listed on {label} (resolved {rec})")
-                    # Ignore 127.255.255.252-255 open resolver/usage limit indicator responses
-                
-        err_msg = "; ".join(resolver_errors) if resolver_errors else None
-        return {
-            "records": listed_on if listed_on else ["Clean (not listed on checked DNSBLs)"],
-            "error": err_msg,
-            "success": len(listed_on) == 0
-        }
-    blacklist_sources = run_concurrently(get_blacklist_record)
+            listed_ips = []
+            resolver_errors = []
+            valid_queries = 0
+            
+            for ns_name, ns_srv in servers.items():
+                res = resolve_dns(query_host, 'A', ns_srv)
+                if res["error"] is not None:
+                    resolver_errors.append(f"{ns_name}: {res['error']}")
+                else:
+                    valid_queries += 1
+                    for rec in res["records"]:
+                        if rec.startswith("127.0.0."):
+                            listed_ips.append(rec)
+                            
+            if listed_ips:
+                dnsbl_results[label] = {
+                    "records": [f"Listed (resolved: {', '.join(sorted(list(set(listed_ips))))})"],
+                    "error": None,
+                    "success": False
+                }
+            elif valid_queries > 0:
+                dnsbl_results[label] = {
+                    "records": ["Clean (not listed)"],
+                    "error": None,
+                    "success": True
+                }
+            else:
+                dnsbl_results[label] = {
+                    "records": [],
+                    "error": "; ".join(resolver_errors) if resolver_errors else "Resolver Error",
+                    "success": False
+                }
+        return dnsbl_results
+
+    blacklist_sources = get_blacklist_status_per_dnsbl()
     results["blacklist"] = {"sources": blacklist_sources, "status": calculate_status(blacklist_sources)}
 
     return results

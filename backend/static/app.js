@@ -239,7 +239,7 @@
                     blacklist: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
                 },
                 dnsTesting: false,
-                detectedPublicIp: 'detecting...',
+                detectedPublicIp: '',
                 outboxQueue: [],
                 mockPreviewFields: { name: 'John Doe', email: 'john@example.com' },
                 previewIframeSrc: '',
@@ -1102,14 +1102,13 @@
                     }
                     
                     try {
-                        const res = await fetch('/api/tenants/my', { headers: this.getAuthHeaders() });
-                        if (res.ok) {
-                            this.tenant = await res.json();
+                        if (this.user.role === 'super_admin' && this.hostAdminMode) {
+                            this.tenant = { name: 'PolyPress Console' };
                         } else {
-                            this.tenant = { name: 'Client Context' };
+                            await this.fetchTenant();
                         }
                     } catch(e) {
-                        this.tenant = { name: 'Client Context' };
+                        this.tenant = { name: 'PolyPress Console' };
                     }
                     
                     // Clear list selections (Bug 8)

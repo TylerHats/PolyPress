@@ -1200,7 +1200,7 @@
                             <template x-for="(data, source) in dnsDetailRecord.sources" :key="source">
                                 <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
                                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span style="font-weight: 600; text-transform: capitalize; font-size: 13px; color: #fff;" x-text="source"></span>
+                                        <span style="font-weight: 600; font-size: 13px; color: #fff;" x-text="source"></span>
                                         
                                         <!-- Resolver error badge -->
                                         <template x-if="data.error">

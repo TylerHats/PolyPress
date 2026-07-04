@@ -93,7 +93,14 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = item.subject
-        sender_domain = tenant.dkim_domain or tenant.smtp_host or "localhost"
+        sender_domain = tenant.dkim_domain
+        if not sender_domain and tenant.bounce_email and "@" in tenant.bounce_email:
+            sender_domain = tenant.bounce_email.split("@")[-1]
+        if not sender_domain:
+            import socket
+            sender_domain = socket.getfqdn()
+        if not sender_domain or sender_domain == "localhost":
+            sender_domain = tenant.smtp_host or "polypress.local"
         from_email = f"{tenant.mta_from_prefix or 'noreply'}@{sender_domain}"
         msg["From"] = f"{tenant.name} <{from_email}>"
         msg["To"] = item.email
@@ -150,7 +157,14 @@ def send_direct_mta(item: QueueItem, tenant: Tenant) -> tuple:
             
         msg = MIMEMultipart("alternative")
         msg["Subject"] = item.subject
-        sender_domain = tenant.dkim_domain or "localhost"
+        sender_domain = tenant.dkim_domain
+        if not sender_domain and tenant.bounce_email and "@" in tenant.bounce_email:
+            sender_domain = tenant.bounce_email.split("@")[-1]
+        if not sender_domain:
+            import socket
+            sender_domain = socket.getfqdn()
+        if not sender_domain or sender_domain == "localhost":
+            sender_domain = "polypress.local"
         from_email = f"{tenant.mta_from_prefix or 'noreply'}@{sender_domain}"
         msg["From"] = f"{tenant.name} <{from_email}>"
         msg["To"] = item.email
