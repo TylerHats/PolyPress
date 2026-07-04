@@ -358,6 +358,7 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     import ipaddress
     import socket
     import urllib.request
+    import concurrent.futures
     
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
@@ -365,10 +366,10 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     domain = tenant.dkim_domain
     if not domain:
         return {
-            "mx": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}},
-            "spf": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}, "spf_warning": ""},
-            "dkim": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}},
-            "dmarc": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}}
+            "mx": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}},
+            "spf": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}, "spf_warning": ""},
+            "dkim": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}},
+            "dmarc": {"status": "missing", "sources": {"local": {"records": [], "error": None, "success": False}, "cloudflare": {"records": [], "error": None, "success": False}, "google": {"records": [], "error": None, "success": False}, "quad9": {"records": [], "error": None, "success": False}}}
         }
 
     # Fetch public IP of the PolyPress outbound server
@@ -385,7 +386,7 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
         "quad9": "9.9.9.9"
     }
 
-    def resolve_dns(host: str, rtype: str, server: str = None) -> list:
+    def resolve_dns(host: str, rtype: str, server: str = None) -> dict:
         resolver = dns.resolver.Resolver()
         resolver.timeout = 2.0
         resolver.lifetime = 2.0
@@ -394,15 +395,17 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
         try:
             answers = resolver.resolve(host, rtype)
             if rtype == 'MX':
-                return [str(ans.exchange).rstrip('.') for ans in answers]
+                return {"records": [str(ans.exchange).rstrip('.') for ans in answers], "error": None}
             else: # TXT
                 records = []
                 for ans in answers:
                     txt = "".join([t.decode('utf-8') for t in ans.strings])
                     records.append(txt)
-                return records
-        except Exception:
-            return []
+                return {"records": records, "error": None}
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            return {"records": [], "error": None}
+        except Exception as e:
+            return {"records": [], "error": f"Resolver Error: {type(e).__name__}"}
 
     def check_dkim_key_match(dns_val: str, expected_val: str) -> bool:
         if not expected_val:
@@ -455,8 +458,8 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             elif part == "mx" or part.startswith("mx:"):
                 host = part[3:] if part.startswith("mx:") else target_domain
                 try:
-                    mx_answers = resolve_dns(host, 'MX')
-                    for mx in mx_answers:
+                    mx_res = resolve_dns(host, 'MX')
+                    for mx in mx_res.get("records", []):
                         for ip_info in socket.getaddrinfo(mx, None):
                             if ip_info[4][0] == ip_str:
                                 return True
@@ -465,8 +468,8 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             elif part.startswith("include:"):
                 inc_domain = part[8:]
                 try:
-                    txt_answers = resolve_dns(inc_domain, 'TXT')
-                    for ans in txt_answers:
+                    txt_res = resolve_dns(inc_domain, 'TXT')
+                    for ans in txt_res.get("records", []):
                         if ans.startswith("v=spf1"):
                             if resolve_ip_matches_spf(ip_str, inc_domain, ans, depth + 1):
                                 return True
@@ -474,85 +477,87 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
                     pass
         return False
 
+    def calculate_status(sources: dict) -> str:
+        total_valid = 0
+        total_success = 0
+        for s in sources.values():
+            if s["error"] is None:
+                total_valid += 1
+                if s["success"]:
+                    total_success += 1
+        if total_valid == 0:
+            return "missing"
+        if total_success == total_valid:
+            return "verified"
+        if total_success == 0:
+            return "missing"
+        return "partial"
+
     results = {}
 
+    def run_concurrently(func, *args):
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_server = {executor.submit(func, name, srv): name for name, srv in servers.items()}
+            results_dict = {}
+            for future in concurrent.futures.as_completed(future_to_server):
+                name = future_to_server[future]
+                results_dict[name] = future.result()
+            return results_dict
+
     # 1. MX
-    mx_sources = {}
-    mx_success_count = 0
-    for name, srv in servers.items():
-        recs = resolve_dns(domain, 'MX', srv)
-        mx_sources[name] = recs
-        if recs:
-            mx_success_count += 1
-            
-    results["mx"] = {
-        "sources": mx_sources,
-        "status": "verified" if mx_success_count == 4 else ("missing" if mx_success_count == 0 else "partial")
-    }
+    def get_mx_record(name, srv):
+        res = resolve_dns(domain, 'MX', srv)
+        return {
+            "records": res["records"],
+            "error": res["error"],
+            "success": len(res["records"]) > 0 if res["error"] is None else False
+        }
+    mx_sources = run_concurrently(get_mx_record)
+    results["mx"] = {"sources": mx_sources, "status": calculate_status(mx_sources)}
 
     # 2. SPF
-    spf_sources = {}
-    spf_success_count = 0
-    valid_spf_found_anywhere = False
-    for name, srv in servers.items():
-        recs = resolve_dns(domain, 'TXT', srv)
+    def get_spf_record(name, srv):
+        res = resolve_dns(domain, 'TXT', srv)
+        recs = res["records"]
         spf_recs = [r for r in recs if r.startswith("v=spf1")]
-        spf_sources[name] = spf_recs
-        if spf_recs:
-            spf_success_count += 1
-            valid_spf_found_anywhere = True
-            
-    results["spf"] = {
-        "sources": spf_sources,
-        "status": "verified" if spf_success_count == 4 else ("missing" if spf_success_count == 0 else "partial"),
-        "spf_warning": ""
-    }
+        return {
+            "records": recs,
+            "error": res["error"],
+            "success": len(spf_recs) > 0 if res["error"] is None else False
+        }
+    spf_sources = run_concurrently(get_spf_record)
+    results["spf"] = {"sources": spf_sources, "status": calculate_status(spf_sources), "spf_warning": ""}
 
+    valid_spf_found_anywhere = any(s["success"] for s in spf_sources.values())
     if public_ip and valid_spf_found_anywhere:
         any_spf = None
         for name in ["local", "cloudflare", "google", "quad9"]:
-            if spf_sources[name]:
-                any_spf = spf_sources[name][0]
+            recs = spf_sources[name]["records"]
+            spf_recs = [r for r in recs if r.startswith("v=spf1")]
+            if spf_recs:
+                any_spf = spf_recs[0]
                 break
-        if any_spf:
-            authorized = resolve_ip_matches_spf(public_ip, domain, any_spf)
-            if not authorized:
-                results["spf"]["spf_warning"] = f"Warning: Outbound public IP ({public_ip}) of the server is not authorized under the resolved SPF record."
+        if any_spf and not resolve_ip_matches_spf(public_ip, domain, any_spf):
+            results["spf"]["spf_warning"] = f"Warning: Outbound public IP ({public_ip}) of the server is not authorized under the resolved SPF record."
 
     # 3. DKIM
-    dkim_sources = {}
-    dkim_success_count = 0
     dkim_host = f"{tenant.dkim_selector}._domainkey.{domain}" if tenant.dkim_selector else None
-    for name, srv in servers.items():
-        if not dkim_host:
-            dkim_sources[name] = []
-            continue
-        recs = resolve_dns(dkim_host, 'TXT', srv)
-        dkim_recs = [r for r in recs if r.startswith("v=DKIM1") and check_dkim_key_match(r, tenant.dkim_public_key)]
-        dkim_sources[name] = dkim_recs
-        if dkim_recs:
-            dkim_success_count += 1
-            
-    results["dkim"] = {
-        "sources": dkim_sources,
-        "status": "verified" if dkim_success_count == 4 else ("missing" if dkim_success_count == 0 else "partial")
-    }
+    def get_dkim_record(name, srv):
+        if not dkim_host: return {"records": [], "error": "No selector configured", "success": False}
+        res = resolve_dns(dkim_host, 'TXT', srv)
+        success = any(r.startswith("v=DKIM1") and check_dkim_key_match(r, tenant.dkim_public_key) for r in res["records"]) if res["error"] is None else False
+        return {"records": res["records"], "error": res["error"], "success": success}
+    dkim_sources = run_concurrently(get_dkim_record)
+    results["dkim"] = {"sources": dkim_sources, "status": calculate_status(dkim_sources)}
 
     # 4. DMARC
-    dmarc_sources = {}
-    dmarc_success_count = 0
     dmarc_host = f"_dmarc.{domain}"
-    for name, srv in servers.items():
-        recs = resolve_dns(dmarc_host, 'TXT', srv)
-        dmarc_recs = [r for r in recs if check_dmarc_policy_format(r)]
-        dmarc_sources[name] = dmarc_recs
-        if dmarc_recs:
-            dmarc_success_count += 1
-            
-    results["dmarc"] = {
-        "sources": dmarc_sources,
-        "status": "verified" if dmarc_success_count == 4 else ("missing" if dmarc_success_count == 0 else "partial")
-    }
+    def get_dmarc_record(name, srv):
+        res = resolve_dns(dmarc_host, 'TXT', srv)
+        success = any(check_dmarc_policy_format(r) for r in res["records"]) if res["error"] is None else False
+        return {"records": res["records"], "error": res["error"], "success": success}
+    dmarc_sources = run_concurrently(get_dmarc_record)
+    results["dmarc"] = {"sources": dmarc_sources, "status": calculate_status(dmarc_sources)}
 
     return results
 

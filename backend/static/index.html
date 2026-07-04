@@ -1192,13 +1192,31 @@
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <template x-if="dnsDetailRecord">
                         <div>
-                            <template x-for="(records, source) in dnsDetailRecord.sources" :key="source">
+                            <template x-for="(data, source) in dnsDetailRecord.sources" :key="source">
                                 <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
                                     <div style="display: flex; justify-content: space-between; align-items: center;">
                                         <span style="font-weight: 600; text-transform: capitalize; font-size: 13px; color: #fff;" x-text="source"></span>
-                                        <span class="badge" :class="records.length > 0 ? 'badge-success' : 'badge-danger'" x-text="records.length > 0 ? 'Verified / OK' : 'No Record'"></span>
+                                        
+                                        <!-- Resolver error badge -->
+                                        <template x-if="data.error">
+                                            <span class="badge badge-muted" x-text="'Resolver Error'"></span>
+                                        </template>
+                                        
+                                        <!-- Normal query success status badges -->
+                                        <template x-if="!data.error">
+                                            <span class="badge" 
+                                                  :class="data.success ? 'badge-success' : (data.records.length > 0 ? 'badge-warning' : 'badge-danger')" 
+                                                  x-text="data.success ? 'Verified / OK' : (data.records.length > 0 ? 'Incorrect' : 'Missing')"></span>
+                                        </template>
                                     </div>
-                                    <div style="font-family: monospace; font-size: 12px; color: var(--text-secondary); word-break: break-all; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px; white-space: pre-wrap;" x-text="records.join('\n') || 'No records resolved from this source.'"></div>
+                                    
+                                    <!-- Render resolver errors vs resolved list -->
+                                    <template x-if="data.error">
+                                        <div style="font-family: monospace; font-size: 12px; color: var(--color-danger); background: rgba(239, 68, 68, 0.05); padding: 8px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.15);" x-text="data.error"></div>
+                                    </template>
+                                    <template x-if="!data.error">
+                                        <div style="font-family: monospace; font-size: 12px; color: var(--text-secondary); word-break: break-all; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px; white-space: pre-wrap;" x-text="data.records.join('\n') || 'No records resolved from this source.'"></div>
+                                    </template>
                                 </div>
                             </template>
                         </div>

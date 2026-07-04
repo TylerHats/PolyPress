@@ -2049,6 +2049,7 @@
                     }
                     this.chartTimeoutId = setTimeout(() => {
                         this.chartTimeoutId = null;
+                        if (this.activeTab !== 'dashboard') return;
                         const ctx = document.getElementById('dashboardChart');
                         if (!ctx) return;
                         
@@ -2087,11 +2088,10 @@
                                         duration: 500,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
-                                            let delay = 0;
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                delay = context.datasetIndex * 250;
+                                                return context.dataIndex * 15;
                                             }
-                                            return delay;
+                                            return 0;
                                         }
                                     },
                                     plugins: {
@@ -3072,11 +3072,10 @@
                                         duration: 500,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
-                                            let delay = 0;
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                delay = context.datasetIndex * 250;
+                                                return context.dataIndex * 15;
                                             }
-                                            return delay;
+                                            return 0;
                                         }
                                     },
                                     scales: {

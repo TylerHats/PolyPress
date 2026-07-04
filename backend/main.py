@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from acme_helper import active_challenges
 
 from database import init_db, SessionLocal, User, Tenant, GlobalSettings
@@ -19,6 +19,15 @@ from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tra
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("polypress")
+
+# Get running version from git tag to append query params for browser cache invalidation
+APP_VERSION = "1.0.0"
+try:
+    import subprocess
+    res = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], capture_output=True, text=True, check=True)
+    APP_VERSION = res.stdout.strip()
+except Exception:
+    pass
 
 def seed_bootstrap_data():
     db = SessionLocal()
@@ -253,19 +262,34 @@ def serve_acme_challenge(token: str):
         return Response(content=active_challenges[token], media_type="text/plain")
     raise HTTPException(status_code=404, detail="Challenge token not found")
 
-@app.get("/")
-def serve_home():
+def get_index_html_response() -> HTMLResponse:
     index_file = os.path.join(static_path, "index.html")
     if os.path.exists(index_file):
-        return FileResponse(index_file)
-    return {"message": "PolyPress Backend API is running. Please create static/index.html to view frontend."}
+        try:
+            with open(index_file, "r", encoding="utf-8") as f:
+                html = f.read()
+            # Replace scripts and links to force cache busting
+            html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={APP_VERSION}"')
+            html = html.replace('src="/static/app.js"', f'src="/static/app.js?v={APP_VERSION}"')
+            return HTMLResponse(
+                content=html,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
+        except Exception as e:
+            return HTMLResponse(content=f"Error loading index.html: {str(e)}", status_code=500)
+    return HTMLResponse(content="<h3>PolyPress static index.html not found</h3>", status_code=404)
+
+@app.get("/")
+def serve_home():
+    return get_index_html_response()
 
 @app.get("/{fallback_path:path}")
 def serve_fallback(fallback_path: str):
     if fallback_path.startswith("api/") or fallback_path.startswith("branding/"):
         raise HTTPException(status_code=404)
-    index_file = os.path.join(static_path, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
-    raise HTTPException(status_code=404)
+    return get_index_html_response()
 
