@@ -89,28 +89,27 @@
                         </div>
                         
                         <div style="display: flex; gap: 12px; align-items: center;">
-                            <div x-show="!isEditingOptIn" style="display: flex; gap: 12px; align-items: center;">
-                                <button @click="saveCampaignDraft()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
-                                    <i data-lucide="save" style="width: 16px; height: 16px;"></i> Save Draft
-                                </button>
-                                <button @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
-                                    <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
-                                </button>
-                                <button @click="openLaunchModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
-                                    <i data-lucide="send" style="width: 16px; height: 16px;"></i> Queue & Send
-                                </button>
-                            </div>
-                            <div x-show="isEditingOptIn" style="display: flex; gap: 12px; align-items: center;">
-                                <button @click="saveOptInTemplate()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
-                                    <i data-lucide="save" style="width: 16px; height: 16px;"></i> Save Template
-                                </button>
-                                <button @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
-                                    <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
-                                </button>
-                                <button @click="switchTab('settings')" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
-                                    <i data-lucide="x" style="width: 16px; height: 16px;"></i> Cancel
-                                </button>
-                            </div>
+                            <!-- Campaign Mode Buttons -->
+                            <button x-show="!isEditingOptIn" @click="saveCampaignDraft()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                <i data-lucide="save" style="width: 16px; height: 16px;"></i> Save Draft
+                            </button>
+                            <button x-show="!isEditingOptIn" @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
+                            </button>
+                            <button x-show="!isEditingOptIn" @click="openLaunchModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                <i data-lucide="send" style="width: 16px; height: 16px;"></i> Queue & Send
+                            </button>
+                            
+                            <!-- Double Opt-In Mode Buttons -->
+                            <button x-show="isEditingOptIn" @click="saveOptInTemplate()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                <i data-lucide="save" style="width: 16px; height: 16px;"></i> Save Template
+                            </button>
+                            <button x-show="isEditingOptIn" @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
+                            </button>
+                            <button x-show="isEditingOptIn" @click="switchTab('settings')" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                <i data-lucide="x" style="width: 16px; height: 16px;"></i> Cancel
+                            </button>
                         </div>
                     </div>
 

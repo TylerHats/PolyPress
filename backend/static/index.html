@@ -1178,6 +1178,39 @@
         </div>
     </div>
 
+    <!-- DNS Resolve Details Modal -->
+    <div x-show="modals.dnsDetails" class="modal-overlay" style="display: none; z-index: 2100;">
+        <div class="modal-content" style="width: 550px; max-width: 95%;">
+            <div class="modal-header">
+                <h3 x-text="dnsDetailRecord ? dnsDetailRecord.title + ' Live Verification' : 'DNS Live Details'"></h3>
+                <button @click="modals.dnsDetails = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" style="padding-top: 10px;">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                    Below are the resolved values queried live from all four test DNS nameservers:
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <template x-if="dnsDetailRecord">
+                        <div>
+                            <template x-for="(records, source) in dnsDetailRecord.sources" :key="source">
+                                <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="font-weight: 600; text-transform: capitalize; font-size: 13px; color: #fff;" x-text="source"></span>
+                                        <span class="badge" :class="records.length > 0 ? 'badge-success' : 'badge-danger'" x-text="records.length > 0 ? 'Verified / OK' : 'No Record'"></span>
+                                    </div>
+                                    <div style="font-family: monospace; font-size: 12px; color: var(--text-secondary); word-break: break-all; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px; white-space: pre-wrap;" x-text="records.join('\n') || 'No records resolved from this source.'"></div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button @click="modals.dnsDetails = false" class="btn btn-secondary">Close Details</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripting Business Logic -->
     <script src="/static/app.js"></script>
 </body>

@@ -355,70 +355,205 @@ def generate_my_dkim(db: Session = Depends(get_db), current_user: User = Depends
 
 @router.get("/my/dns-test")
 def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
+    import ipaddress
+    import socket
+    import urllib.request
+    
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     domain = tenant.dkim_domain
     if not domain:
         return {
-            "mx": {"status": "missing", "records": [], "detail": "No domain configured for DKIM/MTA"},
-            "spf": {"status": "missing", "records": []},
-            "dkim": {"status": "missing", "records": []},
-            "dmarc": {"status": "missing", "records": []}
+            "mx": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}},
+            "spf": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}, "spf_warning": ""},
+            "dkim": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}},
+            "dmarc": {"status": "missing", "sources": {"local": [], "cloudflare": [], "google": [], "quad9": []}}
         }
-        
-    results = {
-        "mx": {"status": "missing", "records": []},
-        "spf": {"status": "missing", "records": []},
-        "dkim": {"status": "missing", "records": []},
-        "dmarc": {"status": "missing", "records": []}
+
+    # Fetch public IP of the PolyPress outbound server
+    public_ip = None
+    try:
+        public_ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
+    except Exception:
+        pass
+
+    servers = {
+        "local": None,
+        "cloudflare": "1.1.1.1",
+        "google": "8.8.8.8",
+        "quad9": "9.9.9.9"
     }
-    
-    # 1. Test MX records
-    try:
-        answers = dns.resolver.resolve(domain, 'MX')
-        results["mx"]["records"] = [str(ans.exchange).rstrip('.') for ans in answers]
-        if results["mx"]["records"]:
-            results["mx"]["status"] = "valid"
-    except Exception:
-        pass
-        
-    # 2. Test SPF records
-    try:
-        answers = dns.resolver.resolve(domain, 'TXT')
-        for ans in answers:
-            txt = "".join([t.decode('utf-8') for t in ans.strings])
-            if txt.startswith("v=spf1"):
-                results["spf"]["records"].append(txt)
-                results["spf"]["status"] = "valid"
-    except Exception:
-        pass
-        
-    # 3. Test DKIM
-    if tenant.dkim_selector:
-        dkim_host = f"{tenant.dkim_selector}._domainkey.{domain}"
+
+    def resolve_dns(host: str, rtype: str, server: str = None) -> list:
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 2.0
+        resolver.lifetime = 2.0
+        if server:
+            resolver.nameservers = [server]
         try:
-            answers = dns.resolver.resolve(dkim_host, 'TXT')
-            for ans in answers:
-                txt = "".join([t.decode('utf-8') for t in ans.strings])
-                if txt.startswith("v=DKIM1"):
-                    results["dkim"]["records"].append(txt)
-                    results["dkim"]["status"] = "valid"
+            answers = resolver.resolve(host, rtype)
+            if rtype == 'MX':
+                return [str(ans.exchange).rstrip('.') for ans in answers]
+            else: # TXT
+                records = []
+                for ans in answers:
+                    txt = "".join([t.decode('utf-8') for t in ans.strings])
+                    records.append(txt)
+                return records
         except Exception:
-            pass
-            
-    # 4. Test DMARC
-    dmarc_host = f"_dmarc.{domain}"
-    try:
-        answers = dns.resolver.resolve(dmarc_host, 'TXT')
-        for ans in answers:
-            txt = "".join([t.decode('utf-8') for t in ans.strings])
-            if txt.startswith("v=DMARC1"):
-                results["dmarc"]["records"].append(txt)
-                results["dmarc"]["status"] = "valid"
-    except Exception:
-        pass
+            return []
+
+    def check_dkim_key_match(dns_val: str, expected_val: str) -> bool:
+        if not expected_val:
+            return True
+        clean_dns = "".join(dns_val.split()).rstrip(';').lower()
+        clean_expected = "".join(expected_val.split()).rstrip(';').lower()
+        return clean_dns == clean_expected
+
+    def check_dmarc_policy_format(dns_val: str) -> bool:
+        val = dns_val.lower()
+        return val.startswith("v=dmarc1") and ("p=none" in val or "p=quarantine" in val or "p=reject" in val)
+
+    def resolve_ip_matches_spf(ip_str: str, target_domain: str, spf_record: str, depth: int = 0) -> bool:
+        if depth > 3:
+            return False
         
+        parts = spf_record.split()
+        for part in parts:
+            part = part.lower()
+            if part.startswith("ip4:"):
+                val = part[4:]
+                try:
+                    if "/" in val:
+                        if ipaddress.IPv4Address(ip_str) in ipaddress.IPv4Network(val, strict=False):
+                            return True
+                    else:
+                        if ipaddress.IPv4Address(ip_str) == ipaddress.IPv4Address(val):
+                            return True
+                except Exception:
+                    pass
+            elif part.startswith("ip6:"):
+                val = part[6:]
+                try:
+                    if "/" in val:
+                        if ipaddress.IPv6Address(ip_str) in ipaddress.IPv6Network(val, strict=False):
+                            return True
+                    else:
+                        if ipaddress.IPv6Address(ip_str) == ipaddress.IPv6Address(val):
+                            return True
+                except Exception:
+                    pass
+            elif part == "a" or part.startswith("a:"):
+                host = part[2:] if part.startswith("a:") else target_domain
+                try:
+                    for ip_info in socket.getaddrinfo(host, None):
+                        if ip_info[4][0] == ip_str:
+                            return True
+                except Exception:
+                    pass
+            elif part == "mx" or part.startswith("mx:"):
+                host = part[3:] if part.startswith("mx:") else target_domain
+                try:
+                    mx_answers = resolve_dns(host, 'MX')
+                    for mx in mx_answers:
+                        for ip_info in socket.getaddrinfo(mx, None):
+                            if ip_info[4][0] == ip_str:
+                                return True
+                except Exception:
+                    pass
+            elif part.startswith("include:"):
+                inc_domain = part[8:]
+                try:
+                    txt_answers = resolve_dns(inc_domain, 'TXT')
+                    for ans in txt_answers:
+                        if ans.startswith("v=spf1"):
+                            if resolve_ip_matches_spf(ip_str, inc_domain, ans, depth + 1):
+                                return True
+                except Exception:
+                    pass
+        return False
+
+    results = {}
+
+    # 1. MX
+    mx_sources = {}
+    mx_success_count = 0
+    for name, srv in servers.items():
+        recs = resolve_dns(domain, 'MX', srv)
+        mx_sources[name] = recs
+        if recs:
+            mx_success_count += 1
+            
+    results["mx"] = {
+        "sources": mx_sources,
+        "status": "verified" if mx_success_count == 4 else ("missing" if mx_success_count == 0 else "partial")
+    }
+
+    # 2. SPF
+    spf_sources = {}
+    spf_success_count = 0
+    valid_spf_found_anywhere = False
+    for name, srv in servers.items():
+        recs = resolve_dns(domain, 'TXT', srv)
+        spf_recs = [r for r in recs if r.startswith("v=spf1")]
+        spf_sources[name] = spf_recs
+        if spf_recs:
+            spf_success_count += 1
+            valid_spf_found_anywhere = True
+            
+    results["spf"] = {
+        "sources": spf_sources,
+        "status": "verified" if spf_success_count == 4 else ("missing" if spf_success_count == 0 else "partial"),
+        "spf_warning": ""
+    }
+
+    if public_ip and valid_spf_found_anywhere:
+        any_spf = None
+        for name in ["local", "cloudflare", "google", "quad9"]:
+            if spf_sources[name]:
+                any_spf = spf_sources[name][0]
+                break
+        if any_spf:
+            authorized = resolve_ip_matches_spf(public_ip, domain, any_spf)
+            if not authorized:
+                results["spf"]["spf_warning"] = f"Warning: Outbound public IP ({public_ip}) of the server is not authorized under the resolved SPF record."
+
+    # 3. DKIM
+    dkim_sources = {}
+    dkim_success_count = 0
+    dkim_host = f"{tenant.dkim_selector}._domainkey.{domain}" if tenant.dkim_selector else None
+    for name, srv in servers.items():
+        if not dkim_host:
+            dkim_sources[name] = []
+            continue
+        recs = resolve_dns(dkim_host, 'TXT', srv)
+        dkim_recs = [r for r in recs if r.startswith("v=DKIM1") and check_dkim_key_match(r, tenant.dkim_public_key)]
+        dkim_sources[name] = dkim_recs
+        if dkim_recs:
+            dkim_success_count += 1
+            
+    results["dkim"] = {
+        "sources": dkim_sources,
+        "status": "verified" if dkim_success_count == 4 else ("missing" if dkim_success_count == 0 else "partial")
+    }
+
+    # 4. DMARC
+    dmarc_sources = {}
+    dmarc_success_count = 0
+    dmarc_host = f"_dmarc.{domain}"
+    for name, srv in servers.items():
+        recs = resolve_dns(dmarc_host, 'TXT', srv)
+        dmarc_recs = [r for r in recs if check_dmarc_policy_format(r)]
+        dmarc_sources[name] = dmarc_recs
+        if dmarc_recs:
+            dmarc_success_count += 1
+            
+    results["dmarc"] = {
+        "sources": dmarc_sources,
+        "status": "verified" if dmarc_success_count == 4 else ("missing" if dmarc_success_count == 0 else "partial")
+    }
+
     return results
 
 @router.get("/my/queue")

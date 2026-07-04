@@ -231,10 +231,10 @@
                 totpForm: { email: '', code: '' },
                 totpSetup: { secret: '', uri: '', code: '', step: 1 },
                 dnsTestResults: {
-                    mx: { status: 'missing', records: [] },
-                    spf: { status: 'missing', records: [] },
-                    dkim: { status: 'missing', records: [] },
-                    dmarc: { status: 'missing', records: [] }
+                    mx: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                    spf: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] }, spf_warning: '' },
+                    dkim: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                    dmarc: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
                 },
                 dnsTesting: false,
                 outboxQueue: [],
@@ -304,8 +304,10 @@
                     stats: false,
                     campaignPreview: false,
                     createWebhook: false,
-                    targetPreview: false
+                    targetPreview: false,
+                    dnsDetails: false
                 },
+                dnsDetailRecord: null,
                 targetPreviewData: [],
                 targetPreviewTotal: 0,
                 targetPreviewPage: 1,
@@ -1083,10 +1085,10 @@
                 
                 async changeActiveTenantContext() {
                     this.dnsTestResults = {
-                        mx: { status: 'missing', records: [] },
-                        spf: { status: 'missing', records: [] },
-                        dkim: { status: 'missing', records: [] },
-                        dmarc: { status: 'missing', records: [] }
+                        mx: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                        spf: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] }, spf_warning: '' },
+                        dkim: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
+                        dmarc: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
                     };
                     if (this.activeTenantId) {
                         localStorage.setItem('polypress_active_tenant', this.activeTenantId);
@@ -2082,14 +2084,14 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 1000,
+                                        duration: 500,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             let delay = 0;
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                delay = context.dataIndex * (1000 / Math.max(1, context.dataset.data.length));
+                                                delay = context.datasetIndex * 250;
                                             }
-                                            return Math.min(1000, delay);
+                                            return delay;
                                         }
                                     },
                                     plugins: {
@@ -3067,14 +3069,14 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 1000,
+                                        duration: 500,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             let delay = 0;
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                delay = context.dataIndex * (1000 / Math.max(1, context.dataset.data.length));
+                                                delay = context.datasetIndex * 250;
                                             }
-                                            return Math.min(1000, delay);
+                                            return delay;
                                         }
                                     },
                                     scales: {
@@ -3342,6 +3344,16 @@
                     } finally {
                         this.testingImap = false;
                     }
+                },
+                
+                openDnsDetailsModal(recordType, title) {
+                    this.dnsDetailRecord = {
+                        type: recordType,
+                        title: title,
+                        sources: this.dnsTestResults[recordType] ? this.dnsTestResults[recordType].sources : { local: [], cloudflare: [], google: [], quad9: [] }
+                    };
+                    this.modals.dnsDetails = true;
+                    this.refreshIcons();
                 }
             };
         }
