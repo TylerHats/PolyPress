@@ -1,4 +1,4 @@
-        function compileBlocksToHtml(blocks) {
+        function compileBlocksToHtml(blocks, customFooterHtml = null, isFooterMode = false) {
             let rowsHtml = '';
             for (let block of blocks) {
                 if (block.type === 'heading') {
@@ -130,6 +130,41 @@
                 }
             }
             
+            if (isFooterMode) {
+                return rowsHtml;
+            }
+            
+            let footerSegment = `
+                                 <tr>
+                                     <td style="padding-top: 40px;">
+                                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                             <tr>
+                                                 <td height="1" bgcolor="#e5e7eb" style="font-size:1px; line-height:1px;">&nbsp;</td>
+                                             </tr>
+                                             <tr>
+                                                 <td align="center" style="padding-top: 20px; font-family: sans-serif; font-size: 12px; color: #9ca3af; line-height: 1.5;">
+                                                     You are receiving this email because you subscribed to our newsletter list.<br>
+                                                     <a href="{{unsubscribe_url}}" style="color: #6366f1; text-decoration: underline;">Unsubscribe</a> from this list.
+                                                 </td>
+                                             </tr>
+                                         </table>
+                                     </td>
+                                 </tr>`;
+                                 
+            if (customFooterHtml) {
+                footerSegment = `
+                                 <tr>
+                                     <td style="padding-top: 40px;">
+                                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                             <tr>
+                                                 <td height="1" bgcolor="#e5e7eb" style="font-size:1px; line-height:1px;">&nbsp;</td>
+                                             </tr>
+                                             ${customFooterHtml}
+                                         </table>
+                                     </td>
+                                 </tr>`;
+            }
+            
             return `<!DOCTYPE html>
             <html>
             <head>
@@ -152,21 +187,7 @@
                             <![endif]-->
                             <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08); padding: 40px;">
                                 ${rowsHtml}
-                                <tr>
-                                    <td style="padding-top: 40px;">
-                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
-                                            <tr>
-                                                <td height="1" bgcolor="#e5e7eb" style="font-size:1px; line-height:1px;">&nbsp;</td>
-                                            </tr>
-                                            <tr>
-                                                <td align="center" style="padding-top: 20px; font-family: sans-serif; font-size: 12px; color: #9ca3af; line-height: 1.5;">
-                                                    You are receiving this email because you subscribed to our newsletter list.<br>
-                                                    <a href="{{unsubscribe_url}}" style="color: #6366f1; text-decoration: underline;">Unsubscribe</a> from this list.
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
+                                ${footerSegment}
                             </table>
                             <!--[if mso]>
                             </td>
@@ -277,6 +298,7 @@
                 testingSmtp: false,
                 testingImap: false,
                 isEditingOptIn: false,
+                isEditingFooter: false,
                 optInSubject: 'Confirm Your Subscription',
                 loadingDashboardStats: false,
                 sslForm: { domain: '', email: '', use_staging: true },
@@ -771,14 +793,25 @@
                 },
                 
                 async openPreviewModal() {
-                    if (this.isEditingOptIn) {
+                    if (this.isEditingOptIn || this.isEditingFooter) {
                         this.previewIframeSrc = 'about:blank';
                         this.modals.campaignPreview = true;
                         this.refreshIcons();
                         setTimeout(() => {
                             const iframe = document.getElementById('previewIframe');
                             if (iframe) {
-                                const html = compileBlocksToHtml(this.editorBlocks);
+                                let html = '';
+                                if (this.isEditingFooter) {
+                                    html = compileBlocksToHtml(
+                                        [
+                                            { type: 'heading', text: 'Campaign Content Placeholder', align: 'center', color: '#111827', size: '22px' },
+                                            { type: 'paragraph', text: 'This is placeholder campaign content to demonstrate how your customized footer appears at the bottom of outgoing emails.', align: 'center', color: '#4b5563', size: '14px' }
+                                        ],
+                                        compileBlocksToHtml(this.editorBlocks, null, true)
+                                    );
+                                } else {
+                                    html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                                }
                                 const mockHtml = html.replaceAll('{{confirm_url}}', 'https://newsletter.yourdomain.com/api/embed/confirm-optin/mock_token').replaceAll('{confirm_url}', 'https://newsletter.yourdomain.com/api/embed/confirm-optin/mock_token');
                                 const doc = iframe.contentDocument || iframe.contentWindow.document;
                                 doc.open();
@@ -1678,6 +1711,7 @@
                 switchTab(tab) {
                     if (tab !== 'editor') {
                         this.isEditingOptIn = false;
+                        this.isEditingFooter = false;
                     }
                     if (tab !== 'reports') {
                         const canvas = document.getElementById('reportsChart');
@@ -2645,7 +2679,7 @@
                 },
                 
                 async saveCampaignDraft() {
-                    const html = compileBlocksToHtml(this.editorBlocks);
+                    const html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
                     try {
                         const res = await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
                             method: 'PUT',
@@ -2673,7 +2707,7 @@
                 
                 async submitLaunchCampaign() {
                     this.modals.confirmLaunch = false;
-                    const html = compileBlocksToHtml(this.editorBlocks, this.editingCampaign.preheader);
+                    const html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
                     try {
                           await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
                               method: 'PUT',
@@ -3264,7 +3298,7 @@
                 },
                 
                 async saveOptInTemplate() {
-                    const html = compileBlocksToHtml(this.editorBlocks);
+                    const html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
                     try {
                         const res = await fetch('/api/tenants/my', {
                             method: 'PUT',
@@ -3282,6 +3316,50 @@
                         } else {
                             const err = await res.json();
                             this.showToast(err.detail || 'Failed to save template', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+                
+                editFooterTemplate() {
+                    this.isEditingFooter = true;
+                    
+                    const defaultBlocks = [
+                        { type: 'paragraph', text: 'You are receiving this email because you subscribed to our newsletter list.\nUnsubscribe from this list.', align: 'center', color: '#9ca3af', size: '12px', padding: '10px 0px' }
+                    ];
+                    
+                    let blocks = this.tenant.email_footer_blocks;
+                    if (typeof blocks === 'string') {
+                        try {
+                            blocks = JSON.parse(blocks);
+                        } catch(e) {
+                            blocks = null;
+                        }
+                    }
+                    this.editorBlocks = blocks || defaultBlocks;
+                    this.selectedBlockIndex = null;
+                    this.switchTab('editor');
+                },
+                
+                async saveFooterTemplate() {
+                    const html = compileBlocksToHtml(this.editorBlocks, null, true);
+                    try {
+                        const res = await fetch('/api/tenants/my', {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                email_footer_blocks: this.editorBlocks,
+                                email_footer_html: html
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Custom email footer template saved');
+                            await this.fetchTenant();
+                            this.switchTab('settings');
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to save footer template', 'error');
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');

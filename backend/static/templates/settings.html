@@ -151,6 +151,17 @@
                                 </button>
                             </div>
 
+                            <!-- Email Footer Edit Button -->
+                            <div style="margin-top: 15px; border-top: 1px solid var(--border-glass); padding-top: 15px; display: flex; flex-direction: column; gap: 4px;">
+                                <div style="font-weight:600;">Custom Email Unsubscribe Footer</div>
+                                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">Customize the HTML footer appended to all campaigns and transactional emails.</div>
+                                <div>
+                                    <button @click="editFooterTemplate()" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+                                        <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i> Edit Custom Email Unsubscribe Footer
+                                    </button>
+                                </div>
+                            </div>
+
                             <!-- Outgoing Test Send Block -->
                             <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 20px; display: flex; align-items: flex-end; gap: 10px;">
                                 <div class="field" style="flex: 1; margin: 0;">

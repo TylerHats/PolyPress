@@ -15,7 +15,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -93,6 +93,8 @@ class Tenant(Base):
     double_opt_in_subject = Column(String, default="Confirm Your Subscription")
     double_opt_in_body_blocks = Column(JSON, nullable=True)
     double_opt_in_body_html = Column(Text, nullable=True)
+    email_footer_blocks = Column(JSON, nullable=True)
+    email_footer_html = Column(Text, nullable=True)
     
     # History logs settings
     history_retention_days = Column(Integer, default=30)
