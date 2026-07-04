@@ -247,46 +247,100 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
     return {"detail": "Settings updated successfully"}
 
 @router.post("/test-smtp")
-def test_smtp_settings(payload: dict = Body(...), current_user: User = Depends(auth.require_tenant_admin)):
+def test_smtp_settings(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
     to_email = payload.get("test_email")
     if not to_email:
         raise HTTPException(status_code=400, detail="Test recipient email address is required")
         
+    db_tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first() if current_user.tenant_id else None
+    
+    # Extract settings falling back to database
+    smtp_host = payload.get("smtp_host") or (db_tenant.smtp_host if db_tenant else None)
+    smtp_port = payload.get("smtp_port") or (db_tenant.smtp_port if db_tenant else None)
+    smtp_username = payload.get("smtp_username") or (db_tenant.smtp_username if db_tenant else None)
+    smtp_password = payload.get("smtp_password") or (db_tenant.smtp_password if db_tenant else None)
+    smtp_use_ssl = payload.get("smtp_use_ssl", db_tenant.smtp_use_ssl if db_tenant else False)
+    smtp_use_tls = payload.get("smtp_use_tls", db_tenant.smtp_use_tls if db_tenant else True)
+    
+    direct_send = payload.get("direct_send", db_tenant.direct_send if db_tenant else False)
+    dkim_selector = payload.get("dkim_selector") or (db_tenant.dkim_selector if db_tenant else "polypress")
+    dkim_domain = payload.get("dkim_domain") or (db_tenant.dkim_domain if db_tenant else None)
+    dkim_private_key = payload.get("dkim_private_key") or (db_tenant.dkim_private_key if db_tenant else None)
+    bounce_email = payload.get("bounce_email") or (db_tenant.bounce_email if db_tenant else None)
+    sending_ip_override = payload.get("sending_ip_override") or (db_tenant.sending_ip_override if db_tenant else None)
+    
     mock_tenant = Tenant(
         id=current_user.tenant_id or 0,
-        name=payload.get("name", "PolyPress Test Tenant"),
-        smtp_host=payload.get("smtp_host"),
-        smtp_port=payload.get("smtp_port"),
-        smtp_username=payload.get("smtp_username"),
-        smtp_password=payload.get("smtp_password"),
-        smtp_use_ssl=payload.get("smtp_use_ssl", False),
-        smtp_use_tls=payload.get("smtp_use_tls", True),
-        direct_send=payload.get("direct_send", False),
-        dkim_selector=payload.get("dkim_selector", "polypress"),
-        dkim_domain=payload.get("dkim_domain"),
-        dkim_private_key=payload.get("dkim_private_key"),
-        bounce_email=payload.get("bounce_email")
+        name=payload.get("name") or (db_tenant.name if db_tenant else "PolyPress Test Tenant"),
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_username=smtp_username,
+        smtp_password=smtp_password,
+        smtp_use_ssl=smtp_use_ssl,
+        smtp_use_tls=smtp_use_tls,
+        direct_send=direct_send,
+        dkim_selector=dkim_selector,
+        dkim_domain=dkim_domain,
+        dkim_private_key=dkim_private_key,
+        bounce_email=bounce_email,
+        sending_ip_override=sending_ip_override
     )
     
-    test_subject = f"Test Email from {mock_tenant.name}"
-    test_body = f"""<!DOCTYPE html>
+    # Resolve server public IP for direct sending diagnostics info
+    public_ip = None
+    if mock_tenant.sending_ip_override:
+        public_ip = mock_tenant.sending_ip_override.strip()
+    else:
+        try:
+            import urllib.request
+            public_ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
+        except Exception:
+            pass
+
+    if mock_tenant.direct_send:
+        test_subject = f"MTA Direct Send Test successful - {mock_tenant.name}"
+        test_body = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>PolyPress Email Connection Test</title>
+    <title>PolyPress MTA Direct Send Test</title>
 </head>
 <body style="background-color: #0b0f19; color: #f1f5f9; font-family: sans-serif; padding: 40px 20px; text-align: center;">
-    <div style="max-width: 500px; margin: 0 auto; background-color: #1e293b; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
-        <h1 style="color: #6366f1; font-size: 22px; margin-bottom: 10px;">Connection Test Successful!</h1>
+    <div style="max-width: 550px; margin: 0 auto; background-color: #1e293b; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: left;">
+        <h1 style="color: #10b981; font-size: 22px; margin-bottom: 15px; text-align: center;">MTA Direct Send Test Successful!</h1>
         <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6; margin-bottom: 25px;">
-            This email confirms that your outgoing mail server configuration is correct and PolyPress is successfully connected to your SMTP provider.
+            This email confirms that your local MTA (Mail Transfer Agent) configuration is correct and PolyPress is successfully sending messages directly from your server's public IP address.
         </p>
-        <div style="background-color: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 12px; font-size: 13px; color: #94a3b8; text-align: left; font-family: monospace;">
-            <strong>Server Host:</strong> {mock_tenant.smtp_host}<br>
-            <strong>Port:</strong> {mock_tenant.smtp_port}<br>
-            <strong>Direct Send (MTA):</strong> {mock_tenant.direct_send}
+        <div style="background-color: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 15px; font-size: 13px; color: #94a3b8; font-family: monospace; line-height: 1.5;">
+            <strong>MTA Outbound Domain:</strong> {mock_tenant.dkim_domain}<br>
+            <strong>DKIM Selector:</strong> {mock_tenant.dkim_selector}<br>
+            <strong>Egress Public IP:</strong> {public_ip or 'unknown'}
         </div>
-        <p style="font-size: 12px; color: #64748b; margin-top: 25px;">
+        <p style="font-size: 12px; color: #64748b; margin-top: 25px; text-align: center;">
+            Sent via PolyPress Newsletter System.
+        </p>
+    </div>
+</body>
+</html>"""
+    else:
+        test_subject = f"SMTP Relay Test successful - {mock_tenant.name}"
+        test_body = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>PolyPress SMTP Relay Test</title>
+</head>
+<body style="background-color: #0b0f19; color: #f1f5f9; font-family: sans-serif; padding: 40px 20px; text-align: center;">
+    <div style="max-width: 550px; margin: 0 auto; background-color: #1e293b; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: left;">
+        <h1 style="color: #6366f1; font-size: 22px; margin-bottom: 15px; text-align: center;">SMTP Relay Test Successful!</h1>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6; margin-bottom: 25px;">
+            This email confirms that your outgoing mail server configuration is correct and PolyPress is successfully connected to your external SMTP provider.
+        </p>
+        <div style="background-color: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 15px; font-size: 13px; color: #94a3b8; font-family: monospace; line-height: 1.5;">
+            <strong>SMTP Host:</strong> {mock_tenant.smtp_host}:{mock_tenant.smtp_port}<br>
+            <strong>SMTP Username:</strong> {mock_tenant.smtp_username}
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin-top: 25px; text-align: center;">
             Sent via PolyPress Newsletter System.
         </p>
     </div>
@@ -316,13 +370,26 @@ def test_smtp_settings(payload: dict = Body(...), current_user: User = Depends(a
         raise HTTPException(status_code=400, detail=f"Mail dispatch failed: {e}")
 
 @router.post("/test-imap")
-def test_imap_settings(payload: dict = Body(...), current_user: User = Depends(auth.require_tenant_admin)):
+def test_imap_settings(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
     host = payload.get("imap_host")
     port = payload.get("imap_port")
     username = payload.get("imap_username")
     password = payload.get("imap_password")
-    use_ssl = payload.get("imap_use_ssl", True)
+    use_ssl = payload.get("imap_use_ssl")
     
+    db_tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first() if current_user.tenant_id else None
+    if db_tenant:
+        if not host:
+            host = db_tenant.imap_host
+        if port is None:
+            port = db_tenant.imap_port
+        if not username:
+            username = db_tenant.imap_username
+        if not password:
+            password = db_tenant.imap_password
+        if use_ssl is None:
+            use_ssl = db_tenant.imap_use_ssl if db_tenant.imap_use_ssl is not None else True
+            
     if not host or not username or not password:
         raise HTTPException(status_code=400, detail="imap_host, imap_username, and imap_password are required")
         
@@ -629,7 +696,10 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             if res["error"] is not None:
                 resolver_errors.append(f"{label}: {res['error']}")
             elif res["records"]:
-                listed_on.append(f"Listed on {label} (resolved {', '.join(res['records'])})")
+                for rec in res["records"]:
+                    if rec.startswith("127.0.0."):
+                        listed_on.append(f"Listed on {label} (resolved {rec})")
+                    # Ignore 127.255.255.252-255 open resolver/usage limit indicator responses
                 
         err_msg = "; ".join(resolver_errors) if resolver_errors else None
         return {
@@ -641,6 +711,15 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     results["blacklist"] = {"sources": blacklist_sources, "status": calculate_status(blacklist_sources)}
 
     return results
+
+@router.get("/my/detected-ip")
+def get_detected_ip(current_user: User = Depends(auth.require_tenant_admin)):
+    import urllib.request
+    try:
+        ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
+        return {"public_ip": ip}
+    except Exception:
+        return {"public_ip": "unknown"}
 
 @router.get("/my/queue")
 def get_my_queue(db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):

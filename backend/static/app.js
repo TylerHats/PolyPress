@@ -239,6 +239,7 @@
                     blacklist: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } }
                 },
                 dnsTesting: false,
+                detectedPublicIp: 'detecting...',
                 outboxQueue: [],
                 mockPreviewFields: { name: 'John Doe', email: 'john@example.com' },
                 previewIframeSrc: '',
@@ -1325,6 +1326,13 @@
                     try {
                         const res = await fetch('/api/tenants/my', { headers: this.getAuthHeaders() });
                         if (res.ok) this.tenant = await res.json();
+                        
+                        // Fetch server egress public IP asynchronously for overrides placeholder
+                        const ipRes = await fetch('/api/tenants/my/detected-ip', { headers: this.getAuthHeaders() });
+                        if (ipRes.ok) {
+                            const data = await ipRes.json();
+                            this.detectedPublicIp = data.public_ip;
+                        }
                     } catch(e) {}
                 },
                 
@@ -2089,11 +2097,11 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 700,
+                                        duration: 1000,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                return context.dataIndex * 10;
+                                                return context.dataIndex * 17;
                                             }
                                             return 0;
                                         }
@@ -3073,11 +3081,11 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 700,
+                                        duration: 1000,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                return context.dataIndex * 10;
+                                                return context.dataIndex * 17;
                                             }
                                             return 0;
                                         }

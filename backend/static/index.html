@@ -16,10 +16,11 @@
 <body x-data="polyPressApp()" x-init="initApp()">
     
     <!-- Sleek Loading Overlay -->
-    <div x-show="loadingSession" class="loading-overlay" style="display: none;">
+    <div x-show="loadingSession || updateInstalling" class="loading-overlay" style="display: none;">
         <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
             <div class="spinner"></div>
-            <div style="font-size: 14px; color: var(--text-secondary, #94a3b8); font-weight: 500;">Loading PolyPress...</div>
+            <div style="font-size: 14px; color: var(--text-secondary, #94a3b8); font-weight: 500;"
+                 x-text="updateInstalling ? ('Updating ' + (globalSettings.app_name || 'PolyPress') + '...') : ('Loading ' + (globalSettings.app_name || 'PolyPress') + '...')"></div>
         </div>
     </div>
     
@@ -1186,8 +1187,12 @@
                 <button @click="modals.dnsDetails = false" class="close-btn"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body" style="padding-top: 10px;">
-                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
-                    Below are the resolved values queried live from all four test DNS nameservers:
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;"
+                   x-text="dnsDetailRecord && dnsDetailRecord.type === 'ptr'
+                     ? 'Checks that the reverse lookup (PTR) of the sending IP (' + (tenant.sending_ip_override || detectedPublicIp || 'Unknown IP') + ') resolves to a hostname containing or ending with your sending domain (' + tenant.dkim_domain + ').'
+                     : (dnsDetailRecord && dnsDetailRecord.type === 'blacklist'
+                       ? 'Checks if your sending IP (' + (tenant.sending_ip_override || detectedPublicIp || 'Unknown IP') + ') is listed on major public Real-time Blackhole Lists (zen.spamhaus.org, bl.spamcop.net, dnsbl.sorbs.net).'
+                       : 'Below are the resolved values queried live from all four test DNS nameservers:')">
                 </p>
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <template x-if="dnsDetailRecord">

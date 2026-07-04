@@ -90,7 +90,7 @@
                                     </div>
                                     <div class="field">
                                         <label>Sending IP Override (Optional)</label>
-                                        <input type="text" x-model="tenant.sending_ip_override" placeholder="e.g. 203.0.113.5">
+                                        <input type="text" x-model="tenant.sending_ip_override" :placeholder="detectedPublicIp ? detectedPublicIp + ' (Current)' : 'XXX.XXX.XXX.XXX (Current)'">
                                         <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Override the auto-detected server public IP for reverse DNS PTR and blacklist checks.</div>
                                     </div>
                                     
