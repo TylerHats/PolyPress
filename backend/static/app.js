@@ -2085,11 +2085,11 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 500,
+                                        duration: 700,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                return context.dataIndex * 15;
+                                                return context.dataIndex * 10;
                                             }
                                             return 0;
                                         }
@@ -3069,11 +3069,11 @@
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     animation: {
-                                        duration: 500,
+                                        duration: 700,
                                         easing: 'easeOutQuart',
                                         delay: (context) => {
                                             if (context.type === 'data' && context.mode === 'default') {
-                                                return context.dataIndex * 15;
+                                                return context.dataIndex * 10;
                                             }
                                             return 0;
                                         }
