@@ -191,10 +191,15 @@ def process_tenant_bounces(db: Session, tenant: Tenant):
                         "campaign_id": bounce_info["campaign_id"]
                     })
                     
-                imap.store(msg_id, "+FLAGS", "\\Seen")
+                if getattr(tenant, "imap_delete_processed", False):
+                    imap.store(msg_id, "+FLAGS", "\\Deleted")
+                else:
+                    imap.store(msg_id, "+FLAGS", "\\Seen")
             except Exception as e:
                 logger.error(f"Error processing IMAP message {msg_id}: {e}")
                 
+        if getattr(tenant, "imap_delete_processed", False):
+            imap.expunge()
         imap.close()
     except Exception as e:
         logger.error(f"IMAP connection failed for tenant {tenant.name}: {e}")

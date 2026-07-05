@@ -1317,6 +1317,61 @@
         </div>
     </div>
 
+    <!-- Loopback Processing Test Modal -->
+    <div x-show="modals.loopbackTest" class="modal-overlay" style="display: none;" @keydown.escape.window="modals.loopbackTest = false">
+        <div class="modal-content" style="max-width: 500px; padding: 25px;">
+            <div class="modal-header" style="margin-bottom: 20px;">
+                <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+                    IMAP Loopback Processing Test
+                </h3>
+                <button @click="modals.loopbackTest = false" class="close-btn" :disabled="loopbackTestSteps.some(s => s.status === 'loading')">
+                    <svg style="width: 16px; height: 16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 20px;">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 5px;">
+                    This end-to-end test validates both SMTP (outgoing) and IMAP (incoming) pipelines. We send a simulated bounce email using SMTP settings, then fetch and verify the tracking headers via IMAP.
+                </p>
+                
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <template x-for="(step, idx) in loopbackTestSteps" :key="idx">
+                        <div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px;">
+                            <!-- Status Icon -->
+                            <div style="margin-top: 2px;">
+                                <template x-if="step.status === 'pending'">
+                                    <div style="width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--text-muted); opacity: 0.5;"></div>
+                                </template>
+                                <template x-if="step.status === 'loading'">
+                                    <div class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></div>
+                                </template>
+                                <template x-if="step.status === 'success'">
+                                    <svg style="width: 18px; height: 18px; color: var(--color-success);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                </template>
+                                <template x-if="step.status === 'error'">
+                                    <svg style="width: 18px; height: 18px; color: var(--color-danger);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                                </template>
+                            </div>
+                            
+                            <!-- Step Details -->
+                            <div style="flex-grow: 1;">
+                                <div style="font-size: 14px; font-weight: 600;" :style="step.status === 'pending' ? 'color: var(--text-muted);' : 'color: var(--text-primary);'" x-text="step.title"></div>
+                                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;" x-text="step.detail"></div>
+                                <template x-if="step.status === 'error' && step.error_detail">
+                                    <div style="font-size: 11px; color: var(--color-danger); background: rgba(239, 68, 68, 0.05); padding: 8px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.2); margin-top: 8px; font-family: monospace; word-break: break-all;" x-text="step.error_detail"></div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <div class="modal-footer" style="margin-top: 20px;">
+                <button @click="modals.loopbackTest = false" class="btn btn-secondary btn-sm" :disabled="loopbackTestSteps.some(s => s.status === 'loading')">Close Test</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripting Business Logic -->
     <script src="/static/app.js"></script>
 </body>

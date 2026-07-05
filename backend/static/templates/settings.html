@@ -214,19 +214,30 @@
                                     </div>
                                 </div>
                                 <div class="toggle-field">
-                                    <input type="checkbox" x-model="tenant.imap_use_ssl" style="display:none;">
-                                    <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
-                                    <span>Use SSL (Default Port 993)</span>
-                                </div>
-                            </div>
+                                     <input type="checkbox" x-model="tenant.imap_use_ssl" style="display:none;">
+                                     <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
+                                     <span>Use SSL (Default Port 993)</span>
+                                 </div>
+                                 <div class="toggle-field" style="margin-top: -5px;">
+                                     <input type="checkbox" x-model="tenant.imap_delete_processed" style="display:none;">
+                                     <div class="toggle-switch" @click="tenant.imap_delete_processed = !tenant.imap_delete_processed"></div>
+                                     <span>Permanently Delete Processed Emails (Otherwise mark as read)</span>
+                                 </div>
+                             </div>
 
-                            <!-- Test IMAP connection -->
-                            <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 20px; display: flex; justify-content: flex-end;">
-                                <button @click="testImapConnection()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;" :disabled="testingImap">
-                                    <i data-lucide="inbox" style="width: 14px; height: 14px;"></i>
-                                    <span x-show="!testingImap">Test IMAP Connection</span>
-                                    <span x-show="testingImap">Connecting...</span>
-                                </button>
+                             <!-- Test IMAP connection -->
+                             <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 20px; display: flex; justify-content: flex-end;">
+                                 <div style="display: flex; gap: 10px;">
+                                     <button @click="testImapConnection()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;" :disabled="testingImap">
+                                         <i data-lucide="inbox" style="width: 14px; height: 14px;"></i>
+                                         <span x-show="!testingImap">Test Connection</span>
+                                         <span x-show="testingImap">Connecting...</span>
+                                     </button>
+                                     <button @click="startLoopbackTest()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                         <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+                                         <span>Run Loopback Test</span>
+                                     </button>
+                                 </div>
                             </div>
 
                             <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save IMAP Bounce settings</button>

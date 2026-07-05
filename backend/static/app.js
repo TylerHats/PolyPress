@@ -332,11 +332,13 @@
                     targetPreview: false,
                     dnsDetails: false,
                     insertLink: false,
-                    statusExplainer: false
+                    statusExplainer: false,
+                    loopbackTest: false
                 },
                 linkForm: { text: '', url: 'https://' },
                 lastFocusedInput: { id: '', selectionStart: 0, selectionEnd: 0 },
                 explainingStatus: '',
+                loopbackTestSteps: [],
                 dnsDetailRecord: null,
                 targetPreviewData: [],
                 targetPreviewTotal: 0,
@@ -3507,6 +3509,103 @@
                     } finally {
                         this.testingImap = false;
                     }
+                },
+                
+                startLoopbackTest() {
+                    this.loopbackTestSteps = [
+                        { title: 'Dispatch Test Email', detail: 'Using SMTP/MTA settings to send bounce loopback email...', status: 'pending', error_detail: '' },
+                        { title: 'Receive & Search Inbox', detail: 'Waiting and scanning IMAP inbox for the test email...', status: 'pending', error_detail: '' },
+                        { title: 'Parse and Verify Headers', detail: 'Validating custom headers to confirm tracking functionality...', status: 'pending', error_detail: '' }
+                    ];
+                    this.modals.loopbackTest = true;
+                    this.refreshIcons();
+                    this.runLoopbackTest();
+                },
+                
+                async runLoopbackTest() {
+                    const smtpPayload = {
+                        smtp_host: this.tenant.smtp_host,
+                        smtp_port: this.tenant.smtp_port ? parseInt(this.tenant.smtp_port) : null,
+                        smtp_username: this.tenant.smtp_username,
+                        smtp_password: this.tenant.smtp_password,
+                        smtp_use_ssl: this.tenant.smtp_use_ssl,
+                        smtp_use_tls: this.tenant.smtp_use_tls,
+                        direct_send: this.tenant.direct_send,
+                        mta_from_prefix: this.tenant.mta_from_prefix,
+                        dkim_domain: this.tenant.dkim_domain,
+                        bounce_email: this.tenant.bounce_email,
+                        imap_username: this.tenant.imap_username
+                    };
+                    
+                    const imapPayload = {
+                        imap_host: this.tenant.imap_host,
+                        imap_port: this.tenant.imap_port ? parseInt(this.tenant.imap_port) : null,
+                        imap_username: this.tenant.imap_username,
+                        imap_password: this.tenant.imap_password,
+                        imap_use_ssl: this.tenant.imap_use_ssl
+                    };
+                    
+                    // --- STEP 1: Dispatch Test Email ---
+                    this.loopbackTestSteps[0].status = 'loading';
+                    let token = '';
+                    try {
+                        const res = await fetch('/api/tenants/test-imap/send', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(smtpPayload)
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            token = data.token;
+                            this.loopbackTestSteps[0].status = 'success';
+                            this.loopbackTestSteps[0].detail = data.detail || 'Test email dispatched successfully!';
+                        } else {
+                            throw new Error(data.detail || 'Failed to dispatch test email');
+                        }
+                    } catch(err) {
+                        this.loopbackTestSteps[0].status = 'error';
+                        this.loopbackTestSteps[0].error_detail = err.message;
+                        this.loopbackTestSteps[1].status = 'pending';
+                        this.loopbackTestSteps[1].detail = 'Skipped because Step 1 failed.';
+                        this.loopbackTestSteps[2].status = 'pending';
+                        this.loopbackTestSteps[2].detail = 'Skipped because Step 1 failed.';
+                        this.refreshIcons();
+                        return;
+                    }
+                    this.refreshIcons();
+                    
+                    // --- STEP 2: Receive & Search Inbox ---
+                    this.loopbackTestSteps[1].status = 'loading';
+                    this.refreshIcons();
+                    
+                    // --- STEP 3: Parse and Verify Headers ---
+                    try {
+                        const res = await fetch('/api/tenants/test-imap/receive', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                ...imapPayload,
+                                token: token
+                            })
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            this.loopbackTestSteps[1].status = 'success';
+                            this.loopbackTestSteps[1].detail = 'Test email found in bounce inbox.';
+                            this.loopbackTestSteps[2].status = 'success';
+                            this.loopbackTestSteps[2].detail = data.detail || 'All tracking headers validated successfully.';
+                        } else {
+                            throw new Error(data.detail || 'Failed to receive or parse test email');
+                        }
+                    } catch(err) {
+                        this.loopbackTestSteps[1].status = 'error';
+                        this.loopbackTestSteps[1].error_detail = err.message;
+                        this.loopbackTestSteps[2].status = 'error';
+                        this.loopbackTestSteps[2].error_detail = 'Could not verify headers because email fetch failed.';
+                        this.refreshIcons();
+                        return;
+                    }
+                    this.refreshIcons();
                 },
                 
                 openDnsDetailsModal(recordType, title) {

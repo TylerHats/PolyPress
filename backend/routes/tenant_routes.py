@@ -185,6 +185,7 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "imap_username": tenant.imap_username,
         "imap_has_password": bool(tenant.imap_password),
         "imap_use_ssl": tenant.imap_use_ssl,
+        "imap_delete_processed": tenant.imap_delete_processed,
         "speed_emails_per_hour": tenant.speed_emails_per_hour,
         "bounce_email": tenant.bounce_email,
         "double_opt_in": tenant.double_opt_in,
@@ -228,6 +229,7 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
     if payload.get("imap_password"):
         tenant.imap_password = payload.get("imap_password")
     tenant.imap_use_ssl = payload.get("imap_use_ssl", tenant.imap_use_ssl)
+    tenant.imap_delete_processed = payload.get("imap_delete_processed", tenant.imap_delete_processed)
     
     tenant.speed_emails_per_hour = payload.get("speed_emails_per_hour", tenant.speed_emails_per_hour)
     tenant.bounce_email = payload.get("bounce_email", tenant.bounce_email)
@@ -413,6 +415,188 @@ def test_imap_settings(payload: dict = Body(...), db: Session = Depends(get_db),
         return {"success": True, "detail": "IMAP connection and authentication test successful! INBOX select OK."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"IMAP Test Failed: {e}")
+
+@router.post("/test-imap/send")
+def test_imap_loopback_send(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    db_tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not db_tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    # Get IMAP email username to use as target address (unless bounce_email is explicitly set)
+    target_email = payload.get("bounce_email") or db_tenant.bounce_email
+    if not target_email:
+        target_email = payload.get("imap_username") or db_tenant.imap_username
+        
+    if not target_email:
+        raise HTTPException(status_code=400, detail="Bounce email or IMAP username is required to route the test email")
+        
+    # Generate unique loopback token
+    import secrets
+    token = secrets.token_hex(8)
+    
+    # We will send a simulated bounce email via SMTP/MTA
+    from sending_worker import send_direct_mta, send_external_smtp, QueueItem
+    mock_item = QueueItem(
+        id=7777,
+        campaign_id=9999,
+        subscriber_id=8888,
+        email=target_email,
+        subject=f"PolyPress Bounce Test - {token}",
+        body_html=f"""
+        This is a PolyPress loopback bounce test.
+        Token: {token}
+        X-PolyPress-Campaign: 9999
+        X-PolyPress-Subscriber: 8888
+        X-PolyPress-QueueItem: 7777
+        To: {target_email}
+        Diagnostic-Code: smtp; 550 5.1.1 User Unknown (PolyPress Test)
+        """
+    )
+    
+    # Temporarily override tenant SMTP/MTA settings from payload if provided (similar to test_smtp_settings)
+    import copy
+    mock_tenant = copy.copy(db_tenant)
+    if "smtp_host" in payload: mock_tenant.smtp_host = payload["smtp_host"]
+    if "smtp_port" in payload: mock_tenant.smtp_port = payload["smtp_port"]
+    if "smtp_username" in payload: mock_tenant.smtp_username = payload["smtp_username"]
+    if "smtp_password" in payload: mock_tenant.smtp_password = payload["smtp_password"]
+    if "smtp_use_ssl" in payload: mock_tenant.smtp_use_ssl = payload["smtp_use_ssl"]
+    if "smtp_use_tls" in payload: mock_tenant.smtp_use_tls = payload["smtp_use_tls"]
+    if "direct_send" in payload: mock_tenant.direct_send = payload["direct_send"]
+    if "mta_from_prefix" in payload: mock_tenant.mta_from_prefix = payload["mta_from_prefix"]
+    if "dkim_domain" in payload: mock_tenant.dkim_domain = payload["dkim_domain"]
+    
+    if "bounce_email" in payload: mock_tenant.bounce_email = payload["bounce_email"]
+    
+    try:
+        if mock_tenant.direct_send:
+            success, is_transient, code, msg = send_direct_mta(mock_item, mock_tenant)
+        else:
+            success, is_transient, code, msg = send_external_smtp(mock_item, mock_tenant)
+            
+        if success:
+            return {"success": True, "token": token, "detail": f"Test email dispatched to {target_email}!"}
+        else:
+            raise Exception(f"SMTP Error [{code}]: {msg}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Mail dispatch failed: {e}")
+
+@router.post("/test-imap/receive")
+def test_imap_loopback_receive(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    db_tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not db_tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    token = payload.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Token parameter is required")
+        
+    # Read IMAP settings from payload or db
+    host = payload.get("imap_host") or db_tenant.imap_host
+    port = payload.get("imap_port") or db_tenant.imap_port
+    username = payload.get("imap_username") or db_tenant.imap_username
+    password = payload.get("imap_password") or db_tenant.imap_password
+    use_ssl = payload.get("imap_use_ssl")
+    if use_ssl is None:
+        use_ssl = db_tenant.imap_use_ssl if db_tenant.imap_use_ssl is not None else True
+        
+    if not host or not username or not password:
+        raise HTTPException(status_code=400, detail="IMAP settings (host, username, password) are not fully configured")
+        
+    import imaplib
+    import time
+    from bounce_worker import parse_bounce_report
+    
+    # We will search the INBOX with retry loops to wait for email arrival (up to 14 seconds)
+    start_time = time.time()
+    found_msg_id = None
+    msg_bytes = None
+    client = None
+    
+    try:
+        while time.time() - start_time < 14:
+            try:
+                if use_ssl:
+                    client = imaplib.IMAP4_SSL(host, port or 993, timeout=10)
+                else:
+                    client = imaplib.IMAP4(host, port or 143, timeout=10)
+                    
+                client.login(username, password)
+                client.select("INBOX")
+                
+                # Search for emails containing the token in the subject
+                search_term = f'SUBJECT "PolyPress Bounce Test - {token}"'
+                status, messages = client.search(None, search_term)
+                if status == "OK" and messages[0]:
+                    msg_ids = messages[0].split()
+                    if msg_ids:
+                        found_msg_id = msg_ids[-1] # take the latest one
+                        res, data = client.fetch(found_msg_id, "(RFC822)")
+                        if res == "OK":
+                            msg_bytes = data[0][1]
+                            break
+            except Exception:
+                pass
+            finally:
+                if client:
+                    try:
+                        client.close()
+                        client.logout()
+                    except:
+                        pass
+                    client = None
+            time.sleep(2)
+            
+        if not msg_bytes:
+            raise Exception("Test email did not arrive in the bounce inbox within 14 seconds. Please try again or verify your settings.")
+            
+        # Parse tracking headers
+        bounce_info = parse_bounce_report(msg_bytes)
+        
+        # Validate headers
+        campaign_ok = bounce_info.get("campaign_id") == 9999
+        subscriber_ok = bounce_info.get("subscriber_id") == 8888
+        queue_item_ok = bounce_info.get("queue_item_id") == 7777
+        
+        # Clean up by permanently deleting the test message
+        try:
+            if use_ssl:
+                client = imaplib.IMAP4_SSL(host, port or 993, timeout=10)
+            else:
+                client = imaplib.IMAP4(host, port or 143, timeout=10)
+            client.login(username, password)
+            client.select("INBOX")
+            
+            search_term = f'SUBJECT "PolyPress Bounce Test - {token}"'
+            status, messages = client.search(None, search_term)
+            if status == "OK" and messages[0]:
+                for mid in messages[0].split():
+                    client.store(mid, "+FLAGS", "\\Deleted")
+                client.expunge()
+        except Exception:
+            pass
+        finally:
+            if client:
+                try:
+                    client.close()
+                    client.logout()
+                except:
+                    pass
+                    
+        if not (campaign_ok and subscriber_ok and queue_item_ok):
+            details = f"Campaign (9999): {'OK' if campaign_ok else 'Failed'}, Subscriber (8888): {'OK' if subscriber_ok else 'Failed'}, QueueItem (7777): {'OK' if queue_item_ok else 'Failed'}"
+            raise Exception(f"Header verification failed! PolyPress could not parse tracking headers. details: {details}")
+            
+        return {"success": True, "detail": "Loopback processing test successful! All tracking headers parsed and verified."}
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/my/dkim")
 def generate_my_dkim(db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
@@ -819,7 +1003,7 @@ def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depen
     if "direct_send" in payload:
         tenant.direct_send = payload["direct_send"]
         
-    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes", "double_opt_in_subject", "double_opt_in_body_blocks", "double_opt_in_body_html", "email_footer_blocks", "email_footer_html", "sending_ip_override"]:
+    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "imap_delete_processed", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes", "double_opt_in_subject", "double_opt_in_body_blocks", "double_opt_in_body_html", "email_footer_blocks", "email_footer_html", "sending_ip_override"]:
         if field in payload:
             setattr(tenant, field, payload[field])
             
