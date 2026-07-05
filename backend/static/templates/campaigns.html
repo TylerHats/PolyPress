@@ -81,7 +81,7 @@
                     <div class="page-header" style="margin-bottom: 20px;">
                         <div x-show="!isEditingOptIn && !isEditingFooter">
                             <span style="font-size: 13px; color: var(--text-muted); cursor: pointer;" @click="switchTab('campaigns')">← Back to campaigns</span>
-                            <h1 class="page-title" style="font-size: 22px; margin-top: 4px;" x-text="'Design: ' + editingCampaign.name"></h1>
+                            <h1 class="page-title" style="font-size: 22px; margin-top: 4px;" x-text="'Design: ' + (editingCampaign ? editingCampaign.name : '')"></h1>
                         </div>
                         <div x-show="isEditingOptIn" style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
                             <span style="font-size: 13px; color: var(--text-muted); cursor: pointer;" @click="switchTab('settings')">← Back to Settings</span>
@@ -264,14 +264,14 @@
                                 <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;" x-text="isEditingOptIn ? 'Double Opt-In Settings' : 'Campaign Settings'">Campaign Settings</h3>
                                 <div class="field" style="margin-bottom: 10px;">
                                     <label>Email Subject</label>
-                                    <template x-if="!isEditingOptIn">
+                                    <template x-if="!isEditingOptIn && editingCampaign">
                                         <input type="text" x-model="editingCampaign.subject">
                                     </template>
                                     <template x-if="isEditingOptIn">
                                         <input type="text" x-model="optInSubject">
                                     </template>
                                 </div>
-                                <template x-if="!isEditingOptIn">
+                                <template x-if="!isEditingOptIn && editingCampaign">
                                     <div class="field">
                                         <label>Email Snippet (Preheader Text)</label>
                                         <input type="text" x-model="editingCampaign.preheader" placeholder="Snippet text seen in inbox list">
@@ -291,7 +291,7 @@
                                     <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="field">
                                             <label>Text Content</label>
-                                            <textarea x-model="editorBlocks[selectedBlockIndex].text" @input="reRenderCanvas()"></textarea>
+                                            <textarea id="editor-text-input" x-model="editorBlocks[selectedBlockIndex].text" @input="reRenderCanvas()"></textarea>
                                             <div style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
                                                 <template x-if="isEditingOptIn">
                                                     <span style="font-size: 11px; color: var(--text-muted); display: block;">Tip: Use <code style="color: var(--color-accent);">{{confirm_url}}</code> to embed link.</span>
@@ -299,8 +299,9 @@
                                                 <template x-if="!isEditingOptIn">
                                                     <span></span>
                                                 </template>
-                                                <button @click="insertLinkIntoBlock(selectedBlockIndex, 'text')" class="btn btn-secondary btn-xs" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
-                                                    <i data-lucide="link" style="width: 12px; height: 12px;"></i> Insert Link
+                                                <button @click="openInsertLinkPopup(selectedBlockIndex, 'text')" class="btn btn-secondary btn-xs" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 12px; height: 12px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                                                    Insert Link
                                                 </button>
                                             </div>
                                         </div>
@@ -366,10 +367,11 @@
                                                 
                                                 <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].left.type)">
                                                     <div class="field" style="margin-bottom: 8px;">
-                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.text" @input="reRenderCanvas()">
+                                                        <input id="editor-left-text-input" type="text" x-model="editorBlocks[selectedBlockIndex].left.text" @input="reRenderCanvas()">
                                                         <div style="margin-top: 4px; display: flex; justify-content: flex-end;">
-                                                            <button @click="insertLinkIntoBlock(selectedBlockIndex, 'left')" class="btn btn-secondary btn-xs" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
-                                                                <i data-lucide="link" style="width: 10px; height: 10px;"></i> Insert Link
+                                                            <button @click="openInsertLinkPopup(selectedBlockIndex, 'left')" class="btn btn-secondary btn-xs" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 10px; height: 10px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                                                                Insert Link
                                                             </button>
                                                         </div>
                                                     </div>
@@ -459,10 +461,11 @@
                                                 
                                                 <template x-if="['paragraph', 'heading', 'button'].includes(editorBlocks[selectedBlockIndex].right.type)">
                                                     <div class="field" style="margin-bottom: 8px;">
-                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.text" @input="reRenderCanvas()">
+                                                        <input id="editor-right-text-input" type="text" x-model="editorBlocks[selectedBlockIndex].right.text" @input="reRenderCanvas()">
                                                         <div style="margin-top: 4px; display: flex; justify-content: flex-end;">
-                                                            <button @click="insertLinkIntoBlock(selectedBlockIndex, 'right')" class="btn btn-secondary btn-xs" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
-                                                                <i data-lucide="link" style="width: 10px; height: 10px;"></i> Insert Link
+                                                            <button @click="openInsertLinkPopup(selectedBlockIndex, 'right')" class="btn btn-secondary btn-xs" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 10px; height: 10px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                                                                Insert Link
                                                             </button>
                                                         </div>
                                                     </div>

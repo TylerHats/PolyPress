@@ -248,7 +248,7 @@
                             <i data-lucide="layout-dashboard"></i> Workspace Dashboard
                         </button>
                     </li>
-                    <li class="nav-item" :class="activeTab === 'campaigns' || activeTab === 'editor' ? 'active' : ''">
+                    <li class="nav-item" :class="(activeTab === 'campaigns' || (activeTab === 'editor' && !isEditingOptIn && !isEditingFooter)) ? 'active' : ''">
                         <button @click="switchTab('campaigns')">
                             <i data-lucide="mail"></i> Campaigns
                         </button>
@@ -259,7 +259,7 @@
                         </button>
                     </li>
                     <!-- Only show settings to super_admin or tenant_admin roles -->
-                    <li x-show="user.role === 'super_admin' || user.role === 'tenant_admin'" class="nav-item" :class="activeTab === 'settings' ? 'active' : ''" style="display: none;">
+                    <li x-show="user.role === 'super_admin' || user.role === 'tenant_admin'" class="nav-item" :class="(activeTab === 'settings' || (activeTab === 'editor' && (isEditingOptIn || isEditingFooter))) ? 'active' : ''" style="display: none;">
                         <button @click="switchTab('settings')">
                             <i data-lucide="settings"></i> Sending Settings
                         </button>
@@ -1230,6 +1230,30 @@
             </div>
             <div class="modal-footer">
                 <button @click="modals.dnsDetails = false" class="btn btn-secondary">Close Details</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Insert Hyperlink Modal -->
+    <div x-show="modals.insertLink" class="modal-overlay" style="display: none;" @keydown.escape.window="modals.insertLink = false">
+        <div class="modal-content" style="max-width: 400px; padding: 25px;">
+            <div class="modal-header" style="margin-bottom: 20px;">
+                <h3 class="modal-title">Insert Hyperlink</h3>
+                <button @click="modals.insertLink = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <div class="field">
+                    <label>Link Text (e.g. 'Click Here')</label>
+                    <input type="text" x-model="linkForm.text" placeholder="e.g. Visit our website">
+                </div>
+                <div class="field">
+                    <label>Target URL</label>
+                    <input type="text" x-model="linkForm.url" placeholder="https://example.com">
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                    <button @click="modals.insertLink = false" class="btn btn-secondary btn-sm">Cancel</button>
+                    <button @click="submitInsertLink()" class="btn btn-primary btn-sm">Insert Link</button>
+                </div>
             </div>
         </div>
     </div>

@@ -330,8 +330,11 @@
                     campaignPreview: false,
                     createWebhook: false,
                     targetPreview: false,
-                    dnsDetails: false
+                    dnsDetails: false,
+                    insertLink: false
                 },
+                linkForm: { text: '', url: 'https://' },
+                lastFocusedInput: { id: '', selectionStart: 0, selectionEnd: 0 },
                 dnsDetailRecord: null,
                 targetPreviewData: [],
                 targetPreviewTotal: 0,
@@ -3366,21 +3369,67 @@
                     }
                 },
                 
-                insertLinkIntoBlock(blockIndex, field) {
-                    const text = prompt("Enter the link text (e.g. 'Click Here'):");
-                    if (text === null || text.trim() === '') return;
-                    const url = prompt("Enter the URL (e.g. 'https://example.com'):", "https://");
-                    if (url === null || url.trim() === '') return;
+                openInsertLinkPopup(blockIndex, field) {
+                    let id = 'editor-text-input';
+                    if (field === 'left') id = 'editor-left-text-input';
+                    if (field === 'right') id = 'editor-right-text-input';
                     
+                    const el = document.getElementById(id);
+                    if (el) {
+                        this.lastFocusedInput = {
+                            id: id,
+                            selectionStart: el.selectionStart,
+                            selectionEnd: el.selectionEnd
+                        };
+                        
+                        const selectedText = el.value.substring(el.selectionStart, el.selectionEnd);
+                        this.linkForm.text = selectedText || '';
+                    } else {
+                        this.lastFocusedInput = { id: id, selectionStart: 0, selectionEnd: 0 };
+                        this.linkForm.text = '';
+                    }
+                    this.linkForm.url = 'https://';
+                    this.modals.insertLink = true;
+                    this.refreshIcons();
+                },
+                
+                submitInsertLink() {
+                    if (!this.linkForm.url || this.linkForm.url.trim() === '') {
+                        this.showToast('Please enter a target URL', 'warning');
+                        return;
+                    }
+                    
+                    const text = this.linkForm.text || 'Link';
+                    const url = this.linkForm.url;
                     const linkHtml = `<a href="${url}" style="color: #6366f1; text-decoration: underline;">${text}</a>`;
                     
-                    if (field === 'text') {
-                        this.editorBlocks[blockIndex].text = (this.editorBlocks[blockIndex].text || '') + linkHtml;
-                    } else if (field === 'left') {
-                        this.editorBlocks[blockIndex].left.text = (this.editorBlocks[blockIndex].left.text || '') + linkHtml;
-                    } else if (field === 'right') {
-                        this.editorBlocks[blockIndex].right.text = (this.editorBlocks[blockIndex].right.text || '') + linkHtml;
+                    const id = this.lastFocusedInput.id;
+                    const el = document.getElementById(id);
+                    
+                    if (el) {
+                        const start = this.lastFocusedInput.selectionStart || 0;
+                        const end = this.lastFocusedInput.selectionEnd || 0;
+                        const val = el.value;
+                        const newVal = val.substring(0, start) + linkHtml + val.substring(end);
+                        
+                        if (id === 'editor-text-input') {
+                            this.editorBlocks[this.selectedBlockIndex].text = newVal;
+                        } else if (id === 'editor-left-text-input') {
+                            this.editorBlocks[this.selectedBlockIndex].left.text = newVal;
+                        } else if (id === 'editor-right-text-input') {
+                            this.editorBlocks[this.selectedBlockIndex].right.text = newVal;
+                        }
+                    } else {
+                        if (id === 'editor-text-input') {
+                            this.editorBlocks[this.selectedBlockIndex].text = (this.editorBlocks[this.selectedBlockIndex].text || '') + linkHtml;
+                        } else if (id === 'editor-left-text-input') {
+                            this.editorBlocks[this.selectedBlockIndex].left.text = (this.editorBlocks[this.selectedBlockIndex].left.text || '') + linkHtml;
+                        } else if (id === 'editor-right-text-input') {
+                            this.editorBlocks[this.selectedBlockIndex].right.text = (this.editorBlocks[this.selectedBlockIndex].right.text || '') + linkHtml;
+                        }
                     }
+                    
+                    this.modals.insertLink = false;
                     this.reRenderCanvas();
                 },
                 
