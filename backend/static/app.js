@@ -2581,8 +2581,8 @@
                         this.editingCampaign.list_ids = this.editingCampaign.list_id ? [this.editingCampaign.list_id] : [];
                     }
                     this.targetingCollapsed = true;
-                    this.editorBlocks = campaign.body_blocks || [];
                     this.selectedBlockIndex = null;
+                    this.editorBlocks = campaign.body_blocks || [];
                     this.switchTab('editor');
                 },
                 
@@ -3295,8 +3295,8 @@
                             blocks = null;
                         }
                     }
-                    this.editorBlocks = blocks || defaultBlocks;
                     this.selectedBlockIndex = null;
+                    this.editorBlocks = blocks || defaultBlocks;
                     this.switchTab('editor');
                 },
                 
@@ -3340,8 +3340,8 @@
                             blocks = null;
                         }
                     }
-                    this.editorBlocks = blocks || defaultBlocks;
                     this.selectedBlockIndex = null;
+                    this.editorBlocks = blocks || defaultBlocks;
                     this.switchTab('editor');
                 },
                 

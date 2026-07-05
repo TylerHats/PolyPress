@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PolyPress Admin Dashboard</title>
+    <title>{{APP_NAME}} Admin Dashboard</title>
     <link rel="icon" href="/branding/logo.png" type="image/png">
     <link href="/static/style.css?v=1.0.1" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -20,7 +20,7 @@
         <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
             <div class="spinner"></div>
             <div style="font-size: 14px; color: var(--text-secondary, #94a3b8); font-weight: 500;"
-                 x-text="updateInstalling ? ('Updating ' + (globalSettings.app_name || 'PolyPress') + '...') : ('Loading ' + (globalSettings.app_name || 'PolyPress') + '...')"></div>
+                 x-text="updateInstalling ? ('Updating ' + (globalSettings.app_name || '{{APP_NAME}}') + '...') : ('Loading ' + (globalSettings.app_name || '{{APP_NAME}}') + '...')">Loading {{APP_NAME}}...</div>
         </div>
     </div>
     
