@@ -69,3 +69,6 @@ backups/
 
 # Docker persistent data
 data/
+
+# Branding custom assets
+branding/

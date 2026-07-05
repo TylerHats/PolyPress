@@ -129,6 +129,7 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     settings.app_name = payload.get("app_name", settings.app_name)
     settings.app_logo = payload.get("app_logo", settings.app_logo)
     settings.public_url = payload.get("public_url", settings.public_url)
+    settings.mail_server_identity = payload.get("mail_server_identity", settings.mail_server_identity)
     settings.oidc_enabled = new_oidc
     settings.oidc_issuer = payload.get("oidc_issuer", settings.oidc_issuer)
     settings.oidc_client_id = payload.get("oidc_client_id", settings.oidc_client_id)
@@ -355,6 +356,24 @@ def test_smtp_settings(payload: dict = Body(...), db: Session = Depends(get_db),
 </body>
 </html>"""
 
+    # Append actual tenant footer and unsubscribe link (3e)
+    footer_html = mock_tenant.email_footer_html or ""
+    db_settings = db.query(GlobalSettings).first()
+    tracking_domain = db_settings.public_url if (db_settings and db_settings.public_url) else "http://localhost:8000"
+    if tracking_domain:
+        tracking_domain = tracking_domain.rstrip("/")
+    unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/0/0"
+    
+    footer_html = footer_html.replace("{{unsubscribe_url}}", unsubscribe_url).replace("{unsubscribe_url}", unsubscribe_url)
+    
+    if "api/embed/unsubscribe/" not in footer_html:
+        footer_html += f'<br><a href="{unsubscribe_url}" style="color: #6366f1; text-decoration: none;">Unsubscribe</a>'
+        
+    if "</body>" in test_body:
+        test_body = test_body.replace("</body>", f"<div style='border-top:1px solid rgba(255,255,255,0.05); padding-top:20px; margin-top:20px;'>{footer_html}</div></body>")
+    else:
+        test_body += f"<div style='border-top:1px solid rgba(255,255,255,0.05); padding-top:20px; margin-top:20px;'>{footer_html}</div>"
+
     from sending_worker import send_direct_mta, send_external_smtp, QueueItem
     mock_item = QueueItem(
         id=0,
@@ -438,6 +457,28 @@ def test_imap_loopback_send(payload: dict = Body(...), db: Session = Depends(get
     token = secrets.token_hex(8)
     
     # We will send a simulated bounce email via SMTP/MTA
+    db_settings = db.query(GlobalSettings).first()
+    tracking_domain = db_settings.public_url if (db_settings and db_settings.public_url) else "http://localhost:8000"
+    if tracking_domain:
+        tracking_domain = tracking_domain.rstrip("/")
+    unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/0/0"
+    
+    footer_html = db_tenant.email_footer_html or ""
+    footer_html = footer_html.replace("{{unsubscribe_url}}", unsubscribe_url).replace("{unsubscribe_url}", unsubscribe_url)
+    if "api/embed/unsubscribe/" not in footer_html:
+        footer_html += f'<br><a href="{unsubscribe_url}" style="color: #6366f1; text-decoration: none;">Unsubscribe</a>'
+
+    test_body_html = f"""
+    This is a PolyPress loopback bounce test.
+    Token: {token}
+    X-PolyPress-Campaign: 9999
+    X-PolyPress-Subscriber: 8888
+    X-PolyPress-QueueItem: 7777
+    To: {target_email}
+    Diagnostic-Code: smtp; 550 5.1.1 User Unknown (PolyPress Test)
+    <div style='border-top:1px solid rgba(255,255,255,0.05); padding-top:20px; margin-top:20px;'>{footer_html}</div>
+    """
+
     from sending_worker import send_direct_mta, send_external_smtp, QueueItem
     mock_item = QueueItem(
         id=7777,
@@ -445,15 +486,7 @@ def test_imap_loopback_send(payload: dict = Body(...), db: Session = Depends(get
         subscriber_id=8888,
         email=target_email,
         subject=f"PolyPress Bounce Test - {token}",
-        body_html=f"""
-        This is a PolyPress loopback bounce test.
-        Token: {token}
-        X-PolyPress-Campaign: 9999
-        X-PolyPress-Subscriber: 8888
-        X-PolyPress-QueueItem: 7777
-        To: {target_email}
-        Diagnostic-Code: smtp; 550 5.1.1 User Unknown (PolyPress Test)
-        """
+        body_html=test_body_html
     )
     
     # Temporarily override tenant SMTP/MTA settings from payload if provided (similar to test_smtp_settings)

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formatdate, make_msgid
 import re
 import socket
 import dns.resolver
@@ -16,6 +17,19 @@ except ImportError:
 from sqlalchemy.orm import Session
 from database import SessionLocal, QueueItem, Campaign, Tenant, Subscriber
 from ntp_sync import get_corrected_time
+
+def html_to_text(html: str) -> str:
+    if not html:
+        return ""
+    # Replace block tags with newlines
+    text = re.sub(r'<(?:p|div|h\d|br|tr)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    # Remove all other tags
+    text = re.sub(r'<[^>]+>', '', text)
+    # Unescape some common HTML entities
+    text = text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+    # Collapse multiple consecutive newlines
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    return text.strip()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sending_worker")
@@ -111,14 +125,23 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         msg["X-PolyPress-QueueItem"] = str(item.id)
         msg["Return-Path"] = tenant.bounce_email or f"bounce@{tenant.dkim_domain or tenant.smtp_host}"
         
+        # Add Date and Message-ID headers to prevent spam flags
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain=sender_domain)
+        
         # List-Unsubscribe Header Extraction (RFC 8058)
         match = re.search(r'https?://[^/]+/api/embed/unsubscribe/\d+/\d+', item.body_html)
         if match:
             msg["List-Unsubscribe"] = f"<{match.group(0)}>"
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
             
-        part = MIMEText(item.body_html, "html", "utf-8")
-        msg.attach(part)
+        # Attach plain text part first (standard alternative ordering)
+        plain_text = html_to_text(item.body_html)
+        part_text = MIMEText(plain_text, "plain", "utf-8")
+        msg.attach(part_text)
+        
+        part_html = MIMEText(item.body_html, "html", "utf-8")
+        msg.attach(part_html)
         
         msg_bytes = msg.as_bytes()
         msg_bytes = generate_dkim_signature(msg_bytes, tenant)
@@ -174,27 +197,49 @@ def send_direct_mta(item: QueueItem, tenant: Tenant) -> tuple:
         msg["X-PolyPress-QueueItem"] = str(item.id)
         msg["Return-Path"] = tenant.bounce_email or f"bounce@{sender_domain}"
         
+        # Add Date and Message-ID headers to prevent spam flags
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain=sender_domain)
+        
         # List-Unsubscribe Header Extraction (RFC 8058)
         match = re.search(r'https?://[^/]+/api/embed/unsubscribe/\d+/\d+', item.body_html)
         if match:
             msg["List-Unsubscribe"] = f"<{match.group(0)}>"
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
             
-        part = MIMEText(item.body_html, "html", "utf-8")
-        msg.attach(part)
+        # Attach plain text part first (standard alternative ordering)
+        plain_text = html_to_text(item.body_html)
+        part_text = MIMEText(plain_text, "plain", "utf-8")
+        msg.attach(part_text)
+        
+        part_html = MIMEText(item.body_html, "html", "utf-8")
+        msg.attach(part_html)
         
         msg_bytes = msg.as_bytes()
         msg_bytes = generate_dkim_signature(msg_bytes, tenant)
         
+        # Resolve HELO identity domain from GlobalSettings if set
+        helo_domain = sender_domain
+        db = SessionLocal()
+        try:
+            from database import GlobalSettings
+            settings = db.query(GlobalSettings).first()
+            if settings and settings.mail_server_identity:
+                helo_domain = settings.mail_server_identity
+        except Exception as helo_err:
+            logger.warning(f"Could not load mail_server_identity global setting: {helo_err}")
+        finally:
+            db.close()
+
         connected = False
         last_err = None
         for mx_host in mx_hosts:
             try:
                 server = smtplib.SMTP(mx_host, 25, timeout=15.0)
-                server.ehlo(sender_domain)
+                server.ehlo(helo_domain)
                 if server.has_extn('STARTTLS'):
                     server.starttls()
-                    server.ehlo(sender_domain)
+                    server.ehlo(helo_domain)
                 server.sendmail(tenant.bounce_email or f"bounce@{sender_domain}", item.email, msg_bytes)
                 server.quit()
                 connected = True

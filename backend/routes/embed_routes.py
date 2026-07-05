@@ -169,6 +169,7 @@ def get_html_style(theme: str = "dark") -> str:
     }
 </style>
 """
+HTML_STYLE = get_html_style("dark")
 
 # Premium responsive HTML template for Double Opt-in confirmation email
 CONFIRMATION_EMAIL_TEMPLATE = """<!DOCTYPE html>
@@ -560,6 +561,29 @@ def confirm_optin(token: str, db: Session = Depends(get_db)):
 
 @router.get("/unsubscribe/{subscriber_id}/{campaign_id}", response_class=HTMLResponse)
 def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = Depends(get_db)):
+    if subscriber_id == 0 and campaign_id == 0:
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Unsubscribe Test</title>
+            {HTML_STYLE}
+        </head>
+        <body>
+            <div class="card" style="text-align: center;">
+                <h2>Unsubscribe Loopback Test</h2>
+                <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
+                    This is a mock unsubscribe page for system testing. If you were a real subscriber, clicking below would immediately remove you from our list.
+                </p>
+                <form action="/api/embed/unsubscribe/0/0" method="POST">
+                    <button type="submit" class="btn" style="background-color: #dc2626;">Yes, Unsubscribe (Test)</button>
+                </form>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html)
+
     subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     
@@ -592,6 +616,9 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
 
 @router.post("/unsubscribe/{subscriber_id}/{campaign_id}")
 def post_unsubscribe(subscriber_id: int, campaign_id: int, db: Session = Depends(get_db)):
+    if subscriber_id == 0 and campaign_id == 0:
+        return {"unsubscribed": True, "detail": "Test unsubscribe request processed successfully (no subscriber was modified)."}
+
     subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     

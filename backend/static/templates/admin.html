@@ -67,11 +67,16 @@
                                     <input type="file" x-ref="logoInput" @change="uploadAppLogo($event)" accept="image/png, image/jpeg, image/gif" style="display: none;">
                                     <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 6px;">Replaces the branding logo globally. Accepts PNG, JPEG, or GIF.</span>
                                 </div>
-                                <div class="field">
-                                    <label>Public System URL</label>
-                                    <input type="url" x-model="globalSettings.public_url" placeholder="https://newsletter.yourdomain.com">
-                                    <span style="font-size: 11px; color: var(--text-muted);">Required for outbound tracking and opt-in validation links.</span>
-                                </div>
+                                 <div class="field">
+                                     <label>Public System URL</label>
+                                     <input type="url" x-model="globalSettings.public_url" placeholder="https://newsletter.yourdomain.com">
+                                     <span style="font-size: 11px; color: var(--text-muted);">Required for outbound tracking and opt-in validation links.</span>
+                                 </div>
+                                 <div class="field">
+                                     <label>Mail Server HELO/EHLO Identity (HELO Domain)</label>
+                                     <input type="text" x-model="globalSettings.mail_server_identity" placeholder="mail.yourdomain.com">
+                                     <span style="font-size: 11px; color: var(--text-muted);">Configures the domain identity used for the HELO/EHLO SMTP handshake by the internal MTA (Direct Send). Must match your reverse PTR (rPTR) record.</span>
+                                 </div>
                                 
                                 <div class="toggle-field" style="margin-top: 10px;">
                                      <input type="checkbox" x-model="globalSettings.oidc_enabled" style="display:none;">
