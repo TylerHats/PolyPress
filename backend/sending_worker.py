@@ -6,6 +6,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
+from email.charset import Charset, QP
 import re
 import socket
 import dns.resolver
@@ -30,6 +31,11 @@ def html_to_text(html: str) -> str:
     # Collapse multiple consecutive newlines
     text = re.sub(r'\n\s*\n', '\n\n', text)
     return text.strip()
+
+def make_mime_text(content: str, subtype: str) -> MIMEText:
+    charset = Charset("utf-8")
+    charset.body_encoding = QP
+    return MIMEText(content, subtype, charset)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sending_worker")
@@ -137,10 +143,10 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
             
         # Attach plain text part first (standard alternative ordering)
         plain_text = html_to_text(item.body_html)
-        part_text = MIMEText(plain_text, "plain", "utf-8")
+        part_text = make_mime_text(plain_text, "plain")
         msg.attach(part_text)
         
-        part_html = MIMEText(item.body_html, "html", "utf-8")
+        part_html = make_mime_text(item.body_html, "html")
         msg.attach(part_html)
         
         msg_bytes = msg.as_bytes()
@@ -209,10 +215,10 @@ def send_direct_mta(item: QueueItem, tenant: Tenant) -> tuple:
             
         # Attach plain text part first (standard alternative ordering)
         plain_text = html_to_text(item.body_html)
-        part_text = MIMEText(plain_text, "plain", "utf-8")
+        part_text = make_mime_text(plain_text, "plain")
         msg.attach(part_text)
         
-        part_html = MIMEText(item.body_html, "html", "utf-8")
+        part_html = make_mime_text(item.body_html, "html")
         msg.attach(part_html)
         
         msg_bytes = msg.as_bytes()

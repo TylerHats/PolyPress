@@ -269,13 +269,16 @@ def get_index_html_response() -> HTMLResponse:
             with open(index_file, "r", encoding="utf-8") as f:
                 html = f.read()
             
-            # Query custom app name from global settings
+            # Query custom app name and logo from global settings
             app_name = "PolyPress"
+            app_logo = "/branding/logo.png"
             db = SessionLocal()
             try:
                 settings = db.query(GlobalSettings).first()
                 if settings and settings.app_name:
                     app_name = settings.app_name
+                if settings and settings.app_logo:
+                    app_logo = settings.app_logo
             except Exception:
                 pass
             finally:
@@ -283,6 +286,7 @@ def get_index_html_response() -> HTMLResponse:
                 
             # Replace scripts and links to force cache busting
             html = html.replace('{{APP_NAME}}', app_name)
+            html = html.replace('{{APP_LOGO}}', app_logo)
             html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={APP_VERSION}"')
             html = html.replace('src="/static/app.js"', f'src="/static/app.js?v={APP_VERSION}"')
             return HTMLResponse(

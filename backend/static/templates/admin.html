@@ -62,6 +62,9 @@
                                         <button type="button" @click="$refs.logoInput.click()" class="btn btn-secondary" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 8px;">
                                             <i data-lucide="upload-cloud" style="width: 16px; height: 16px;"></i> Choose Image File
                                         </button>
+                                        <button type="button" @click="resetAppLogo()" class="btn btn-secondary" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 8px;" x-show="globalSettings.app_logo">
+                                            <i data-lucide="rotate-ccw" style="width: 16px; height: 16px;"></i> Reset to Default
+                                        </button>
                                         <span style="font-size: 13px; color: var(--text-secondary);" x-text="logoFileName || 'No file chosen'"></span>
                                     </div>
                                     <input type="file" x-ref="logoInput" @change="uploadAppLogo($event)" accept="image/png, image/jpeg, image/gif" style="display: none;">

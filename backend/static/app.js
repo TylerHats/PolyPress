@@ -287,7 +287,7 @@
                 loadingSession: true,
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
                 tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500 },
-                globalSettings: { app_name: '', public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
+                globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
                 updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
                 schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
                 schemaBypassForm: { email: '', password: '' },
@@ -610,6 +610,10 @@
                             this.globalSettings.oidc_enabled = data.oidc_enabled;
                             this.globalSettings.local_login_enabled = data.local_login_enabled !== undefined ? data.local_login_enabled : true;
                             document.title = this.globalSettings.app_name;
+                            const favicon = document.querySelector("link[rel='icon']");
+                            if (favicon) {
+                                favicon.href = this.globalSettings.app_logo || '/branding/logo.png';
+                            }
                         }
                     } catch(e) {
                         console.error('Failed to load public settings:', e);
@@ -3193,11 +3197,46 @@
                         });
                         
                         if (res.ok) {
+                            const data = await res.json();
+                            this.globalSettings.app_logo = data.logo_url;
                             this.showToast('App branding logo uploaded successfully!');
                             this.logoVersion = Date.now();
+                            
+                            const favicon = document.querySelector("link[rel='icon']");
+                            if (favicon) {
+                                favicon.href = data.logo_url;
+                            }
                         } else {
                             const err = await res.json();
                             this.showToast(err.detail || 'Failed to upload logo', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async resetAppLogo() {
+                    try {
+                        const res = await fetch('/api/auth/branding/logo/reset', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${this.token}`
+                            }
+                        });
+                        
+                        if (res.ok) {
+                            this.globalSettings.app_logo = null;
+                            this.logoFileName = '';
+                            this.logoVersion = Date.now();
+                            this.showToast('App branding logo reset to default successfully!');
+                            
+                            const favicon = document.querySelector("link[rel='icon']");
+                            if (favicon) {
+                                favicon.href = '/branding/logo.png';
+                            }
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to reset logo', 'error');
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');

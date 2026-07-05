@@ -341,13 +341,59 @@ def upload_branding_logo(
     BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
     branding_dir = os.path.join(BASE_DIR, "branding")
     os.makedirs(branding_dir, exist_ok=True)
-    logo_path = os.path.join(branding_dir, "logo.png")
+    
+    # Cleanup any existing custom logos
+    for existing_file in os.listdir(branding_dir):
+        if existing_file.startswith("custom_logo."):
+            try:
+                os.remove(os.path.join(branding_dir, existing_file))
+            except Exception:
+                pass
+                
+    logo_filename = f"custom_logo{ext}"
+    logo_path = os.path.join(branding_dir, logo_filename)
+    logo_url = f"/branding/{logo_filename}"
     
     try:
         with open(logo_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+            
+        # Persist path to GlobalSettings
+        settings = db.query(GlobalSettings).first()
+        if not settings:
+            settings = GlobalSettings(app_logo=logo_url)
+            db.add(settings)
+        else:
+            settings.app_logo = logo_url
+        db.commit()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save logo file: {e}")
+        
+    return {"status": "success", "logo_url": logo_url}
+
+@router.post("/branding/logo/reset")
+def reset_branding_logo(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_super_admin)
+):
+    # Target path
+    BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    branding_dir = os.path.join(BASE_DIR, "branding")
+    
+    # Cleanup custom logos
+    if os.path.exists(branding_dir):
+        for existing_file in os.listdir(branding_dir):
+            if existing_file.startswith("custom_logo."):
+                try:
+                    os.remove(os.path.join(branding_dir, existing_file))
+                except Exception:
+                    pass
+                    
+    # Clear app_logo in settings
+    settings = db.query(GlobalSettings).first()
+    if settings:
+        settings.app_logo = None
+        db.commit()
         
     return {"status": "success", "logo_url": "/branding/logo.png"}
 
