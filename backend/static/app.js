@@ -331,10 +331,12 @@
                     createWebhook: false,
                     targetPreview: false,
                     dnsDetails: false,
-                    insertLink: false
+                    insertLink: false,
+                    statusExplainer: false
                 },
                 linkForm: { text: '', url: 'https://' },
                 lastFocusedInput: { id: '', selectionStart: 0, selectionEnd: 0 },
+                explainingStatus: '',
                 dnsDetailRecord: null,
                 targetPreviewData: [],
                 targetPreviewTotal: 0,
@@ -2943,11 +2945,17 @@
                 // Badge color mappings
                 getCampaignBadgeClass(status) {
                     if (status === 'sent' || status === 'completed') return 'badge-success';
-                    if (status === 'sending') return 'badge-info';
+                    if (status === 'sending' || status === 'flushing') return 'badge-info';
                     if (status === 'paused') return 'badge-warning';
                     if (status === 'queued') return 'badge-warning';
                     if (status === 'cancelled') return 'badge-muted';
                     return 'badge-muted'; // draft
+                },
+                
+                openStatusExplainer(status) {
+                    this.explainingStatus = status || 'draft';
+                    this.modals.statusExplainer = true;
+                    this.refreshIcons();
                 },
                 
                 getSubscriberBadgeClass(status) {

@@ -1258,6 +1258,65 @@
         </div>
     </div>
 
+    <!-- Campaign Status Explainer Modal -->
+    <div x-show="modals.statusExplainer" class="modal-overlay" style="display: none;" @keydown.escape.window="modals.statusExplainer = false">
+        <div class="modal-content" style="max-width: 450px; padding: 25px;">
+            <div class="modal-header" style="margin-bottom: 20px;">
+                <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+                    Campaign Status: <span class="badge" :class="getCampaignBadgeClass(explainingStatus)" x-text="explainingStatus"></span>
+                </h3>
+                <button @click="modals.statusExplainer = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" style="font-size: 14px; line-height: 1.6; color: var(--text-secondary);">
+                <template x-if="explainingStatus === 'draft'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Draft Mode:</strong> This campaign is currently a work in progress.</p>
+                        <p>You can edit its design, subject, list targeting rules, and content freely. It will not be sent until you launch it.</p>
+                    </div>
+                </template>
+                <template x-if="explainingStatus === 'scheduled'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Scheduled:</strong> This campaign has been set to launch automatically at a specific time in the future.</p>
+                        <p>The queue worker checks scheduled campaigns continuously and will transition it to sending when the send time is reached.</p>
+                    </div>
+                </template>
+                <template x-if="explainingStatus === 'sending'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Sending:</strong> The campaign is actively dispatching emails to recipients for the first time.</p>
+                        <p>During this stage, pending items are read from the queue and delivered to destination mail servers. If any deliveries fail with temporary errors, they will enter a deferred state for later retry attempts.</p>
+                    </div>
+                </template>
+                <template x-if="explainingStatus === 'flushing'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Flushing:</strong> All initial email deliveries have been attempted at least once.</p>
+                        <p>Some emails failed temporarily (e.g. rate limits or temporary graylisting) and remain in the outbox queue. The system will continue retrying these deferred items in the background. Once all retries complete or expire, the status will automatically change to Completed.</p>
+                    </div>
+                </template>
+                <template x-if="explainingStatus === 'completed'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Completed:</strong> The campaign broadcast has finished completely.</p>
+                        <p>All emails have been sent and either succeeded, failed permanently, or timed out and got auto-purged from the queue after 3 days of attempts.</p>
+                    </div>
+                </template>
+                <template x-if="explainingStatus === 'paused'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Paused:</strong> Campaign sending has been temporarily suspended.</p>
+                        <p>Pending and deferred items in the queue will not be processed until you click Resume to continue sending.</p>
+                    </div>
+                </template>
+                <template x-if="explainingStatus === 'cancelled'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Cancelled:</strong> Campaign sending was cancelled by the administrator.</p>
+                        <p>Any remaining unsent items have been permanently purged from the outbox queue, and no further delivery attempts will be made.</p>
+                    </div>
+                </template>
+            </div>
+            <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+                <button @click="modals.statusExplainer = false" class="btn btn-secondary btn-sm">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripting Business Logic -->
     <script src="/static/app.js"></script>
 </body>

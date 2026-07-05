@@ -516,7 +516,7 @@ def pause_campaign(campaign_id: int, db: Session = Depends(get_db), current_user
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    if campaign.status != "sending":
+    if campaign.status not in ["sending", "flushing"]:
         raise HTTPException(status_code=400, detail="Only active sending campaigns can be paused")
         
     campaign.status = "paused"
@@ -548,11 +548,14 @@ def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    if campaign.status not in ["sending", "paused", "queued", "scheduled"]:
+    if campaign.status not in ["sending", "flushing", "paused", "queued", "scheduled"]:
         raise HTTPException(status_code=400, detail="Only queued, scheduled, paused, or sending campaigns can be cancelled")
         
-    # Delete pending outbox items for this campaign
-    db.query(QueueItem).filter(QueueItem.campaign_id == campaign.id, QueueItem.status == "pending").delete()
+    # Delete pending and deferred outbox items for this campaign
+    db.query(QueueItem).filter(
+        QueueItem.campaign_id == campaign.id,
+        QueueItem.status.in_(["pending", "deferred"])
+    ).delete()
     
     campaign.status = "cancelled"
     db.commit()

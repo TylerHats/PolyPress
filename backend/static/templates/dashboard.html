@@ -32,9 +32,9 @@
                             <template x-if="!loadingDashboardStats">
                                 <div>
                                     <div class="card-value" x-text="stats.totalSubscribers">0</div>
-                                    <div class="card-trend" :class="trends.subscribers.diff >= 0 ? 'trend-up' : 'trend-down'">
-                                        <span x-text="trends.subscribers.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.subscribers.diff"></span> active contacts
-                                    </div>
+                                     <div class="card-trend" :class="trends.subscribers.diff > 0 ? 'trend-up' : (trends.subscribers.diff < 0 ? 'trend-down' : '')" :style="trends.subscribers.diff === 0 ? 'color: var(--text-muted);' : ''">
+                                         <span x-text="trends.subscribers.diff > 0 ? '▲ +' : (trends.subscribers.diff < 0 ? '▼ ' : '- ')"></span><span x-text="trends.subscribers.diff"></span> active contacts
+                                     </div>
                                 </div>
                             </template>
                         </div>
@@ -52,9 +52,9 @@
                             <template x-if="!loadingDashboardStats">
                                 <div>
                                     <div class="card-value" x-text="stats.campaignsSent">0</div>
-                                    <div class="card-trend" :class="trends.campaigns.diff >= 0 ? 'trend-up' : 'trend-down'">
-                                        <span x-text="trends.campaigns.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.campaigns.diff"></span> vs last period
-                                    </div>
+                                     <div class="card-trend" :class="trends.campaigns.diff > 0 ? 'trend-up' : (trends.campaigns.diff < 0 ? 'trend-down' : '')" :style="trends.campaigns.diff === 0 ? 'color: var(--text-muted);' : ''">
+                                         <span x-text="trends.campaigns.diff > 0 ? '▲ +' : (trends.campaigns.diff < 0 ? '▼ ' : '- ')"></span><span x-text="trends.campaigns.diff"></span> vs last period
+                                     </div>
                                 </div>
                             </template>
                         </div>
@@ -72,9 +72,9 @@
                             <template x-if="!loadingDashboardStats">
                                 <div>
                                     <div class="card-value" x-text="stats.avgOpenRate + '%'">0%</div>
-                                    <div class="card-trend" :class="trends.openRate.diff >= 0 ? 'trend-up' : 'trend-down'">
-                                        <span x-text="trends.openRate.diff >= 0 ? '▲ +' : '▼ '"></span><span x-text="trends.openRate.diff + '%'"></span> vs last period
-                                    </div>
+                                     <div class="card-trend" :class="trends.openRate.diff > 0 ? 'trend-up' : (trends.openRate.diff < 0 ? 'trend-down' : '')" :style="trends.openRate.diff === 0 ? 'color: var(--text-muted);' : ''">
+                                         <span x-text="trends.openRate.diff > 0 ? '▲ +' : (trends.openRate.diff < 0 ? '▼ ' : '- ')"></span><span x-text="trends.openRate.diff + '%'"></span> vs last period
+                                     </div>
                                 </div>
                             </template>
                         </div>
@@ -92,9 +92,9 @@
                             <template x-if="!loadingDashboardStats">
                                 <div>
                                     <div class="card-value" x-text="stats.avgBounceRate + '%'">0%</div>
-                                    <div class="card-trend" :class="trends.bounceRate.diff <= 0 ? 'trend-up' : 'trend-down'">
-                                        <span x-text="trends.bounceRate.diff <= 0 ? '▼ ' : '▲ +'"></span><span x-text="trends.bounceRate.diff + '%'"></span> vs last period
-                                    </div>
+                                     <div class="card-trend" :class="trends.bounceRate.diff < 0 ? 'trend-up' : (trends.bounceRate.diff > 0 ? 'trend-down' : '')" :style="trends.bounceRate.diff === 0 ? 'color: var(--text-muted);' : ''">
+                                         <span x-text="trends.bounceRate.diff < 0 ? '▼ ' : (trends.bounceRate.diff > 0 ? '▲ +' : '- ')"></span><span x-text="trends.bounceRate.diff + '%'"></span> vs last period
+                                     </div>
                                 </div>
                             </template>
                         </div>

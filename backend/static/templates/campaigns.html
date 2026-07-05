@@ -30,7 +30,7 @@
                                             <td style="font-weight: 600;" x-text="c.name"></td>
                                             <td x-text="c.subject"></td>
                                             <td>
-                                                <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status"></span>
+                                                 <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status" @click.stop="openStatusExplainer(c.status)" style="cursor: pointer;" title="Click to view status details"></span>
                                             </td>
                                             <td x-text="c.sent_count + '/' + c.total_recipients"></td>
                                             <td x-text="c.open_count + ' (' + calculatePercentage(c.open_count, c.sent_count) + '%)'"></td>

@@ -354,15 +354,32 @@ def deliver_item_task(item_id: int):
         except Exception as webhook_err:
             logger.error(f"Failed to dispatch webhooks for item {item.id}: {webhook_err}")
             
-        # Check if campaign is finished
-        total_pending = db.query(QueueItem).filter(
+        # Reconcile campaign status
+        pending_or_sending = db.query(QueueItem).filter(
             QueueItem.campaign_id == campaign.id,
-            QueueItem.status.in_(["pending", "deferred", "sending"])
+            QueueItem.status.in_(["pending", "sending"])
         ).count()
-        if total_pending == 0:
-            campaign.status = "completed"
-            db.commit()
-            logger.info(f"Campaign '{campaign.name}' (ID: {campaign.id}) finished dispatching all items.")
+        
+        deferred_count = db.query(QueueItem).filter(
+            QueueItem.campaign_id == campaign.id,
+            QueueItem.status == "deferred"
+        ).count()
+        
+        if pending_or_sending > 0:
+            if campaign.status != "sending":
+                campaign.status = "sending"
+                db.commit()
+        else:
+            if deferred_count > 0:
+                if campaign.status != "flushing":
+                    campaign.status = "flushing"
+                    db.commit()
+                    logger.info(f"Campaign '{campaign.name}' (ID: {campaign.id}) status updated to flushing ({deferred_count} deferred items remaining).")
+            else:
+                if campaign.status != "completed":
+                    campaign.status = "completed"
+                    db.commit()
+                    logger.info(f"Campaign '{campaign.name}' (ID: {campaign.id}) finished dispatching all items (status: completed).")
             
     except Exception as e:
         logger.exception(f"Error in deliver_item_task for QueueItem {item_id}: {e}")
@@ -405,6 +422,41 @@ async def process_queue():
             except Exception as se:
                 logger.error(f"Error checking/promoting scheduled campaigns: {se}")
             
+            # Reconcile campaign statuses based on outbox queue items
+            try:
+                active_campaigns = db.query(Campaign).filter(
+                    Campaign.status.in_(["sending", "flushing"])
+                ).all()
+                for camp in active_campaigns:
+                    pending_or_sending = db.query(QueueItem).filter(
+                        QueueItem.campaign_id == camp.id,
+                        QueueItem.status.in_(["pending", "sending"])
+                    ).count()
+                    
+                    deferred_count = db.query(QueueItem).filter(
+                        QueueItem.campaign_id == camp.id,
+                        QueueItem.status == "deferred"
+                    ).count()
+                    
+                    if pending_or_sending > 0:
+                        if camp.status != "sending":
+                            camp.status = "sending"
+                            db.commit()
+                    else:
+                        # All emails have been sent once!
+                        if deferred_count > 0:
+                            if camp.status != "flushing":
+                                camp.status = "flushing"
+                                db.commit()
+                                logger.info(f"Campaign '{camp.name}' status updated to flushing (has {deferred_count} deferred items left).")
+                        else:
+                            if camp.status != "completed":
+                                camp.status = "completed"
+                                db.commit()
+                                logger.info(f"Campaign '{camp.name}' status updated to completed (all queue items processed/purged).")
+            except Exception as rse:
+                logger.error(f"Error reconciling campaign statuses: {rse}")
+            
             # 1. Periodically check for expired queue items (once every 60 seconds)
             if time.time() - last_expiry_check > 60:
                 last_expiry_check = time.time()
@@ -439,7 +491,7 @@ async def process_queue():
             items = db.query(QueueItem).join(Campaign).filter(
                 QueueItem.status.in_(["pending", "deferred"]),
                 QueueItem.next_attempt <= now,
-                Campaign.status == "sending" # Skip paused, draft, or completed campaigns
+                Campaign.status.in_(["sending", "flushing"]) # Skip paused, draft, or completed campaigns
             ).order_by(QueueItem.created_at.asc()).limit(50).all()
             
             if not items:
