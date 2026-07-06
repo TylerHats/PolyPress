@@ -82,7 +82,7 @@
                                  </div>
                                  <div class="field">
                                      <label>Sending IP Override (Optional)</label>
-                                     <input type="text" x-model="globalSettings.sending_ip_override" placeholder="e.g. 203.0.113.50">
+                                     <input type="text" x-model="globalSettings.sending_ip_override" :placeholder="detectedPublicIp ? detectedPublicIp + ' (Detected)' : 'detecting... (Detected)'">
                                      <span style="font-size: 11px; color: var(--text-muted);">Override the auto-detected server public IP used for host-wide reverse DNS PTR and SPF checks in tenant diagnostics.</span>
                                  </div>
                                 
