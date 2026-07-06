@@ -15,7 +15,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -39,6 +39,7 @@ class GlobalSettings(Base):
     auto_create_tenants = Column(Boolean, default=True) # Automatically create a tenant for a new OIDC domain
     local_login_enabled = Column(Boolean, default=True) # Disable local email/pass login if OIDC is only option
     mail_server_identity = Column(String, nullable=True) # Domain name for HELO/EHLO handshake
+    sending_ip_override = Column(String, nullable=True) # IP override for reverse DNS / SPF diagnostics
     
     # Auto-updates and Backups API
     auto_update = Column(Boolean, default=False)

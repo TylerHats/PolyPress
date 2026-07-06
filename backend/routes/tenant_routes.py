@@ -130,6 +130,8 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     settings.app_logo = payload.get("app_logo", settings.app_logo)
     settings.public_url = payload.get("public_url", settings.public_url)
     settings.mail_server_identity = payload.get("mail_server_identity", settings.mail_server_identity)
+    if "sending_ip_override" in payload:
+        settings.sending_ip_override = payload["sending_ip_override"].strip() if payload["sending_ip_override"] else None
     settings.oidc_enabled = new_oidc
     settings.oidc_issuer = payload.get("oidc_issuer", settings.oidc_issuer)
     settings.oidc_client_id = payload.get("oidc_client_id", settings.oidc_client_id)
@@ -324,8 +326,11 @@ def test_smtp_settings(payload: dict = Body(...), db: Session = Depends(get_db),
     
     # Resolve server public IP for direct sending diagnostics info
     public_ip = None
+    db_settings = db.query(GlobalSettings).first()
     if mock_tenant.sending_ip_override:
         public_ip = mock_tenant.sending_ip_override.strip()
+    elif db_settings and db_settings.sending_ip_override:
+        public_ip = db_settings.sending_ip_override.strip()
     else:
         try:
             import urllib.request
@@ -698,7 +703,10 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
 
     # Fetch public IP of the PolyPress outbound server (or use override if provided)
     public_ip = None
-    if tenant.sending_ip_override:
+    db_settings = db.query(GlobalSettings).first()
+    if db_settings and db_settings.sending_ip_override:
+        public_ip = db_settings.sending_ip_override.strip()
+    elif tenant.sending_ip_override:
         public_ip = tenant.sending_ip_override.strip()
     else:
         try:

@@ -287,7 +287,7 @@
                 loadingSession: true,
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
                 tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500, bounce_provider: 'imap', bounce_webhook_token: '' },
-                globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '' },
+                globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '', sending_ip_override: '' },
                 updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
                 schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
                 schemaBypassForm: { email: '', password: '' },

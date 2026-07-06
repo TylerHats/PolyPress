@@ -88,11 +88,7 @@
                                         <label>DKIM Selector</label>
                                         <input type="text" x-model="tenant.dkim_selector" placeholder="polypress">
                                     </div>
-                                    <div class="field">
-                                        <label>Sending IP Override (Optional)</label>
-                                        <input type="text" x-model="tenant.sending_ip_override" :placeholder="detectedPublicIp ? detectedPublicIp + ' (Current)' : 'detecting... (Current)'">
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Override the auto-detected server public IP for reverse DNS PTR and blacklist checks.</div>
-                                    </div>
+
                                     
                                     <!-- DKIM Keys rendering block -->
                                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-glass); border-radius: 8px; padding: 16px;">

@@ -80,6 +80,11 @@
                                      <input type="text" x-model="globalSettings.mail_server_identity" placeholder="mail.yourdomain.com">
                                      <span style="font-size: 11px; color: var(--text-muted);">Configures the domain identity used for the HELO/EHLO SMTP handshake by the internal MTA (Direct Send). Must match your reverse PTR (rPTR) record.</span>
                                  </div>
+                                 <div class="field">
+                                     <label>Sending IP Override (Optional)</label>
+                                     <input type="text" x-model="globalSettings.sending_ip_override" placeholder="e.g. 203.0.113.50">
+                                     <span style="font-size: 11px; color: var(--text-muted);">Override the auto-detected server public IP used for host-wide reverse DNS PTR and SPF checks in tenant diagnostics.</span>
+                                 </div>
                                 
                                 <div class="toggle-field" style="margin-top: 10px;">
                                      <input type="checkbox" x-model="globalSettings.oidc_enabled" style="display:none;">
