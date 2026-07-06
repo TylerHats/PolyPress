@@ -178,69 +178,129 @@
                             <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save Outbound & Speed Settings</button>
                         </div>
 
-                        <!-- Bounce handler config (IMAP) -->
+                        <!-- Bounce Handling Settings -->
                         <div class="card">
                             <h2 style="font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
                                 <i data-lucide="inbox" style="color: var(--color-accent);"></i>
-                                Bounce Handling (IMAP)
+                                Bounce Handling Settings
                             </h2>
                             <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
-                                Connects to a dedicated email inbox via IMAP, automatically processing bounces and spam complaint reports (ARF).
+                                Configure how bounces and spam complaint reports are processed by PolyPress.
                             </p>
 
                             <div style="display: flex; flex-direction: column; gap: 15px;">
-                                <div class="field">
-                                    <label>Bounce/Reply Envelope Email Address</label>
-                                    <input type="email" x-model="tenant.bounce_email" placeholder="bounce@yourdomain.com">
+                                <!-- Bounce Method Choice (Only when direct_send MTA is disabled) -->
+                                <div class="field" x-show="!tenant.direct_send">
+                                    <label>Bounce Processing Method</label>
+                                    <select x-model="tenant.bounce_provider" style="width: 100%; margin-bottom: 5px;">
+                                        <option value="imap">IMAP Inbox Scan (Default)</option>
+                                        <option value="sendgrid">SendGrid Webhook</option>
+                                        <option value="mailgun">Mailgun Webhook</option>
+                                        <option value="postmark">Postmark Webhook</option>
+                                        <option value="ses">Amazon SES Webhook</option>
+                                    </select>
                                 </div>
-                                <div class="form-grid">
-                                    <div class="field">
-                                        <label>IMAP Host</label>
-                                        <input type="text" x-model="tenant.imap_host">
-                                    </div>
-                                    <div class="field">
-                                        <label>IMAP Port</label>
-                                        <input type="number" x-model="tenant.imap_port" placeholder="993">
-                                    </div>
-                                </div>
-                                <div class="form-grid">
-                                    <div class="field">
-                                        <label>IMAP Username</label>
-                                        <input type="text" x-model="tenant.imap_username">
-                                    </div>
-                                    <div class="field">
-                                        <label>IMAP Password</label>
-                                        <input type="password" x-model="tenant.imap_password" placeholder="••••••••">
-                                    </div>
-                                </div>
-                                <div class="toggle-field">
-                                     <input type="checkbox" x-model="tenant.imap_use_ssl" style="display:none;">
-                                     <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
-                                     <span>Use SSL (Default Port 993)</span>
-                                 </div>
-                                 <div class="toggle-field" style="margin-top: -5px;">
-                                     <input type="checkbox" x-model="tenant.imap_delete_processed" style="display:none;">
-                                     <div class="toggle-switch" @click="tenant.imap_delete_processed = !tenant.imap_delete_processed"></div>
-                                     <span>Permanently Delete Processed Emails (Otherwise mark as read)</span>
-                                 </div>
-                             </div>
 
-                             <!-- Test IMAP connection -->
-                             <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 20px; display: flex; justify-content: flex-end;">
-                                 <div style="display: flex; gap: 10px;">
-                                     <button @click="testImapConnection()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;" :disabled="testingImap">
-                                         <i data-lucide="inbox" style="width: 14px; height: 14px;"></i>
-                                         <span x-show="!testingImap">Test Connection</span>
-                                         <span x-show="testingImap">Connecting...</span>
-                                     </button>
-                                     <button @click="startLoopbackTest()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
-                                         <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
-                                         <span>Run Loopback Test</span>
-                                     </button>
-                                 </div>
+                                <!-- IMAP Config (Shown for internal MTA or when IMAP is selected) -->
+                                <div x-show="tenant.direct_send || tenant.bounce_provider === 'imap'" style="display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="field">
+                                        <label>Bounce/Reply Envelope Email Address</label>
+                                        <input type="email" x-model="tenant.bounce_email" placeholder="bounce@yourdomain.com">
+                                    </div>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label>IMAP Host</label>
+                                            <input type="text" x-model="tenant.imap_host">
+                                        </div>
+                                        <div class="field">
+                                            <label>IMAP Port</label>
+                                            <input type="number" x-model="tenant.imap_port" placeholder="993">
+                                        </div>
+                                    </div>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label>IMAP Username</label>
+                                            <input type="text" x-model="tenant.imap_username">
+                                        </div>
+                                        <div class="field">
+                                            <label>IMAP Password</label>
+                                            <input type="password" x-model="tenant.imap_password" placeholder="••••••••">
+                                        </div>
+                                    </div>
+                                    <div class="toggle-field">
+                                         <input type="checkbox" x-model="tenant.imap_use_ssl" style="display:none;">
+                                         <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
+                                         <span>Use SSL (Default Port 993)</span>
+                                     </div>
+                                     <div class="toggle-field" style="margin-top: -5px;">
+                                         <input type="checkbox" x-model="tenant.imap_delete_processed" style="display:none;">
+                                         <div class="toggle-switch" @click="tenant.imap_delete_processed = !tenant.imap_delete_processed"></div>
+                                         <span>Permanently Delete Processed Emails (Otherwise mark as read)</span>
+                                     </div>
+
+                                     <!-- Test IMAP connection -->
+                                     <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 5px; display: flex; justify-content: flex-end;">
+                                         <div style="display: flex; gap: 10px;">
+                                             <button @click="testImapConnection()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;" :disabled="testingImap">
+                                                 <i data-lucide="inbox" style="width: 14px; height: 14px;"></i>
+                                                 <span x-show="!testingImap">Test Connection</span>
+                                                 <span x-show="testingImap">Connecting...</span>
+                                             </button>
+                                             <button @click="startLoopbackTest()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                                 <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+                                                 <span>Run Loopback Test</span>
+                                             </button>
+                                         </div>
+                                    </div>
+                                </div>
+
+                                <!-- Webhook Config (Shown when SMTP relay is active and webhook is selected) -->
+                                <div x-show="!tenant.direct_send && tenant.bounce_provider !== 'imap'" style="display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="field">
+                                        <label>Webhook URL</label>
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <input type="text" :value="window.location.origin + '/api/embed/bounces/webhook/' + tenant.bounce_provider + '/' + tenant.id + '?token=' + tenant.bounce_webhook_token" readonly style="flex: 1; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.2);">
+                                            <button @click="navigator.clipboard.writeText(window.location.origin + '/api/embed/bounces/webhook/' + tenant.bounce_provider + '/' + tenant.id + '?token=' + tenant.bounce_webhook_token); showToast('Webhook URL copied!')" class="btn btn-secondary btn-sm" style="height: 38px; display: flex; align-items: center; justify-content: center; width: 42px; padding: 0;" title="Copy Webhook URL">
+                                                <i data-lucide="copy" style="width: 16px; height: 16px;"></i>
+                                            </button>
+                                            <button @click="rotateWebhookToken()" class="btn btn-secondary btn-sm" style="height: 38px; display: flex; align-items: center; justify-content: center; width: 42px; padding: 0;" title="Rotate Secret Token">
+                                                <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                                            </button>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                                            Copy this URL and paste it into your <strong x-text="tenant.bounce_provider"></strong> settings.
+                                        </div>
+                                    </div>
+
+                                    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);">
+                                        <strong style="color: var(--color-accent);">Integration Steps:</strong>
+                                        <div x-show="tenant.bounce_provider === 'sendgrid'" style="margin-top: 8px;">
+                                            1. Log in to SendGrid &rarr; Settings &rarr; Mail Settings &rarr; Event Webhook.<br>
+                                            2. Paste the Webhook URL above under <strong>HTTP Post URL</strong>.<br>
+                                            3. Under event choices, check <strong>Bounced</strong> and <strong>Spam Reports</strong>.<br>
+                                            4. Enable the Event Webhook and click Save.
+                                        </div>
+                                        <div x-show="tenant.bounce_provider === 'mailgun'" style="margin-top: 8px;">
+                                            1. Log in to Mailgun &rarr; Webhooks.<br>
+                                            2. Select your sending domain &rarr; Add Webhook.<br>
+                                            3. Add this Webhook URL for both <strong>Permanent Failure</strong> (bounces) and <strong>Spam Complaint</strong> events.
+                                        </div>
+                                        <div x-show="tenant.bounce_provider === 'postmark'" style="margin-top: 8px;">
+                                            1. Log in to Postmark &rarr; Servers &rarr; Default Webhook tab.<br>
+                                            2. Click <strong>Add webhook</strong> and paste this Webhook URL.<br>
+                                            3. Check the checkboxes for <strong>Bounce</strong> and <strong>Spam Complaint</strong>.
+                                        </div>
+                                        <div x-show="tenant.bounce_provider === 'ses'" style="margin-top: 8px;">
+                                            1. Log in to AWS Console &rarr; Simple Notification Service (SNS) &rarr; Create Topic (Standard).<br>
+                                            2. Create Subscription with Protocol: <strong>HTTPS</strong> and paste the URL above.<br>
+                                            3. SNS will automatically hit this URL to confirm the subscription.<br>
+                                            4. In Amazon SES Dashboard, configure <strong>Feedback Notifications</strong> for your identity to point to the SNS Topic.
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save IMAP Bounce settings</button>
+                            <button @click="saveTenantSettings()" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Save Bounce settings</button>
                         </div>
                     </div>
 

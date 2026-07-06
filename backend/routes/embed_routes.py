@@ -640,3 +640,230 @@ def post_unsubscribe(subscriber_id: int, campaign_id: int, db: Session = Depends
         })
         
     return {"unsubscribed": True, "detail": f"Subscriber {subscriber.email} has been unsubscribed."}
+
+def extract_ses_metadata(msg_data: dict):
+    campaign_id = None
+    subscriber_id = None
+    mail_obj = msg_data.get("mail", {})
+    
+    # 1. Search headers
+    headers = mail_obj.get("headers", [])
+    if isinstance(headers, list):
+        for h in headers:
+            if not isinstance(h, dict):
+                continue
+            name = str(h.get("name", "")).lower()
+            value = h.get("value")
+            if name == "x-polypress-subscriber":
+                subscriber_id = value
+            elif name == "x-polypress-campaign":
+                campaign_id = value
+                
+    # 2. Search tags
+    tags = mail_obj.get("tags", {})
+    if isinstance(tags, dict):
+        if "X-PolyPress-Subscriber" in tags:
+            subscriber_id = tags["X-PolyPress-Subscriber"]
+        if "X-PolyPress-Campaign" in tags:
+            campaign_id = tags["X-PolyPress-Campaign"]
+    elif isinstance(tags, list):
+        for t in tags:
+            if not isinstance(t, dict):
+                continue
+            name = str(t.get("name", "")).lower()
+            value = t.get("value")
+            if name == "x-polypress-subscriber":
+                subscriber_id = value
+            elif name == "x-polypress-campaign":
+                campaign_id = value
+                
+    return campaign_id, subscriber_id
+
+def process_webhook_event(db: Session, tenant: Tenant, email: str, event_type: str, reason: str, campaign_id=None, subscriber_id=None):
+    subscriber = None
+    if subscriber_id:
+        try:
+            subscriber = db.query(Subscriber).filter(
+                Subscriber.id == int(subscriber_id),
+                Subscriber.tenant_id == tenant.id
+            ).first()
+        except (ValueError, TypeError):
+            pass
+            
+    if not subscriber and email:
+        subscriber = db.query(Subscriber).filter(
+            Subscriber.email == email,
+            Subscriber.tenant_id == tenant.id
+        ).first()
+        
+    if subscriber:
+        new_status = "spam" if event_type == "spam" else "bounced"
+        if subscriber.status != new_status:
+            subscriber.status = new_status
+            if event_type == "spam":
+                subscriber.complaint_reason = reason
+            else:
+                subscriber.bounce_reason = reason
+            subscriber.bounce_source_email = f"Webhook ({tenant.bounce_provider})"
+            
+            # Increment campaign statistics if resolved
+            resolved_campaign_id = None
+            if campaign_id:
+                try:
+                    resolved_campaign_id = int(campaign_id)
+                except (ValueError, TypeError):
+                    pass
+            if resolved_campaign_id:
+                campaign = db.query(Campaign).filter(
+                    Campaign.id == resolved_campaign_id,
+                    Campaign.tenant_id == tenant.id
+                ).first()
+                if campaign:
+                    campaign.bounce_count += 1
+                    
+            db.commit()
+            
+            # Trigger outbound webhook
+            try:
+                from webhook_dispatcher import trigger_webhook
+                trigger_webhook(tenant.id, f"subscriber.{new_status}", {
+                    "id": subscriber.id,
+                    "email": subscriber.email,
+                    "name": subscriber.name,
+                    "status": subscriber.status,
+                    "reason": reason,
+                    "source": f"Webhook ({tenant.bounce_provider})",
+                    "campaign_id": resolved_campaign_id
+                })
+            except Exception as e:
+                print(f"Error triggering outbound webhook for {subscriber.email}: {e}")
+
+@router.post("/bounces/webhook/{provider}/{tenant_id}")
+async def incoming_bounce_webhook(
+    provider: str,
+    tenant_id: int,
+    request: Request,
+    token: str = None,
+    db: Session = Depends(get_db)
+):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    if not token or tenant.bounce_webhook_token != token:
+        raise HTTPException(status_code=401, detail="Invalid bounce webhook token")
+        
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        
+    p_lower = provider.lower()
+    
+    if p_lower == "ses":
+        sns_type = payload.get("Type")
+        if sns_type == "SubscriptionConfirmation":
+            subscribe_url = payload.get("SubscribeURL")
+            if subscribe_url:
+                import urllib.request
+                try:
+                    # AWS SNS requires confirmation by fetching the URL
+                    urllib.request.urlopen(subscribe_url, timeout=10)
+                    return {"success": True, "detail": "Subscription confirmed successfully."}
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"Failed to confirm subscription: {e}")
+                    
+        if sns_type == "Notification":
+            msg_str = payload.get("Message", "")
+            try:
+                import json
+                msg_data = json.loads(msg_str)
+            except Exception:
+                msg_data = {}
+        else:
+            msg_data = payload
+            
+        event_type = msg_data.get("eventType") or msg_data.get("notificationType")
+        if event_type == "Bounce":
+            bounce_obj = msg_data.get("bounce", {})
+            recipients = bounce_obj.get("bouncedRecipients", [])
+            for rec in recipients:
+                email = rec.get("emailAddress")
+                diag = rec.get("diagnosticCode") or bounce_obj.get("bounceSubType") or "AWS SES Permanent Bounce"
+                campaign_id, subscriber_id = extract_ses_metadata(msg_data)
+                process_webhook_event(db, tenant, email, "bounce", diag, campaign_id, subscriber_id)
+        elif event_type == "Complaint":
+            complaint_obj = msg_data.get("complaint", {})
+            recipients = complaint_obj.get("complainedRecipients", [])
+            for rec in recipients:
+                email = rec.get("emailAddress")
+                feedback = complaint_obj.get("complaintFeedbackType") or "AWS SES Spam Complaint"
+                campaign_id, subscriber_id = extract_ses_metadata(msg_data)
+                process_webhook_event(db, tenant, email, "spam", feedback, campaign_id, subscriber_id)
+                
+    elif p_lower == "sendgrid":
+        if not isinstance(payload, list):
+            payload = [payload]
+        for event in payload:
+            event_type = event.get("event")
+            email = event.get("email")
+            if not email:
+                continue
+                
+            subscriber_id = event.get("subscriber_id") or event.get("x-polypress-subscriber") or event.get("X-PolyPress-Subscriber")
+            campaign_id = event.get("campaign_id") or event.get("x-polypress-campaign") or event.get("X-PolyPress-Campaign")
+            
+            unique_args = event.get("unique_args", {})
+            if isinstance(unique_args, dict):
+                if not subscriber_id:
+                    subscriber_id = unique_args.get("X-PolyPress-Subscriber") or unique_args.get("subscriber_id") or unique_args.get("x-polypress-subscriber")
+                if not campaign_id:
+                    campaign_id = unique_args.get("X-PolyPress-Campaign") or unique_args.get("campaign_id") or unique_args.get("x-polypress-campaign")
+                    
+            if event_type == "bounce":
+                reason = event.get("reason") or event.get("status") or "SendGrid Bounce"
+                process_webhook_event(db, tenant, email, "bounce", reason, campaign_id, subscriber_id)
+            elif event_type == "spamreport":
+                reason = "SendGrid Spam Complaint"
+                process_webhook_event(db, tenant, email, "spam", reason, campaign_id, subscriber_id)
+                
+    elif p_lower == "mailgun":
+        event_data = payload.get("event-data", {})
+        event_type = event_data.get("event")
+        recipient = event_data.get("recipient")
+        if recipient:
+            user_vars = event_data.get("user-variables", {})
+            subscriber_id = None
+            campaign_id = None
+            if isinstance(user_vars, dict):
+                subscriber_id = user_vars.get("X-PolyPress-Subscriber") or user_vars.get("subscriber_id") or user_vars.get("x-polypress-subscriber")
+                campaign_id = user_vars.get("X-PolyPress-Campaign") or user_vars.get("campaign_id") or user_vars.get("x-polypress-campaign")
+                
+            if event_type in ("failed", "bounced"):
+                severity = event_data.get("severity")
+                if severity != "temporary":
+                    reason = event_data.get("delivery-status", {}).get("message") or event_data.get("reason") or "Mailgun Permanent Bounce"
+                    process_webhook_event(db, tenant, recipient, "bounce", reason, campaign_id, subscriber_id)
+            elif event_type == "complained":
+                reason = "Mailgun Spam Complaint"
+                process_webhook_event(db, tenant, recipient, "spam", reason, campaign_id, subscriber_id)
+                
+    elif p_lower == "postmark":
+        record_type = payload.get("RecordType")
+        email = payload.get("Email")
+        if email:
+            metadata = payload.get("Metadata", {})
+            subscriber_id = None
+            campaign_id = None
+            if isinstance(metadata, dict):
+                subscriber_id = metadata.get("X-PolyPress-Subscriber") or metadata.get("subscriber_id") or metadata.get("x-polypress-subscriber")
+                campaign_id = metadata.get("X-PolyPress-Campaign") or metadata.get("campaign_id") or metadata.get("x-polypress-campaign")
+                
+            if record_type == "Bounce":
+                reason = payload.get("Description") or payload.get("Details") or "Postmark Bounce"
+                process_webhook_event(db, tenant, email, "bounce", reason, campaign_id, subscriber_id)
+            elif record_type == "SpamComplaint":
+                reason = payload.get("Description") or "Postmark Spam Complaint"
+                process_webhook_event(db, tenant, email, "spam", reason, campaign_id, subscriber_id)
+                
+    return {"success": True}

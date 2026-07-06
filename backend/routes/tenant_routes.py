@@ -164,6 +164,12 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
         
+    import secrets
+    if not tenant.bounce_webhook_token:
+        tenant.bounce_webhook_token = secrets.token_urlsafe(32)
+        db.commit()
+        db.refresh(tenant)
+        
     # Return everything except private key
     return {
         "id": tenant.id,
@@ -189,6 +195,8 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "imap_delete_processed": tenant.imap_delete_processed,
         "speed_emails_per_hour": tenant.speed_emails_per_hour,
         "bounce_email": tenant.bounce_email,
+        "bounce_provider": tenant.bounce_provider,
+        "bounce_webhook_token": tenant.bounce_webhook_token,
         "double_opt_in": tenant.double_opt_in,
         "retry_interval_minutes": tenant.retry_interval_minutes,
         "double_opt_in_subject": tenant.double_opt_in_subject,
@@ -232,6 +240,10 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
     tenant.imap_use_ssl = payload.get("imap_use_ssl", tenant.imap_use_ssl)
     tenant.imap_delete_processed = payload.get("imap_delete_processed", tenant.imap_delete_processed)
     
+    tenant.bounce_provider = payload.get("bounce_provider", tenant.bounce_provider)
+    if "bounce_webhook_token" in payload and payload["bounce_webhook_token"]:
+        tenant.bounce_webhook_token = payload["bounce_webhook_token"]
+        
     tenant.speed_emails_per_hour = payload.get("speed_emails_per_hour", tenant.speed_emails_per_hour)
     tenant.bounce_email = payload.get("bounce_email", tenant.bounce_email)
     tenant.double_opt_in = payload.get("double_opt_in", tenant.double_opt_in)
@@ -254,6 +266,21 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
     db.commit()
     db.refresh(tenant)
     return {"detail": "Settings updated successfully"}
+
+@router.post("/my/rotate-webhook-token")
+def rotate_webhook_token(db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User is not associated with any tenant")
+        
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    import secrets
+    tenant.bounce_webhook_token = secrets.token_urlsafe(32)
+    db.commit()
+    db.refresh(tenant)
+    return {"bounce_webhook_token": tenant.bounce_webhook_token}
 
 @router.post("/test-smtp")
 def test_smtp_settings(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):

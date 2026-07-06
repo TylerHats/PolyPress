@@ -15,7 +15,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -84,6 +84,10 @@ class Tenant(Base):
     imap_password = Column(String, nullable=True)
     imap_use_ssl = Column(Boolean, default=True)
     imap_delete_processed = Column(Boolean, default=False)
+    
+    # Bounce handling provider & Webhook secret
+    bounce_provider = Column(String, default="imap")
+    bounce_webhook_token = Column(String, nullable=True)
     
     # Speed Limit Configuration
     mta_from_prefix = Column(String, default="noreply")
