@@ -309,6 +309,8 @@
                 webhooks: [],
                 newlyCreatedKey: '',
                 webhookForm: { url: '', events_str: '*' },
+                confirmResetHistory: false,
+                confirmResetAll: false,
                 
                 // Content lists
                 campaigns: [],
@@ -3237,6 +3239,51 @@
                         } else {
                             const err = await res.json();
                             this.showToast(err.detail || 'Failed to reset logo', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async resetHistory() {
+                    try {
+                        const res = await fetch('/api/tenants/reset/history', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        
+                        if (res.ok) {
+                            this.confirmResetHistory = false;
+                            this.showToast('Historical metrics database cleared successfully.');
+                            if (this.loadDashboardStats) {
+                                this.loadDashboardStats();
+                            }
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to reset history database', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async resetAllProgram() {
+                    try {
+                        const res = await fetch('/api/tenants/reset/all', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        
+                        if (res.ok) {
+                            this.confirmResetAll = false;
+                            this.showToast('Program reset complete. Redirecting to setup...');
+                            localStorage.removeItem('polypress_token');
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1000);
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to reset program', 'error');
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');

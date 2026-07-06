@@ -438,4 +438,64 @@
                             <button @click="saveGlobalSettings()" class="btn btn-primary btn-sm" style="margin-top: 20px; display: block; width: 100%;">Save External Backup Configuration</button>
                         </div>
                     </div>
+                    
+                    <!-- Danger Zone & System Recovery -->
+                    <div class="card" style="margin-top: 30px; border: 1px solid rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.02);">
+                        <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px; color: #ef4444;">
+                            <i data-lucide="alert-triangle"></i>
+                            Danger Zone & System Recovery
+                        </h2>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                            Wipe analytical history logs or fully reset the program database. These actions are permanent and cannot be undone.
+                        </p>
+                        
+                        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 250px; background: rgba(0,0,0,0.15); padding: 20px; border-radius: 8px;">
+                                <h4 style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 5px;">Reset History & Metrics</h4>
+                                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;">Wipes the historical metrics database (subscriber growth charts, clicks/opens logs). Campaigns, tenants, lists, and subscribers remain safe.</p>
+                                <button type="button" @click="confirmResetHistory = true" class="btn" style="background-color: #dc2626; color: white;">Reset History DB</button>
+                            </div>
+                            
+                            <div style="flex: 1; min-width: 250px; background: rgba(0,0,0,0.15); padding: 20px; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.1);">
+                                <h4 style="font-size: 14px; font-weight: 600; color: #ef4444; margin-bottom: 5px;">Factory Reset Program</h4>
+                                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;">Purges all database tables (tenants, campaigns, lists, subscribers, users, settings, custom logos). Returns the system to initial setup wizard flow.</p>
+                                <button type="button" @click="confirmResetAll = true" class="btn" style="background-color: #ef4444; color: white;">Wipe System & Start Setup</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reset History Confirmation Modal -->
+                    <div class="modal-backdrop" x-show="confirmResetHistory" style="display: none;">
+                        <div class="modal-card" @click.away="confirmResetHistory = false">
+                            <div style="text-align: center;">
+                                <i data-lucide="alert-octagon" style="width: 48px; height: 48px; color: #dc2626; margin: 0 auto 15px; display: block;"></i>
+                                <h3 style="font-size: 18px; margin-bottom: 10px; color: var(--text-primary);">Confirm History Reset</h3>
+                                <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 20px;">
+                                    Are you sure you want to purge all historical analytics metrics? This will clear all growth charts and click/open dashboard metrics. Campaign lists and subscribers will not be changed.
+                                </p>
+                                <div style="display: flex; gap: 10px; justify-content: center;">
+                                    <button @click="resetHistory()" class="btn" style="background-color: #dc2626; color: white;">Yes, Clear History</button>
+                                    <button @click="confirmResetHistory = false" class="btn btn-secondary">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reset All Confirmation Modal -->
+                    <div class="modal-backdrop" x-show="confirmResetAll" style="display: none;">
+                        <div class="modal-card" @click.away="confirmResetAll = false" style="border: 2px solid #ef4444;">
+                            <div style="text-align: center;">
+                                <i data-lucide="alert-triangle" style="width: 48px; height: 48px; color: #ef4444; margin: 0 auto 15px; display: block;"></i>
+                                <h3 style="font-size: 18px; margin-bottom: 10px; color: #ef4444;">DANGER: Full System Factory Reset</h3>
+                                <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 20px;">
+                                    This action is **irreversible**. It will permanently wipe all users, tenants, lists, campaigns, subscriber logs, custom styling settings, and custom logos. You will be logged out and returned to the onboarding wizard.
+                                </p>
+                                <div style="display: flex; gap: 10px; justify-content: center;">
+                                    <button @click="resetAllProgram()" class="btn" style="background-color: #ef4444; color: white;">Yes, Wipe Everything</button>
+                                    <button @click="confirmResetAll = false" class="btn btn-secondary">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </div>

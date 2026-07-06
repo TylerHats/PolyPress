@@ -1057,3 +1057,63 @@ def delete_tenant(tenant_id: int, db: Session = Depends(get_db), current_user: U
     db.delete(tenant)
     db.commit()
     return {"detail": "Tenant deleted"}
+
+@router.post("/reset/history")
+def reset_history_db(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    import database as db_mod
+    history_db = db_mod.HistorySessionLocal()
+    try:
+        history_db.query(db_mod.HistoricalMetric).delete()
+        history_db.commit()
+    except Exception as e:
+        history_db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to reset history database: {e}")
+    finally:
+        history_db.close()
+    return {"status": "success", "detail": "History metrics database reset successfully."}
+
+@router.post("/reset/all")
+def reset_all(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    import os
+    import database as db_mod
+    
+    # 1. Reset history DB
+    history_db = db_mod.HistorySessionLocal()
+    try:
+        history_db.query(db_mod.HistoricalMetric).delete()
+        history_db.commit()
+    except Exception:
+        history_db.rollback()
+    finally:
+        history_db.close()
+        
+    # 2. Reset main DB
+    try:
+        # Delete in dependency order to respect foreign key constraints
+        db.query(db_mod.TrackingLog).delete()
+        db.query(db_mod.QueueItem).delete()
+        db.query(db_mod.Campaign).delete()
+        db.query(db_mod.Subscriber).delete()
+        db.query(db_mod.SubscriberList).delete()
+        db.query(db_mod.ApiKey).delete()
+        db.query(db_mod.WebhookSubscription).delete()
+        db.query(db_mod.User).delete()
+        db.query(db_mod.Tenant).delete()
+        db.query(db_mod.GlobalSettings).delete()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to reset database: {e}")
+        
+    # 3. Clean up custom logos
+    BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    branding_dir = os.path.join(BASE_DIR, "branding")
+    if os.path.exists(branding_dir):
+        for f in os.listdir(branding_dir):
+            if f.startswith("custom_logo."):
+                try:
+                    os.remove(os.path.join(branding_dir, f))
+                except Exception:
+                    pass
+                    
+    return {"status": "success", "detail": "Program has been fully reset. Returning to onboarding."}
