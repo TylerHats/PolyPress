@@ -70,6 +70,12 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
 
 @router.get("/click/{campaign_id}/{subscriber_id}")
 def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request, db: Session = Depends(get_db)):
+    # Validate redirect scheme to prevent XSS / protocol manipulation
+    import urllib.parse
+    parsed_target = urllib.parse.urlparse(url)
+    if parsed_target.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Invalid redirect scheme")
+        
     try:
         campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
         subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()

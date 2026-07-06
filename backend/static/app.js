@@ -653,7 +653,12 @@
                         } else {
                             this.token = data.access_token;
                             localStorage.setItem('polypress_token', this.token);
-                            await this.verifySession();
+                            this.loadingSession = true;
+                            try {
+                                await this.verifySession();
+                            } finally {
+                                this.loadingSession = false;
+                            }
                             this.showToast('Login successful!');
                         }
                     } catch(e) {
@@ -681,7 +686,12 @@
                         this.token = data.access_token;
                         localStorage.setItem('polypress_token', this.token);
                         this.totpRequired = false;
-                        await this.verifySession();
+                        this.loadingSession = true;
+                        try {
+                            await this.verifySession();
+                        } finally {
+                            this.loadingSession = false;
+                        }
                         this.showToast('2FA Verification successful!');
                     } catch(e) {
                         this.showToast(e.message, 'error');
@@ -1419,6 +1429,11 @@
                             const data = await res.json();
                             if (data) this.globalSettings = data;
                         }
+                        const ipRes = await fetch('/api/tenants/my/detected-ip', { headers: this.getAuthHeaders() });
+                        if (ipRes.ok) {
+                            const ipData = await ipRes.json();
+                            this.detectedPublicIp = ipData.public_ip;
+                        }
                     } catch(e) {}
                 },
                 
@@ -1511,8 +1526,25 @@
                             headers: this.getAuthHeaders()
                         });
                         if (res.ok) {
-                            this.showToast('System backup restored successfully. Reloading...', 'success');
-                            setTimeout(() => window.location.reload(), 1500);
+                            this.showToast('Restore initiated. Server is restarting to apply changes...', 'info');
+                            setTimeout(() => {
+                                let pollCount = 0;
+                                const interval = setInterval(async () => {
+                                    pollCount++;
+                                    if (pollCount > 30) {
+                                        clearInterval(interval);
+                                        window.location.reload();
+                                        return;
+                                    }
+                                    try {
+                                        const ping = await fetch('/api/auth/setup/status');
+                                        if (ping.ok) {
+                                            clearInterval(interval);
+                                            window.location.reload();
+                                        }
+                                    } catch(e) {}
+                                }, 2000);
+                            }, 3000);
                         } else {
                             const err = await res.json();
                             throw new Error(err.detail || 'Failed to restore backup');
@@ -1553,7 +1585,7 @@
                     formData.append('file', file);
                     
                     try {
-                        this.showToast('Uploading and restoring system snapshot...', 'info');
+                        this.showToast('Uploading system snapshot...', 'info');
                         const res = await fetch('/api/admin/backups/restore', {
                             method: 'POST',
                             headers: {
@@ -1562,8 +1594,25 @@
                             body: formData
                         });
                         if (res.ok) {
-                            this.showToast('System restore complete! Reloading workspace...', 'success');
-                            setTimeout(() => window.location.reload(), 1500);
+                            this.showToast('Restore initiated. Server is restarting to apply changes...', 'info');
+                            setTimeout(() => {
+                                let pollCount = 0;
+                                const interval = setInterval(async () => {
+                                    pollCount++;
+                                    if (pollCount > 30) {
+                                        clearInterval(interval);
+                                        window.location.reload();
+                                        return;
+                                    }
+                                    try {
+                                        const ping = await fetch('/api/auth/setup/status');
+                                        if (ping.ok) {
+                                            clearInterval(interval);
+                                            window.location.reload();
+                                        }
+                                    } catch(e) {}
+                                }, 2000);
+                            }, 3000);
                         } else {
                             const err = await res.json();
                             throw new Error(err.detail || 'Restore failed');
@@ -3285,6 +3334,29 @@
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');
+                    }
+                },
+
+                async downloadBackupBeforeWipe() {
+                    try {
+                        const res = await fetch('/api/admin/backups/create', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.backups && data.backups.length > 0) {
+                                const latest = data.backups[0].filename;
+                                window.location.href = `/api/admin/backups/download/${latest}?token=${this.token}`;
+                                this.showToast('Backup download started.');
+                            } else {
+                                this.showToast('Failed to retrieve backup file details.', 'error');
+                            }
+                        } else {
+                            this.showToast('Failed to create backup before wipe.', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast('Failed to create backup before wipe.', 'error');
                     }
                 },
 

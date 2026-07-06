@@ -4,20 +4,29 @@ import zipfile
 import shutil
 import glob
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, BackgroundTasks, Header
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from database import get_db, User, engine, GlobalSettings
+from database import get_db, User, engine, GlobalSettings, DATABASE_URL, HISTORY_DATABASE_URL
 import auth
 
 router = APIRouter(prefix="/api/admin/backups", tags=["backups"])
 
 BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BACKUP_DIR = os.path.join(BASE_DIR, "backups")
-DB_PATH = os.path.join(BASE_DIR, "backend", "polypress.db")
-HISTORY_DB_PATH = os.path.join(BASE_DIR, "backend", "polypress_history.db")
 BRANDING_DIR = os.path.join(BASE_DIR, "branding")
+
+# Resolve database file paths dynamically supporting sqlite overrides
+if DATABASE_URL.startswith("sqlite:///"):
+    DB_PATH = DATABASE_URL.replace("sqlite:///", "")
+else:
+    DB_PATH = os.path.realpath(os.path.join(BASE_DIR, "backend", "polypress.db"))
+
+if HISTORY_DATABASE_URL.startswith("sqlite:///"):
+    HISTORY_DB_PATH = HISTORY_DATABASE_URL.replace("sqlite:///", "")
+else:
+    HISTORY_DB_PATH = os.path.realpath(os.path.join(BASE_DIR, "backend", "polypress_history.db"))
 
 def run_sqlite_backup(src: str, dest: str):
     src_conn = sqlite3.connect(src)
@@ -38,7 +47,7 @@ def get_backups_list():
         backups.append({
             "filename": os.path.basename(f),
             "size": stat.st_size,
-            "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+            "created_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
         })
     # Sort by creation date desc
     backups.sort(key=lambda x: x["filename"], reverse=True)
@@ -70,6 +79,13 @@ def create_backup(background_tasks: BackgroundTasks, current_user: User = Depend
         zip_filename = f"polypress_backup_{timestamp}.zip"
         zip_path = os.path.join(BACKUP_DIR, zip_filename)
         
+        # Force SQLite to write all WAL frames back to the main database file first
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        except Exception as e:
+            print(f"Warning: Failed to checkpoint main DB WAL: {e}")
+            
         # 1. Copy active SQLite DB using online backup copy
         temp_db = os.path.join(BACKUP_DIR, "temp_db_backup.db")
         if os.path.exists(temp_db):
@@ -77,13 +93,18 @@ def create_backup(background_tasks: BackgroundTasks, current_user: User = Depend
             
         run_sqlite_backup(DB_PATH, temp_db)
         
-        # History DB Copy
+        # History DB Checkpoint and Copy
         temp_history_db = os.path.join(BACKUP_DIR, "temp_history_backup.db")
         if os.path.exists(temp_history_db):
             os.remove(temp_history_db)
             
         history_exists = os.path.exists(HISTORY_DB_PATH)
         if history_exists:
+            try:
+                with sqlite3.connect(HISTORY_DB_PATH) as conn:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception as e:
+                print(f"Warning: Failed to checkpoint history DB WAL: {e}")
             run_sqlite_backup(HISTORY_DB_PATH, temp_history_db)
         
         # 2. Package database and branding files
@@ -137,6 +158,13 @@ def export_backup(
         zip_filename = f"polypress_backup_{timestamp}.zip"
         zip_path = os.path.join(BACKUP_DIR, zip_filename)
         
+        # Force SQLite to write all WAL frames back to the main database file first
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        except Exception as e:
+            print(f"Warning: Failed to checkpoint main DB WAL: {e}")
+            
         temp_db = os.path.join(BACKUP_DIR, "temp_db_backup.db")
         if os.path.exists(temp_db):
             os.remove(temp_db)
@@ -149,6 +177,11 @@ def export_backup(
             
         history_exists = os.path.exists(HISTORY_DB_PATH)
         if history_exists:
+            try:
+                with sqlite3.connect(HISTORY_DB_PATH) as conn:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception as e:
+                print(f"Warning: Failed to checkpoint history DB WAL: {e}")
             run_sqlite_backup(HISTORY_DB_PATH, temp_history_db)
         
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -193,58 +226,37 @@ def download_backup(filename: str, current_user: User = Depends(auth.require_sup
         
     return FileResponse(real_path, media_type="application/zip", filename=filename)
 
+def restart_server():
+    import time
+    import os
+    import signal
+    time.sleep(1.5)
+    print("Out-of-band restore initiated. Stopping server process to apply backup...")
+    os.kill(os.getpid(), signal.SIGTERM)
+
 @router.post("/restore")
-async def restore_backup(file: UploadFile = File(...), current_user: User = Depends(auth.require_super_admin)):
+async def restore_backup(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...), 
+    current_user: User = Depends(auth.require_super_admin)
+):
     try:
-        temp_zip = os.path.join(BACKUP_DIR, "temp_restore.zip")
-        with open(temp_zip, "wb") as buffer:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        restore_zip_path = os.path.join(BACKUP_DIR, "restore.zip")
+        with open(restore_zip_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # Extract files
-        temp_extract = os.path.join(BACKUP_DIR, "temp_extract")
-        if os.path.exists(temp_extract):
-            shutil.rmtree(temp_extract)
-        os.makedirs(temp_extract, exist_ok=True)
-        
-        with zipfile.ZipFile(temp_zip, 'r') as zipf:
-            zipf.extractall(temp_extract)
-            
-        restored_db = os.path.join(temp_extract, "polypress.db")
-        if not os.path.exists(restored_db):
-            shutil.rmtree(temp_extract)
-            if os.path.exists(temp_zip):
-                os.remove(temp_zip)
-            raise HTTPException(status_code=400, detail="Invalid backup file: missing polypress.db")
-            
-        # Safely shut down database connection pool
-        engine.dispose()
-        from database import history_engine
-        history_engine.dispose()
-        
-        # Replace files
-        shutil.copy2(restored_db, DB_PATH)
-        
-        restored_history_db = os.path.join(temp_extract, "polypress_history.db")
-        if os.path.exists(restored_history_db):
-            shutil.copy2(restored_history_db, HISTORY_DB_PATH)
-        
-        restored_branding = os.path.join(temp_extract, "branding")
-        if os.path.exists(restored_branding):
-            if os.path.exists(BRANDING_DIR):
-                shutil.rmtree(BRANDING_DIR)
-            shutil.copytree(restored_branding, BRANDING_DIR)
-            
-        # Cleanup
-        shutil.rmtree(temp_extract)
-        if os.path.exists(temp_zip):
-            os.remove(temp_zip)
-            
-        return {"detail": "Database and assets restored successfully. Connection pool refreshed."}
+        background_tasks.add_task(restart_server)
+        return {"detail": "System is restarting to apply the restore backup. This will take a moment."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to restore backup: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initiate restore: {e}")
 
 @router.post("/restore-local")
-def restore_local_backup(filename: str, current_user: User = Depends(auth.require_super_admin)):
+def restore_local_backup(
+    background_tasks: BackgroundTasks,
+    filename: str, 
+    current_user: User = Depends(auth.require_super_admin)
+):
     zip_path = os.path.join(BACKUP_DIR, filename)
     real_path = os.path.realpath(zip_path)
     if not real_path.startswith(os.path.realpath(BACKUP_DIR)):
@@ -254,43 +266,14 @@ def restore_local_backup(filename: str, current_user: User = Depends(auth.requir
         raise HTTPException(status_code=404, detail="Backup snapshot not found")
         
     try:
-        # Extract files
-        temp_extract = os.path.join(BACKUP_DIR, "temp_extract")
-        if os.path.exists(temp_extract):
-            shutil.rmtree(temp_extract)
-        os.makedirs(temp_extract, exist_ok=True)
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        restore_zip_path = os.path.join(BACKUP_DIR, "restore.zip")
+        shutil.copy2(real_path, restore_zip_path)
         
-        with zipfile.ZipFile(real_path, 'r') as zipf:
-            zipf.extractall(temp_extract)
-            
-        restored_db = os.path.join(temp_extract, "polypress.db")
-        if not os.path.exists(restored_db):
-            shutil.rmtree(temp_extract)
-            raise HTTPException(status_code=400, detail="Invalid backup file: missing polypress.db")
-            
-        # Safely shut down database connection pool
-        engine.dispose()
-        from database import history_engine
-        history_engine.dispose()
-        
-        # Replace files
-        shutil.copy2(restored_db, DB_PATH)
-        
-        restored_history_db = os.path.join(temp_extract, "polypress_history.db")
-        if os.path.exists(restored_history_db):
-            shutil.copy2(restored_history_db, HISTORY_DB_PATH)
-        
-        restored_branding = os.path.join(temp_extract, "branding")
-        if os.path.exists(restored_branding):
-            if os.path.exists(BRANDING_DIR):
-                shutil.rmtree(BRANDING_DIR)
-            shutil.copytree(restored_branding, BRANDING_DIR)
-            
-        # Cleanup
-        shutil.rmtree(temp_extract)
-        return {"detail": f"Database and assets restored from snapshot {filename}. Connection pool refreshed."}
+        background_tasks.add_task(restart_server)
+        return {"detail": "System is restarting to apply the local restore backup. This will take a moment."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to restore backup: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initiate local restore: {e}")
 
 @router.delete("/{filename}")
 def delete_backup(filename: str, current_user: User = Depends(auth.require_super_admin)):

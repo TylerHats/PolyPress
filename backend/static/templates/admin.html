@@ -76,9 +76,9 @@
                                      <span style="font-size: 11px; color: var(--text-muted);">Required for outbound tracking and opt-in validation links.</span>
                                  </div>
                                  <div class="field">
-                                     <label>Mail Server HELO/EHLO Identity (HELO Domain)</label>
+                                     <label>Mail Server HELO/EHLO Identity (Optional)</label>
                                      <input type="text" x-model="globalSettings.mail_server_identity" placeholder="mail.yourdomain.com">
-                                     <span style="font-size: 11px; color: var(--text-muted);">Configures the domain identity used for the HELO/EHLO SMTP handshake by the internal MTA (Direct Send). Must match your reverse PTR (rPTR) record.</span>
+                                     <span style="font-size: 11px; color: var(--text-muted);">Configures the domain identity used for the HELO/EHLO SMTP handshake by the internal MTA (Direct Send). Must match your reverse PTR (rPTR) record. Only used in Direct Send mode.</span>
                                  </div>
                                  <div class="field">
                                      <label>Sending IP Override (Optional)</label>
@@ -470,8 +470,8 @@
                     </div>
 
                     <!-- Reset History Confirmation Modal -->
-                    <div class="modal-backdrop" x-show="confirmResetHistory" style="display: none;">
-                        <div class="modal-card" @click.away="confirmResetHistory = false">
+                    <div class="modal-overlay" x-show="confirmResetHistory" style="display: none;">
+                        <div class="modal-content" @click.away="confirmResetHistory = false" style="padding: 24px; max-width: 500px;">
                             <div style="text-align: center;">
                                 <i data-lucide="alert-octagon" style="width: 48px; height: 48px; color: #dc2626; margin: 0 auto 15px; display: block;"></i>
                                 <h3 style="font-size: 18px; margin-bottom: 10px; color: var(--text-primary);">Confirm History Reset</h3>
@@ -487,18 +487,21 @@
                     </div>
 
                     <!-- Reset All Confirmation Modal -->
-                    <div class="modal-backdrop" x-show="confirmResetAll" style="display: none;">
-                        <div class="modal-card" @click.away="confirmResetAll = false" style="border: 2px solid #ef4444;">
+                    <div class="modal-overlay" x-show="confirmResetAll" style="display: none;">
+                        <div class="modal-content" @click.away="confirmResetAll = false" style="padding: 24px; max-width: 500px; border: 2px solid #ef4444;">
                             <div style="text-align: center;">
                                 <i data-lucide="alert-triangle" style="width: 48px; height: 48px; color: #ef4444; margin: 0 auto 15px; display: block;"></i>
                                 <h3 style="font-size: 18px; margin-bottom: 10px; color: #ef4444;">DANGER: Full System Factory Reset</h3>
                                 <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 20px;">
-                                    This action is **irreversible**. It will permanently wipe all users, tenants, lists, campaigns, subscriber logs, custom styling settings, and custom logos. You will be logged out and returned to the onboarding wizard.
+                                    This action is <strong>irreversible</strong>. It will permanently wipe all users, tenants, lists, campaigns, subscriber logs, custom styling settings, and custom logos. You will be logged out and returned to the onboarding wizard.
                                 </p>
-                                <div style="display: flex; gap: 10px; justify-content: center;">
-                                    <button @click="resetAllProgram()" class="btn" style="background-color: #ef4444; color: white;">Yes, Wipe Everything</button>
-                                    <button @click="confirmResetAll = false" class="btn btn-secondary">Cancel</button>
-                                </div>
+                                 <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 15px;">
+                                     <button @click="downloadBackupBeforeWipe()" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 8px;">
+                                         <i data-lucide="download" style="width: 16px; height: 16px;"></i> Download Last Backup
+                                     </button>
+                                     <button @click="resetAllProgram()" class="btn" style="background-color: #ef4444; color: white;">Yes, Wipe Everything</button>
+                                     <button @click="confirmResetAll = false" class="btn btn-secondary">Cancel</button>
+                                 </div>
                             </div>
                         </div>
                     </div>

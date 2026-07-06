@@ -12,7 +12,7 @@
 2. **Global OIDC Login**: Single sign-on authentication with role management (Super Admin vs. Tenant Admin).
 3. **Internal MTA (Direct Send)**: Resolves MX records of recipient domains directly and delivers emails without using third-party relays.
 4. **DKIM Signature Layer**: Generates 2048-bit RSA key pairs per domain and displays the DNS TXT record layout directly in the UI.
-5. **IMAP Bounce Processor**: Periodically polls a configured bounce mailbox to parse DSNs (delivery status notifications) and ARF (Abuse Report Format) spam reports, auto-flagging bad contacts.
+5. **Bounce & Complaint Handler**: Supports both periodic IMAP scanning of a dedicated bounce mailbox (parsing DSNs/ARF reports) and incoming HTTPS event webhooks from external SMTP relays (SendGrid, Mailgun, Postmark, and Amazon SES) to instantly flag bounced/spam contacts.
 6. **Visual Newsletter Builder**: Inline block editor (Heading, Paragraph, Button, Image, Divider, Spacer) with template compile engine and subscriber merge tags.
 7. **Double Opt-In Flow**: Per-domain toggle sends responsive verification emails to pending subscribers with activation links.
 8. **Visual Mock Previews**: Renders newsletter templates inside the browser with live subscriber merge-tag variable overrides.
@@ -121,17 +121,20 @@ Once complete, your credentials are saved, database schemas are fully establishe
 
 ## Configuration & Usage
 
-### OIDC Configuration (Super Admin)
+### OIDC & Mail Server Configuration (Super Admin Only)
 1. Login as `admin@polypress.local` and click **Global Admin** in the sidebar.
 2. Enable OIDC login and provide your provider issuer URI (e.g. Authentik, Keycloak, or Okta), Client ID, and Client Secret.
 3. Configure the **Allowed Domains** whitelist (e.g. `yourcompany.com`) to restrict registration.
 4. Toggle **Auto-Create Tenant** to automatically register a company tenant whenever a new OIDC email domain logs in.
+5. Set the **Mail Server HELO/EHLO Identity** (HELO Domain) and **Sending IP Override** to match your server's reverse PTR (rPTR) record and egress IP address. These configurations apply host-wide for MTA diagnostics.
 
 ### Sending Settings (Tenant Admin)
 Navigate to **Sending Settings** to configure your outbound strategy:
 - **External SMTP Relay**: Enter SMTP host, port, username, password, and SSL/TLS preferences.
 - **Direct Send (Internal MTA)**: Enter your sending domain (e.g. `yourcompany.com`). Generate a DKIM key pair, copy the host name (`polypress._domainkey.yourcompany.com`) and TXT record value (includes the base64 public key), and add it to your domain's DNS registry.
-- **IMAP Bounce Processor**: Enter the IMAP host, username, password, and port for the mailbox receiving return-path emails.
+- **Bounce Handling Settings**:
+  - **IMAP Inbox Scan**: Enter the IMAP host, username, password, port, and SSL toggles for the mailbox receiving return-path emails.
+  - **External Webhooks**: Select your provider (SendGrid, Mailgun, Postmark, or Amazon SES) to expose a copyable webhook endpoint. Use this URL in your mail provider's webhook panel to route bounces and spam complaints back to PolyPress instantly. Secret tokens can be rotated for additional security.
 
 ### Contacts & CSV Import
 1. Create a subscriber list under **Subscriber Lists**.

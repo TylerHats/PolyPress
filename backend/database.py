@@ -8,6 +8,144 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 BASE_DIR = os.path.realpath(os.path.dirname(__file__))
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'polypress.db')}")
 
+def check_and_apply_restore():
+    root_dir = os.path.realpath(os.path.join(BASE_DIR, ".."))
+    backup_dir = os.path.join(root_dir, "backups")
+    restore_zip = os.path.join(backup_dir, "restore.zip")
+    log_file = os.path.join(backup_dir, "restore.log")
+    
+    if os.path.exists(restore_zip):
+        def write_log(msg):
+            print(msg)
+            try:
+                with open(log_file, "a") as f:
+                    f.write(f"{datetime.utcnow().isoformat()} - {msg}\n")
+            except Exception:
+                pass
+                
+        write_log("\n" + "="*80)
+        write_log("=== OUT-OF-BAND RESTORE SYSTEM ACTIVATED ===")
+        write_log(f"Found restore zip at: {restore_zip} (Size: {os.path.getsize(restore_zip)} bytes)")
+        
+        try:
+            import zipfile
+            import shutil
+            
+            # Extract to temp
+            temp_extract = os.path.join(backup_dir, "temp_restore_extract")
+            if os.path.exists(temp_extract):
+                shutil.rmtree(temp_extract)
+            os.makedirs(temp_extract, exist_ok=True)
+            
+            write_log("Extracting zip archive...")
+            with zipfile.ZipFile(restore_zip, 'r') as zipf:
+                zipf.extractall(temp_extract)
+            write_log("Extraction completed.")
+                
+            restored_db = os.path.join(temp_extract, "polypress.db")
+            if os.path.exists(restored_db):
+                write_log(f"Found restored database: {restored_db} (Size: {os.path.getsize(restored_db)} bytes)")
+                
+                # Resolve destination database paths
+                target_db_url = DATABASE_URL
+                if target_db_url.startswith("sqlite:///"):
+                    target_db_path = target_db_url.replace("sqlite:///", "")
+                else:
+                    target_db_path = os.path.realpath(os.path.join(BASE_DIR, "polypress.db"))
+                write_log(f"Target database path resolved to: {target_db_path}")
+                    
+                target_history_url = os.getenv("HISTORY_DATABASE_URL")
+                if not target_history_url:
+                    if target_db_url.startswith("sqlite:///"):
+                        db_dir = os.path.dirname(target_db_path)
+                        if not db_dir:
+                            db_dir = "."
+                        target_history_path = os.path.join(db_dir, "polypress_history.db")
+                    else:
+                        target_history_path = os.path.realpath(os.path.join(BASE_DIR, "polypress_history.db"))
+                else:
+                    if target_history_url.startswith("sqlite:///"):
+                        target_history_path = target_history_url.replace("sqlite:///", "")
+                    else:
+                        target_history_path = os.path.realpath(os.path.join(BASE_DIR, "polypress_history.db"))
+                write_log(f"Target history database path resolved to: {target_history_path}")
+                
+                # Close/remove old files
+                for path in [target_db_path, target_history_path]:
+                    for ext in ["", "-wal", "-shm"]:
+                        file_to_del = path + ext
+                        if os.path.exists(file_to_del):
+                            try:
+                                os.remove(file_to_del)
+                                write_log(f"Successfully deleted old file: {file_to_del}")
+                            except Exception as de:
+                                write_log(f"Error removing {file_to_del}: {de}")
+                                
+                # Copy new database files
+                shutil.copy2(restored_db, target_db_path)
+                write_log(f"Restored base database file to: {target_db_path} (Size: {os.path.getsize(target_db_path)} bytes)")
+                
+                restored_history_db = os.path.join(temp_extract, "polypress_history.db")
+                if os.path.exists(restored_history_db):
+                    shutil.copy2(restored_history_db, target_history_path)
+                    write_log(f"Restored history database file to: {target_history_path} (Size: {os.path.getsize(target_history_path)} bytes)")
+                else:
+                    write_log("No history database file found in backup ZIP.")
+                    
+                # Restore branding folder
+                restored_branding = os.path.join(temp_extract, "branding")
+                if os.path.exists(restored_branding):
+                    branding_dest = os.path.join(root_dir, "branding")
+                    write_log(f"Restoring branding assets to: {branding_dest}")
+                    if os.path.exists(branding_dest):
+                        for item in os.listdir(branding_dest):
+                            item_p = os.path.join(branding_dest, item)
+                            try:
+                                if os.path.isdir(item_p):
+                                    shutil.rmtree(item_p)
+                                else:
+                                    os.remove(item_p)
+                            except Exception:
+                                pass
+                    else:
+                        os.makedirs(branding_dest, exist_ok=True)
+                        
+                    for item in os.listdir(restored_branding):
+                        src_i = os.path.join(restored_branding, item)
+                        dst_i = os.path.join(branding_dest, item)
+                        if os.path.isdir(src_i):
+                            shutil.copytree(src_i, dst_i)
+                        else:
+                            shutil.copy2(src_i, dst_i)
+                    write_log("Restored branding assets successfully.")
+                else:
+                    write_log("No branding assets found in backup ZIP.")
+                
+                write_log("Restore completed successfully.")
+            else:
+                write_log("ERROR: polypress.db not found in backup file.")
+                
+            # Cleanup temp extract
+            if os.path.exists(temp_extract):
+                shutil.rmtree(temp_extract)
+                
+        except Exception as e:
+            write_log(f"RESTORE CRITICAL ERROR: {e}")
+            
+        finally:
+            # Delete the restore trigger zip file
+            if os.path.exists(restore_zip):
+                try:
+                    os.remove(restore_zip)
+                    write_log(f"Deleted trigger zip file: {restore_zip}")
+                except Exception as de:
+                    write_log(f"Error deleting trigger zip file: {de}")
+        write_log("=== OUT-OF-BAND RESTORE SYSTEM COMPLETED ===")
+        write_log("="*80 + "\n")
+
+# Run it immediately during import sequence
+check_and_apply_restore()
+
 engine = create_engine(
     DATABASE_URL, 
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

@@ -1151,4 +1151,13 @@ def reset_all(db: Session = Depends(get_db), current_user: User = Depends(auth.r
                 except Exception:
                     pass
                     
+    # 4. Clean up backups
+    backup_dir = os.path.join(BASE_DIR, "backups")
+    if os.path.exists(backup_dir):
+        for f in os.listdir(backup_dir):
+            try:
+                os.remove(os.path.join(backup_dir, f))
+            except Exception:
+                pass
+                
     return {"status": "success", "detail": "Program has been fully reset. Returning to onboarding."}

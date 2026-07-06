@@ -750,7 +750,8 @@ async def incoming_bounce_webhook(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
         
-    if not token or tenant.bounce_webhook_token != token:
+    import hmac
+    if not token or not hmac.compare_digest(tenant.bounce_webhook_token or "", token):
         raise HTTPException(status_code=401, detail="Invalid bounce webhook token")
         
     try:
@@ -766,7 +767,11 @@ async def incoming_bounce_webhook(
             subscribe_url = payload.get("SubscribeURL")
             if subscribe_url:
                 import urllib.request
+                import urllib.parse
                 try:
+                    parsed_url = urllib.parse.urlparse(subscribe_url)
+                    if parsed_url.scheme != "https" or not (parsed_url.netloc.endswith(".amazonaws.com") or parsed_url.netloc.endswith(".amazonaws.com.cn")):
+                        raise HTTPException(status_code=400, detail="Invalid SNS subscription confirmation URL domain")
                     # AWS SNS requires confirmation by fetching the URL
                     urllib.request.urlopen(subscribe_url, timeout=10)
                     return {"success": True, "detail": "Subscription confirmed successfully."}
@@ -786,16 +791,20 @@ async def incoming_bounce_webhook(
         event_type = msg_data.get("eventType") or msg_data.get("notificationType")
         if event_type == "Bounce":
             bounce_obj = msg_data.get("bounce", {})
-            recipients = bounce_obj.get("bouncedRecipients", [])
+            recipients = bounce_obj.get("bouncedRecipients") or []
             for rec in recipients:
+                if not isinstance(rec, dict):
+                    continue
                 email = rec.get("emailAddress")
                 diag = rec.get("diagnosticCode") or bounce_obj.get("bounceSubType") or "AWS SES Permanent Bounce"
                 campaign_id, subscriber_id = extract_ses_metadata(msg_data)
                 process_webhook_event(db, tenant, email, "bounce", diag, campaign_id, subscriber_id)
         elif event_type == "Complaint":
             complaint_obj = msg_data.get("complaint", {})
-            recipients = complaint_obj.get("complainedRecipients", [])
+            recipients = complaint_obj.get("complainedRecipients") or []
             for rec in recipients:
+                if not isinstance(rec, dict):
+                    continue
                 email = rec.get("emailAddress")
                 feedback = complaint_obj.get("complaintFeedbackType") or "AWS SES Spam Complaint"
                 campaign_id, subscriber_id = extract_ses_metadata(msg_data)
