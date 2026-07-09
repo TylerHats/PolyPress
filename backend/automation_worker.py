@@ -8,18 +8,12 @@ from routes.campaign_routes import render_email_template
 
 logger = logging.getLogger("polypress.automation")
 
-def evaluate_condition(subscriber: Subscriber, config: dict) -> bool:
-    """
-    Evaluates condition configuration against subscriber properties and custom fields.
-    """
-    field = config.get("field", "")
-    operator = config.get("operator", "equals")
-    target_value = str(config.get("value", "")).strip().lower()
+def evaluate_condition_single(subscriber: Subscriber, field: str, operator: str, value: str) -> bool:
+    target_value = str(value).strip().lower()
 
     if not field:
         return False
 
-    # Retrieve actual subscriber value
     sub_value = ""
     if field == "email":
         sub_value = subscriber.email or ""
@@ -28,13 +22,11 @@ def evaluate_condition(subscriber: Subscriber, config: dict) -> bool:
     elif field == "status":
         sub_value = subscriber.status or ""
     elif field.startswith("tag"):
-        # E.g. check if target_value is in subscriber tags CSV
         tags = [t.strip().lower() for t in (subscriber.tags or "").split(",") if t.strip()]
         if operator == "contains":
             return target_value in tags
         return False
     else:
-        # Check custom attributes
         if subscriber.custom_data and field in subscriber.custom_data:
             sub_value = subscriber.custom_data[field] or ""
 
@@ -50,6 +42,26 @@ def evaluate_condition(subscriber: Subscriber, config: dict) -> bool:
         return not bool(sub_value)
     
     return False
+
+def evaluate_condition(subscriber: Subscriber, config: dict) -> bool:
+    """
+    Evaluates condition configuration against subscriber properties and custom fields.
+    """
+    primary_ok = evaluate_condition_single(
+        subscriber, 
+        config.get("field", ""), 
+        config.get("operator", "equals"), 
+        config.get("value", "")
+    )
+    if config.get("enable_or"):
+        secondary_ok = evaluate_condition_single(
+            subscriber, 
+            config.get("or_field", ""), 
+            config.get("or_operator", "equals"), 
+            config.get("or_value", "")
+        )
+        return primary_ok or secondary_ok
+    return primary_ok
 
 def trigger_automation_on_list_join(db, subscriber: Subscriber, list_id: int):
     """

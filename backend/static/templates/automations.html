@@ -215,7 +215,7 @@
 
                         <!-- Condition node inputs -->
                         <template x-if="getSelectedAutomationNode().type === 'condition'">
-                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <div style="display: flex; flex-direction: column; gap: 14px;">
                                 <div class="field">
                                     <label>Attribute / Property</label>
                                     <select x-model="getSelectedAutomationNode().config.field" style="width: 100%;">
@@ -243,6 +243,47 @@
                                     <input type="text" x-model="getSelectedAutomationNode().config.value" style="width: 100%;" placeholder="e.g. New York">
                                 </div>
                                 
+                                <!-- Optional OR flow toggle -->
+                                <div style="margin-top: 5px; margin-bottom: 5px; border-top: 1px dashed var(--border-glass); padding-top: 12px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 13px;">
+                                        <input type="checkbox" x-model="getSelectedAutomationNode().config.enable_or" style="width:16px; height:16px; cursor: pointer;">
+                                        Add OR Condition Check
+                                    </label>
+                                </div>
+
+                                <template x-if="getSelectedAutomationNode().config.enable_or">
+                                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 5px;">
+                                        <h5 style="font-size: 11px; font-weight: 700; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">OR Condition (B)</h5>
+                                        
+                                        <div class="field">
+                                            <label style="font-size: 12px; color: var(--text-secondary);">OR Attribute / Property</label>
+                                            <select x-model="getSelectedAutomationNode().config.or_field" style="width: 100%;">
+                                                <option value="">-- Choose field --</option>
+                                                <option value="name">Subscriber Name</option>
+                                                <option value="email">Subscriber Email</option>
+                                                <option value="status">Status (active/pending)</option>
+                                                <option value="tag">Tags CSV</option>
+                                                <template x-for="field in getTriggerListFields()" :key="field.key">
+                                                    <option :value="field.key" x-text="'Custom: ' + field.label"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label style="font-size: 12px; color: var(--text-secondary);">OR Operator Check</label>
+                                            <select x-model="getSelectedAutomationNode().config.or_operator" style="width: 100%;">
+                                                <option value="equals">Equals</option>
+                                                <option value="contains">Contains substring</option>
+                                                <option value="is_set">Is set / not empty</option>
+                                                <option value="is_not_set">Is empty / not set</option>
+                                            </select>
+                                        </div>
+                                        <div class="field" x-show="getSelectedAutomationNode().config.or_operator !== 'is_set' && getSelectedAutomationNode().config.or_operator !== 'is_not_set'">
+                                            <label style="font-size: 12px; color: var(--text-secondary);">OR Target Value</label>
+                                            <input type="text" x-model="getSelectedAutomationNode().config.or_value" style="width: 100%;" placeholder="e.g. Los Angeles">
+                                        </div>
+                                    </div>
+                                </template>
+
                                 <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 6px; padding: 10px; font-size:11px; color: var(--text-secondary); line-height: 1.4;">
                                     <strong>Routing Logic:</strong> If evaluation is true, flow proceeds down this chain. If false, execution skips the subsequent email/delay actions.
                                 </div>

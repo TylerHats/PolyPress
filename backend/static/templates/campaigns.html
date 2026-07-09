@@ -340,11 +340,11 @@
                                             Enable A/B/C/D Split Testing
                                         </label>
                                         
-                                        <div x-show="editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template" style="margin-top: 20px; display: flex; flex-direction: column; gap: 20px;">
+                                        <div x-show="editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template" style="margin-top: 20px; display: flex; flex-direction: column; gap: 24px;">
                                             <div class="field">
                                                 <label>Test Sample Size Ratio (0.01 - 1.0)</label>
                                                 <input type="number" x-model.number="editingCampaign.ab_test_ratio" step="0.05" min="0.05" max="1.0" style="width: 100%;">
-                                                <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 6px; padding-left: 6px; line-height: 1.3;">e.g. 0.20 sends tests to 20% of your list (divided equally among variants), then sends the winner to the remaining 80%.</span>
+                                                <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 2px; padding-left: 2px; line-height: 1.3;">e.g. 0.20 sends tests to 20% of your list (divided equally among variants), then sends the winner to the remaining 80%.</span>
                                             </div>
                                             <div class="field">
                                                 <label>Test Duration (Hours)</label>

@@ -1593,9 +1593,23 @@
                         const op = node.config.operator;
                         const val = node.config.value;
                         if (!field) return 'Configure conditional logic...';
-                        if (op === 'is_set') return `If ${field} is set`;
-                        if (op === 'is_not_set') return `If ${field} is empty`;
-                        return `If ${field} ${op} "${val}"`;
+                        
+                        let desc = '';
+                        if (op === 'is_set') desc = `${field} is set`;
+                        else if (op === 'is_not_set') desc = `${field} is empty`;
+                        else desc = `${field} ${op} "${val}"`;
+
+                        if (node.config.enable_or && node.config.or_field) {
+                            const orField = node.config.or_field;
+                            const orOp = node.config.or_operator || 'equals';
+                            const orVal = node.config.or_value || '';
+                            let orDesc = '';
+                            if (orOp === 'is_set') orDesc = `${orField} is set`;
+                            else if (orOp === 'is_not_set') orDesc = `${orField} is empty`;
+                            else orDesc = `${orField} ${orOp} "${orVal}"`;
+                            return `If ${desc} OR ${orDesc}`;
+                        }
+                        return `If ${desc}`;
                     }
                     return 'Sequence Block';
                 },

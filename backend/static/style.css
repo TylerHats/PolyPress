@@ -409,7 +409,7 @@ h1, h2, h3, h4 {
 .field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
 }
 
 .field label {
