@@ -165,6 +165,7 @@
                         <label>Select Mailing List</label>
                         <select x-model="activeFlowTarget.flow_data.trigger.list_id" style="width: 100%;" @change="refreshIcons()">
                             <option value="">-- Choose target list --</option>
+                            <option value="any">Any Mailing List (All Subscribers)</option>
                             <template x-for="list in lists" :key="list.id">
                                 <option :value="list.id" x-text="list.name"></option>
                             </template>
@@ -174,86 +175,81 @@
                 </div>
             </template>
 
-            <template x-if="selectedAutomationNodeId !== null && selectedAutomationNodeId !== 'trigger'">
+            <template x-if="selectedAutomationNodeId !== null && selectedAutomationNodeId !== 'trigger' && getSelectedAutomationNode()">
                 <div style="display: flex; flex-direction: column; gap: 15px;">
-                    <!-- Fetch active node details -->
-                    <div x-data="{ node: getSelectedAutomationNode() }">
-                        <template x-if="node">
-                            <div style="display: flex; flex-direction: column; gap: 15px;">
-                                <h4 style="font-size: 13px; font-weight: 700;" :style="getNodeTitleStyle(node.type)" x-text="getNodeTypeLabel(node.type)"></h4>
-                                
-                                <!-- Delay node inputs -->
-                                <template x-if="node.type === 'delay'">
-                                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                                        <div class="field">
-                                            <label>Wait Duration</label>
-                                            <input type="number" x-model.number="node.config.duration_value" min="1" style="width: 100%;">
-                                        </div>
-                                        <div class="field">
-                                            <label>Time Unit</label>
-                                            <select x-model="node.config.duration_unit" style="width: 100%;">
-                                                <option value="minutes">Minutes</option>
-                                                <option value="hours">Hours</option>
-                                                <option value="days">Days</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </template>
-
-                                <!-- Action Send Email node inputs -->
-                                <template x-if="node.type === 'action_send_email'">
-                                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                                        <div class="field">
-                                            <label>Email Campaign Template</label>
-                                            <select x-model="node.config.campaign_id" style="width: 100%;">
-                                                <option value="">-- Choose Campaign Draft --</option>
-                                                <template x-for="c in campaigns.filter(x => x.status === 'draft' || x.status === 'automation')" :key="c.id">
-                                                    <option :value="c.id" x-text="c.name"></option>
-                                                </template>
-                                            </select>
-                                            <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">Select a campaign template to queue. (Tip: Mark campaign status as 'Automation' or 'Draft' to keep it as a reusable template).</span>
-                                        </div>
-                                    </div>
-                                </template>
-
-                                <!-- Condition node inputs -->
-                                <template x-if="node.type === 'condition'">
-                                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                                        <div class="field">
-                                            <label>Attribute / Property</label>
-                                            <select x-model="node.config.field" style="width: 100%;">
-                                                <option value="">-- Choose field --</option>
-                                                <option value="name">Subscriber Name</option>
-                                                <option value="email">Subscriber Email</option>
-                                                <option value="status">Status (active/pending)</option>
-                                                <option value="tag">Tags CSV</option>
-                                                <template x-for="field in getTriggerListFields()" :key="field.key">
-                                                    <option :value="field.key" x-text="'Custom: ' + field.label"></option>
-                                                </template>
-                                            </select>
-                                        </div>
-                                        <div class="field">
-                                            <label>Operator Check</label>
-                                            <select x-model="node.config.operator" style="width: 100%;">
-                                                <option value="equals">Equals</option>
-                                                <option value="contains">Contains substring</option>
-                                                <option value="is_set">Is set / not empty</option>
-                                                <option value="is_not_set">Is empty / not set</option>
-                                            </select>
-                                        </div>
-                                        <div class="field" x-show="node.config.operator !== 'is_set' && node.config.operator !== 'is_not_set'">
-                                            <label>Target Value</label>
-                                            <input type="text" x-model="node.config.value" style="width: 100%;" placeholder="e.g. New York">
-                                        </div>
-                                        
-                                        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 6px; padding: 10px; font-size:11px; color: var(--text-secondary); line-height: 1.4;">
-                                            <strong>Routing Logic:</strong> If evaluation is true, flow proceeds down this chain. If false, execution skips the subsequent email/delay actions.
-                                        </div>
-                                    </div>
-                                </template>
-
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <h4 style="font-size: 13px; font-weight: 700;" :style="getNodeTitleStyle(getSelectedAutomationNode().type)" x-text="getNodeTypeLabel(getSelectedAutomationNode().type)"></h4>
+                        
+                        <!-- Delay node inputs -->
+                        <template x-if="getSelectedAutomationNode().type === 'delay'">
+                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                                <div class="field">
+                                    <label>Wait Duration</label>
+                                    <input type="number" x-model.number="getSelectedAutomationNode().config.duration_value" min="1" style="width: 100%;">
+                                </div>
+                                <div class="field">
+                                    <label>Time Unit</label>
+                                    <select x-model="getSelectedAutomationNode().config.duration_unit" style="width: 100%;">
+                                        <option value="minutes">Minutes</option>
+                                        <option value="hours">Hours</option>
+                                        <option value="days">Days</option>
+                                    </select>
+                                </div>
                             </div>
                         </template>
+
+                        <!-- Action Send Email node inputs -->
+                        <template x-if="getSelectedAutomationNode().type === 'action_send_email'">
+                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                                <div class="field">
+                                    <label>Email Campaign Template</label>
+                                    <select x-model="getSelectedAutomationNode().config.campaign_id" style="width: 100%;">
+                                        <option value="">-- Pick Template --</option>
+                                        <template x-for="c in campaigns.filter(x => x.status === 'draft' || x.status === 'automation')" :key="c.id">
+                                            <option :value="c.id" x-text="c.name"></option>
+                                        </template>
+                                    </select>
+                                    <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">Select a campaign template to queue. (Tip: Mark campaign status as 'Automation' or 'Draft' to keep it as a reusable template).</span>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Condition node inputs -->
+                        <template x-if="getSelectedAutomationNode().type === 'condition'">
+                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                                <div class="field">
+                                    <label>Attribute / Property</label>
+                                    <select x-model="getSelectedAutomationNode().config.field" style="width: 100%;">
+                                        <option value="">-- Choose field --</option>
+                                        <option value="name">Subscriber Name</option>
+                                        <option value="email">Subscriber Email</option>
+                                        <option value="status">Status (active/pending)</option>
+                                        <option value="tag">Tags CSV</option>
+                                        <template x-for="field in getTriggerListFields()" :key="field.key">
+                                            <option :value="field.key" x-text="'Custom: ' + field.label"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label>Operator Check</label>
+                                    <select x-model="getSelectedAutomationNode().config.operator" style="width: 100%;">
+                                        <option value="equals">Equals</option>
+                                        <option value="contains">Contains substring</option>
+                                        <option value="is_set">Is set / not empty</option>
+                                        <option value="is_not_set">Is empty / not set</option>
+                                    </select>
+                                </div>
+                                <div class="field" x-show="getSelectedAutomationNode().config.operator !== 'is_set' && getSelectedAutomationNode().config.operator !== 'is_not_set'">
+                                    <label>Target Value</label>
+                                    <input type="text" x-model="getSelectedAutomationNode().config.value" style="width: 100%;" placeholder="e.g. New York">
+                                </div>
+                                
+                                <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 6px; padding: 10px; font-size:11px; color: var(--text-secondary); line-height: 1.4;">
+                                    <strong>Routing Logic:</strong> If evaluation is true, flow proceeds down this chain. If false, execution skips the subsequent email/delay actions.
+                                </div>
+                            </div>
+                        </template>
+
                     </div>
                 </div>
             </template>

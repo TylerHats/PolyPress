@@ -118,9 +118,13 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    if campaign.status != "draft":
+    if campaign.status not in ["draft", "automation"]:
         raise HTTPException(status_code=400, detail="Cannot edit a campaign that has already been queued or sent")
         
+    new_status = payload.get("status")
+    if new_status in ["draft", "automation"]:
+        campaign.status = new_status
+
     campaign.name = payload.get("name", campaign.name)
     campaign.subject = payload.get("subject", campaign.subject)
     campaign.preheader = payload.get("preheader", campaign.preheader)
@@ -541,6 +545,7 @@ def preview_campaign(
     mock_name: str = "John Doe", 
     mock_email: str = "john@example.com", 
     token: str = Query(None),
+    variant: str = Query(None),
     db: Session = Depends(get_db)
 ):
     user = None
@@ -583,8 +588,16 @@ def preview_campaign(
             scheme = request.base_url.scheme
             
     tracking_domain = f"{scheme}://{request.base_url.netloc}".rstrip("/")
+    body_html = campaign.body_html
+    if variant and variant != "A":
+        variants = campaign.ab_variants or []
+        for v in variants:
+            if v.get("id") == variant:
+                body_html = v.get("body_html", "")
+                break
+
     rendered = render_email_template(
-        body_html=campaign.body_html,
+        body_html=body_html,
         subscriber=mock_sub,
         tracking_domain=tracking_domain,
         campaign_id=campaign.id,

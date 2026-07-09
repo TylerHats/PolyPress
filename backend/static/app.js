@@ -324,6 +324,7 @@
                 selectedAutomationNodeId: null,
                 activeAutomationLogs: [],
                 activeEditorVariantId: 'A',
+                previewVariantId: 'A',
                 
                 // Modals
                 modals: {
@@ -866,13 +867,14 @@
                     }
                     
                     await this.saveCampaignDraft();
+                    this.previewVariantId = this.activeEditorVariantId || 'A';
                     this.modals.campaignPreview = true;
                     this.updatePreviewIframe();
                     this.refreshIcons();
                 },
                 
                 updatePreviewIframe() {
-                    this.previewIframeSrc = `/api/campaigns/${this.editingCampaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&token=${encodeURIComponent(this.token)}&_t=${Date.now()}`;
+                    this.previewIframeSrc = `/api/campaigns/${this.editingCampaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&token=${encodeURIComponent(this.token)}&variant=${encodeURIComponent(this.previewVariantId)}&_t=${Date.now()}`;
                 },
                 
                 async fetchSslStatus() {
@@ -1553,11 +1555,11 @@
                 getNodeStyle(node) {
                     let baseStyle = '';
                     if (node.type === 'delay') {
-                        baseStyle = 'background: #022c22; border-color: #059669;';
+                        baseStyle = 'background: #022c22; border: 2px solid #059669;';
                     } else if (node.type === 'action_send_email') {
-                        baseStyle = 'background: #172554; border-color: #2563eb;';
+                        baseStyle = 'background: #172554; border: 2px solid #2563eb;';
                     } else if (node.type === 'condition') {
-                        baseStyle = 'background: #3b0764; border-color: #7c3aed;';
+                        baseStyle = 'background: #3b0764; border: 2px solid #7c3aed;';
                     }
                     if (this.selectedAutomationNodeId === node.id) {
                         baseStyle += ' border-color: var(--color-primary) !important; transform: scale(1.02); box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);';
@@ -1602,6 +1604,7 @@
                     }
                     const lid = this.activeFlowTarget.flow_data.trigger.list_id;
                     if (!lid) return 'Trigger: Subscriber Joins List';
+                    if (lid === 'any') return 'Subscriber Joins Any Mailing List';
                     const list = this.lists.find(l => l.id == lid);
                     return list ? `Subscriber Joins List: "${list.name}"` : `Subscriber Joins List [ID: ${lid}]`;
                 },
@@ -2726,9 +2729,15 @@
                             this.showToast('Schema saved successfully');
                             this.modals.editFields = false;
                             await this.fetchLists();
+                            const updatedList = this.lists.find(l => l.id === this.fieldsListTarget.id);
+                            if (updatedList) {
+                                this.fieldsListTarget = updatedList;
+                                if (this.modals.embedCode) {
+                                    this.updateEmbedCodeString();
+                                }
+                            }
                             if (this.listSelected && this.listSelected.id === this.fieldsListTarget.id) {
                                 // refresh open browser
-                                const updatedList = this.lists.find(l => l.id === this.listSelected.id);
                                 this.browseListSubscribers(updatedList);
                             }
                         }
@@ -2848,10 +2857,10 @@
                 
                 updateEmbedCodeString() {
                     const host = window.location.origin;
-                    this.embedIframeSrc = `${host}/api/embed/subscribe/${this.fieldsListTarget.id}?tag=${encodeURIComponent(this.embedCodeTag)}&theme=${this.embedCodeTheme}`;
+                    this.embedIframeSrc = `${host}/api/embed/subscribe/${this.fieldsListTarget.id}?tag=${encodeURIComponent(this.embedCodeTag)}&theme=${this.embedCodeTheme}&_t=${Date.now()}`;
                     const bg = this.embedCodeTheme === 'light' ? '#f8fafc' : '#0f172a';
                     const border = this.embedCodeTheme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.08)';
-                    this.embedCodeString = `<iframe src="${this.embedIframeSrc}" width="100%" height="450" style="border:${border}; border-radius:12px; background:${bg};" title="Newsletter Signup"></iframe>`;
+                    this.embedCodeString = `<iframe src="${host}/api/embed/subscribe/${this.fieldsListTarget.id}?tag=${encodeURIComponent(this.embedCodeTag)}&theme=${this.embedCodeTheme}" width="100%" height="450" style="border:${border}; border-radius:12px; background:${bg};" title="Newsletter Signup"></iframe>`;
                 },
 
                 // CSV Database Importer
@@ -3072,6 +3081,25 @@
                     }
                 },
 
+                getActiveVariantPreheader() {
+                    if (!this.editingCampaign) return '';
+                    if (this.activeEditorVariantId && this.activeEditorVariantId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === this.activeEditorVariantId);
+                        return variant ? (variant.preheader || '') : '';
+                    }
+                    return this.editingCampaign.preheader || '';
+                },
+
+                setActiveVariantPreheader(val) {
+                    if (!this.editingCampaign) return;
+                    if (this.activeEditorVariantId && this.activeEditorVariantId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === this.activeEditorVariantId);
+                        if (variant) variant.preheader = val;
+                    } else {
+                        this.editingCampaign.preheader = val;
+                    }
+                },
+
                 switchEditorVariant(variantId) {
                     if (!this.editingCampaign) return;
                     
@@ -3097,6 +3125,7 @@
 
                     // 2. Load the target variant
                     this.activeEditorVariantId = variantId;
+                    this.selectedBlockIndex = null;
                     if (variantId !== 'A') {
                         const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === variantId);
                         if (variant) {
@@ -3240,6 +3269,7 @@
                             headers: this.getAuthHeaders(),
                             body: JSON.stringify({
                                 name: this.editingCampaign.name,
+                                status: this.editingCampaign.status,
                                 subject: this.editingCampaign.subject,
                                 body_blocks: this.editingCampaign.body_blocks,
                                 body_html: this.editingCampaign.body_html,

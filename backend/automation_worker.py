@@ -69,7 +69,17 @@ def trigger_automation_on_list_join(db, subscriber: Subscriber, list_id: int):
             for node in nodes:
                 if node.get("type") == "trigger":
                     config = node.get("config", {})
-                    if config.get("event") == "list_joined" and int(config.get("list_id", 0)) == list_id:
+                    trigger_list = config.get("list_id")
+                    is_match = False
+                    if str(trigger_list).strip().lower() == "any":
+                        is_match = True
+                    else:
+                        try:
+                            is_match = (int(trigger_list or 0) == list_id)
+                        except ValueError:
+                            pass
+
+                    if config.get("event") == "list_joined" and is_match:
                         # Check if state already exists to prevent duplicate entries
                         exists = db.query(AutomationState).filter(
                             AutomationState.flow_id == flow.id,

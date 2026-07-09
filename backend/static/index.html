@@ -437,11 +437,11 @@
                         <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: center; background: rgba(255,255,255,0.01); border: 1px solid var(--border-glass); border-radius: 6px; padding: 8px;">
                             <input type="text" x-model="f.label" placeholder="Label (e.g. City)" style="flex: 2; height: 32px; font-size: 13px;">
                             <input type="text" x-model="f.key" placeholder="Key (e.g. city)" style="flex: 1.5; height: 32px; font-size: 13px; font-family: monospace;" :disabled="f.key === 'name'">
-                            <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; user-select: none; flex-shrink: 0; margin: 0; cursor: pointer;">
-                                <input type="checkbox" x-model="f.required" style="width: 15px; height: 15px;"> Req
+                            <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; user-select: none; flex-shrink: 0; margin: 0; cursor: pointer;" :style="!f.show_on_form ? 'opacity: 0.5; cursor: not-allowed;' : ''">
+                                <input type="checkbox" x-model="f.required" :disabled="!f.show_on_form" style="width: 15px; height: 15px;"> Req
                             </label>
                             <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; user-select: none; flex-shrink: 0; margin: 0; cursor: pointer; color: var(--color-accent);">
-                                <input type="checkbox" x-model="f.show_on_form" style="width: 15px; height: 15px;"> Form
+                                <input type="checkbox" x-model="f.show_on_form" @change="if (!f.show_on_form) f.required = false" style="width: 15px; height: 15px;"> Form
                             </label>
                             <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
                                 <span style="font-size: 11px; color: var(--text-secondary);">Order:</span>
@@ -484,8 +484,8 @@
             
             <!-- Integration Tabs -->
             <div style="display: flex; border-bottom: 1px solid var(--border-glass); margin-bottom: 20px; padding: 0 20px;">
-                <button @click="embedTab = 'widget'" :class="embedTab === 'widget' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: #fff; cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px;" :style="embedTab === 'widget' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: var(--color-primary);' : ''">iFrame Subscribe Widget</button>
-                <button @click="embedTab = 'api'" :class="embedTab === 'api' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: #fff; cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px;" :style="embedTab === 'api' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: var(--color-primary);' : ''">JSON REST API Docs</button>
+                <button @click="embedTab = 'widget'" :class="embedTab === 'widget' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px; font-family: inherit; font-size: 14px; outline: none; box-shadow: none; display: inline-block; vertical-align: bottom; appearance: none; -webkit-appearance: none;" :style="embedTab === 'widget' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: #fff;' : ''">iFrame Subscribe Widget</button>
+                <button @click="embedTab = 'api'" :class="embedTab === 'api' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px; font-family: inherit; font-size: 14px; outline: none; box-shadow: none; display: inline-block; vertical-align: bottom; appearance: none; -webkit-appearance: none;" :style="embedTab === 'api' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: #fff;' : ''">JSON REST API Docs</button>
             </div>
             
             <div class="modal-body" style="padding-top: 0;">
@@ -843,7 +843,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                 <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">
                     Mock variables dynamically to inspect responsive layout rendering on desktop and mobile clients.
                 </p>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);" :style="editingCampaign && editingCampaign.ab_testing_enabled ? 'grid-template-columns: 1fr 1fr 180px;' : ''">
                     <div class="field">
                         <label style="font-size:11px;">Mock Subscriber Name ({{name}})</label>
                         <input type="text" x-model="mockPreviewFields.name" @input="updatePreviewIframe()" placeholder="John Doe">
@@ -852,6 +852,17 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                         <label style="font-size:11px;">Mock Subscriber Email ({{email}})</label>
                         <input type="email" x-model="mockPreviewFields.email" @input="updatePreviewIframe()" placeholder="john@example.com">
                     </div>
+                    <template x-if="editingCampaign && editingCampaign.ab_testing_enabled">
+                        <div class="field">
+                            <label style="font-size:11px;">Preview Variant</label>
+                            <select x-model="previewVariantId" @change="updatePreviewIframe()" style="width: 100%;">
+                                <option value="A">Variant A (Main)</option>
+                                <template x-for="v in (editingCampaign.ab_variants || [])" :key="v.id">
+                                    <option :value="v.id" x-text="'Variant ' + v.id"></option>
+                                </template>
+                            </select>
+                        </div>
+                    </template>
                 </div>
                 
                 <div style="border: 1px solid var(--border-glass); border-radius: 8px; overflow: hidden; background: #fff; height: 500px; position: relative;">
