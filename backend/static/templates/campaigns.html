@@ -143,7 +143,7 @@
                             </div>
                             
                             <!-- Variant Selection Dropdown -->
-                            <template x-if="!isEditingOptIn && !isEditingFooter && editingCampaign && editingCampaign.ab_testing_enabled">
+                            <template x-if="!isEditingOptIn && !isEditingFooter && editingCampaign && editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template">
                                 <div style="display: flex; align-items: center; gap: 8px; border-left: 1px solid var(--border-glass); padding-left: 20px; flex-shrink: 0; white-space: nowrap;">
                                     <span style="font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; flex-shrink: 0;">Editing Split Variant:</span>
                                     <select :value="activeEditorVariantId" @change="switchEditorVariant($event.target.value)" style="background: rgba(0,0,0,0.3); color: #fff; border: 1px solid var(--border-glass); padding: 4px 12px; font-size: 11px; border-radius: 4px; height: 26px; cursor: pointer;">
@@ -334,13 +334,13 @@
                                 </template>
 
                                 <template x-if="!isEditingOptIn && editingCampaign">
-                                    <div style="margin-top: 15px; border-top: 1px dashed var(--border-glass); padding-top: 12px;">
-                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 13px;">
-                                            <input type="checkbox" x-model="editingCampaign.ab_testing_enabled" style="width:16px; height:16px;">
+                                    <div style="margin-top: 15px; border-top: 1px dashed var(--border-glass); padding-top: 12px;" :style="editingCampaign.is_automation_template ? 'opacity: 0.5; cursor: not-allowed;' : ''">
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 13px;" :style="editingCampaign.is_automation_template ? 'cursor: not-allowed;' : ''">
+                                            <input type="checkbox" x-model="editingCampaign.ab_testing_enabled" :disabled="editingCampaign.is_automation_template" style="width:16px; height:16px; cursor: pointer;" :style="editingCampaign.is_automation_template ? 'cursor: not-allowed;' : ''">
                                             Enable A/B/C/D Split Testing
                                         </label>
                                         
-                                        <div x-show="editingCampaign.ab_testing_enabled" style="margin-top: 20px; display: flex; flex-direction: column; gap: 20px;">
+                                        <div x-show="editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template" style="margin-top: 20px; display: flex; flex-direction: column; gap: 20px;">
                                             <div class="field">
                                                 <label>Test Sample Size Ratio (0.01 - 1.0)</label>
                                                 <input type="number" x-model.number="editingCampaign.ab_test_ratio" step="0.05" min="0.05" max="1.0" style="width: 100%;">
