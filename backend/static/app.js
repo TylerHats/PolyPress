@@ -323,6 +323,7 @@
                 automationForm: { name: '', description: '', list_id: '' },
                 selectedAutomationNodeId: null,
                 activeAutomationLogs: [],
+                activeEditorVariantId: 'A',
                 
                 // Modals
                 modals: {
@@ -1549,11 +1550,19 @@
                     return 'Node';
                 },
 
-                getNodeColorClass(type) {
-                    if (type === 'delay') return 'bg-emerald-950'; // delay color
-                    if (type === 'action_send_email') return 'bg-blue-950'; // action color
-                    if (type === 'condition') return 'bg-purple-950'; // condition color
-                    return '';
+                getNodeStyle(node) {
+                    let baseStyle = '';
+                    if (node.type === 'delay') {
+                        baseStyle = 'background: #022c22; border-color: #059669;';
+                    } else if (node.type === 'action_send_email') {
+                        baseStyle = 'background: #172554; border-color: #2563eb;';
+                    } else if (node.type === 'condition') {
+                        baseStyle = 'background: #3b0764; border-color: #7c3aed;';
+                    }
+                    if (this.selectedAutomationNodeId === node.id) {
+                        baseStyle += ' border-color: var(--color-primary) !important; transform: scale(1.02); box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);';
+                    }
+                    return baseStyle;
                 },
 
                 getNodeTitleStyle(type) {
@@ -2971,6 +2980,7 @@
                     if (this.editingCampaign.ab_winner_criteria === undefined) {
                         this.editingCampaign.ab_winner_criteria = 'open_rate';
                     }
+                    this.activeEditorVariantId = 'A';
                     this.targetingCollapsed = true;
                     this.selectedBlockIndex = null;
                     this.editorBlocks = campaign.body_blocks || [];
@@ -3014,6 +3024,10 @@
                     if (this.isEditingFooter) {
                         return this.tenant.email_footer_custom_html || '';
                     }
+                    if (this.editingCampaign && this.activeEditorVariantId && this.activeEditorVariantId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === this.activeEditorVariantId);
+                        return variant ? (variant.body_html || '') : '';
+                    }
                     return this.editingCampaign ? (this.editingCampaign.custom_html || '') : '';
                 },
                 
@@ -3023,8 +3037,83 @@
                     } else if (this.isEditingFooter) {
                         this.tenant.email_footer_custom_html = val;
                     } else if (this.editingCampaign) {
-                        this.editingCampaign.custom_html = val;
+                        if (this.activeEditorVariantId && this.activeEditorVariantId !== 'A') {
+                            const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === this.activeEditorVariantId);
+                            if (variant) variant.body_html = val;
+                        } else {
+                            this.editingCampaign.custom_html = val;
+                        }
                     }
+                },
+
+                getActiveVariantSubject() {
+                    if (this.isEditingOptIn) {
+                        return this.optInSubject || '';
+                    }
+                    if (!this.editingCampaign) return '';
+                    if (this.activeEditorVariantId && this.activeEditorVariantId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === this.activeEditorVariantId);
+                        return variant ? (variant.subject || '') : '';
+                    }
+                    return this.editingCampaign.subject || '';
+                },
+
+                setActiveVariantSubject(val) {
+                    if (this.isEditingOptIn) {
+                        this.optInSubject = val;
+                        return;
+                    }
+                    if (!this.editingCampaign) return;
+                    if (this.activeEditorVariantId && this.activeEditorVariantId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === this.activeEditorVariantId);
+                        if (variant) variant.subject = val;
+                    } else {
+                        this.editingCampaign.subject = val;
+                    }
+                },
+
+                switchEditorVariant(variantId) {
+                    if (!this.editingCampaign) return;
+                    
+                    // 1. Save current state to the active variant
+                    const currentId = this.activeEditorVariantId || 'A';
+                    let currentHtml = '';
+                    if (this.editingCampaign.is_custom_html) {
+                        currentHtml = this.editingCampaign.custom_html || '';
+                    } else {
+                        currentHtml = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                    }
+
+                    if (currentId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === currentId);
+                        if (variant) {
+                            variant.body_blocks = JSON.parse(JSON.stringify(this.editorBlocks));
+                            variant.body_html = currentHtml;
+                        }
+                    } else {
+                        this.editingCampaign.body_blocks = JSON.parse(JSON.stringify(this.editorBlocks));
+                        this.editingCampaign.body_html = currentHtml;
+                    }
+
+                    // 2. Load the target variant
+                    this.activeEditorVariantId = variantId;
+                    if (variantId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === variantId);
+                        if (variant) {
+                            // If target variant has no blocks, copy Variant A's blocks as starter template!
+                            if (!variant.body_blocks || variant.body_blocks.length === 0) {
+                                variant.body_blocks = JSON.parse(JSON.stringify(this.editingCampaign.body_blocks || []));
+                            }
+                            this.editorBlocks = variant.body_blocks;
+                        } else {
+                            this.editorBlocks = [];
+                        }
+                    } else {
+                        this.editorBlocks = this.editingCampaign.body_blocks || [];
+                    }
+
+                    this.reRenderCanvas();
+                    this.refreshIcons();
                 },
                 
                 toggleEditingCampaignList(id) {
@@ -3123,15 +3212,28 @@
                 },
                 
                 async saveCampaignDraft() {
-                    let html;
+                    const currentId = this.activeEditorVariantId || 'A';
+                    let currentHtml = '';
                     if (this.editingCampaign.is_custom_html) {
-                        html = this.editingCampaign.custom_html || '';
-                        if (this.tenant.email_footer_html && !html.includes('api/embed/unsubscribe')) {
-                            html += '<br>' + this.tenant.email_footer_html;
+                        currentHtml = this.editingCampaign.custom_html || '';
+                        if (this.tenant.email_footer_html && !currentHtml.includes('api/embed/unsubscribe')) {
+                            currentHtml += '<br>' + this.tenant.email_footer_html;
                         }
                     } else {
-                        html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                        currentHtml = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
                     }
+
+                    if (currentId !== 'A') {
+                        const variant = (this.editingCampaign.ab_variants || []).find(v => v.id === currentId);
+                        if (variant) {
+                            variant.body_blocks = JSON.parse(JSON.stringify(this.editorBlocks));
+                            variant.body_html = currentHtml;
+                        }
+                    } else {
+                        this.editingCampaign.body_blocks = JSON.parse(JSON.stringify(this.editorBlocks));
+                        this.editingCampaign.body_html = currentHtml;
+                    }
+
                     try {
                         const res = await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
                             method: 'PUT',
@@ -3139,8 +3241,8 @@
                             body: JSON.stringify({
                                 name: this.editingCampaign.name,
                                 subject: this.editingCampaign.subject,
-                                body_blocks: this.editorBlocks,
-                                body_html: html,
+                                body_blocks: this.editingCampaign.body_blocks,
+                                body_html: this.editingCampaign.body_html,
                                 is_custom_html: this.editingCampaign.is_custom_html,
                                 custom_html: this.editingCampaign.custom_html,
                                 ab_testing_enabled: this.editingCampaign.ab_testing_enabled,

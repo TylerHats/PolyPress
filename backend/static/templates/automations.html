@@ -99,17 +99,7 @@
                     <div style="font-size: 13px;" x-text="getAutomationTriggerLabel()"></div>
                 </div>
                 
-                <!-- Recursive Node Chain -->
-                <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
-                    <template x-if="activeFlowTarget && activeFlowTarget.flow_data">
-                        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
-                            <!-- Helper template to initiate the visual chain starting from trigger's next_node_id -->
-                            <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
-                                <template x-html="renderFlowChainNode(activeFlowTarget.flow_data.trigger_node_next_id)"></template>
-                            </div>
-                        </div>
-                    </template>
-                </div>
+
 
                 <!-- Custom Visual Chain Rendering without manual recursion constraints (sequential node mapping) -->
                 <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
@@ -120,11 +110,9 @@
                                 <div style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid rgba(255,255,255,0.25);"></div>
                             </div>
                             
-                            <!-- Node block card -->
-                            <div style="border-radius: 8px; padding: 12px 20px; width: 260px; color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid var(--border-glass); cursor: pointer; transition: all 0.2s;"
-                                 :style="selectedAutomationNodeId === node.id ? 'border-color: var(--color-primary); transform: scale(1.02);' : ''"
-                                 :class="getNodeColorClass(node.type)"
-                                 @click="selectedAutomationNodeId = node.id">
+                             <div style="border-radius: 8px; padding: 12px 20px; width: 260px; color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid var(--border-glass); cursor: pointer; transition: all 0.2s;"
+                                  :style="getNodeStyle(node)"
+                                  @click="selectedAutomationNodeId = node.id">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                     <span style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.7);" x-text="getNodeTypeLabel(node.type)"></span>
                                     <button @click.stop="removeAutomationNode(node.id)" style="background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 0;" class="hover-danger">

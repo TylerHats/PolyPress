@@ -121,6 +121,7 @@ async def process_automation_states():
             ).all()
 
             if not pending_states:
+                db.close()
                 await asyncio.sleep(2)
                 continue
 

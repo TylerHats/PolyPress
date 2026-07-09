@@ -127,6 +127,32 @@
                             </button>
                         </div>
                     </div>
+                    
+                    <!-- Editor Mode Toggle Bar -->
+                    <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                        <div style="display: flex; align-items: center; gap: 20px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 13px; font-weight: 600; color: #fff;">Editor Mode</span>
+                                <div style="display: flex; gap: 8px;">
+                                    <button @click="setEditorCustomHtmlMode(false)" :class="!getEditorIsCustomHtml() ? 'btn-primary' : 'btn-secondary'" class="btn btn-xs" style="padding: 4px 12px; font-size: 11px; border-radius: 4px;">Visual Blocks</button>
+                                    <button @click="setEditorCustomHtmlMode(true)" :class="getEditorIsCustomHtml() ? 'btn-primary' : 'btn-secondary'" class="btn btn-xs" style="padding: 4px 12px; font-size: 11px; border-radius: 4px;">Manual HTML</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Variant Selection Dropdown -->
+                            <template x-if="!isEditingOptIn && !isEditingFooter && editingCampaign && editingCampaign.ab_testing_enabled">
+                                <div style="display: flex; align-items: center; gap: 8px; border-left: 1px solid var(--border-glass); padding-left: 20px;">
+                                    <span style="font-size: 13px; font-weight: 600; color: #fff;">Editing Split Variant:</span>
+                                    <select :value="activeEditorVariantId" @change="switchEditorVariant($event.target.value)" style="background: rgba(0,0,0,0.3); color: #fff; border: 1px solid var(--border-glass); padding: 4px 12px; font-size: 11px; border-radius: 4px; height: 26px; cursor: pointer;">
+                                        <option value="A">Variant A (Main)</option>
+                                        <template x-for="v in (editingCampaign.ab_variants || [])" :key="v.id">
+                                            <option :value="v.id" x-text="'Variant ' + v.id" style="background: #1e1b4b;"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
 
                     <!-- Editor Workspace -->
                     <div class="editor-layout">
@@ -177,14 +203,7 @@
 
                         <!-- Center Panel: Live Preview Canvas -->
                         <div class="editor-canvas-container">
-                            <!-- HTML Mode Toggle -->
-                            <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-glass);">
-                                <span style="font-size: 13px; font-weight: 600;">Editor Mode</span>
-                                <div style="display: flex; gap: 8px;">
-                                    <button @click="setEditorCustomHtmlMode(false)" :class="!getEditorIsCustomHtml() ? 'btn-primary' : 'btn-secondary'" class="btn btn-xs" style="padding: 4px 10px; font-size: 11px;">Visual Blocks</button>
-                                    <button @click="setEditorCustomHtmlMode(true)" :class="getEditorIsCustomHtml() ? 'btn-primary' : 'btn-secondary'" class="btn btn-xs" style="padding: 4px 10px; font-size: 11px;">Manual HTML</button>
-                                </div>
-                            </div>
+
                             
                             <!-- Custom HTML Textarea -->
                             <div x-show="getEditorIsCustomHtml()" style="display: flex; flex-direction: column; gap: 10px; height: 100%; margin-bottom: 20px;">
@@ -289,7 +308,7 @@
                                 <div class="field" style="margin-bottom: 10px;">
                                     <label>Email Subject</label>
                                     <template x-if="!isEditingOptIn && editingCampaign">
-                                        <input type="text" x-model="editingCampaign.subject">
+                                        <input type="text" :value="getActiveVariantSubject()" @input="setActiveVariantSubject($event.target.value)">
                                     </template>
                                     <template x-if="isEditingOptIn">
                                         <input type="text" x-model="optInSubject">
@@ -308,15 +327,15 @@
                                             Enable A/B/C/D Split Testing
                                         </label>
                                         
-                                        <div x-show="editingCampaign.ab_testing_enabled" style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+                                        <div x-show="editingCampaign.ab_testing_enabled" style="margin-top: 15px; display: flex; flex-direction: column; gap: 14px;">
                                             <div class="field">
                                                 <label>Test Sample Size Ratio (0.01 - 1.0)</label>
-                                                <input type="number" x-model.number="editingCampaign.ab_test_ratio" step="0.05" min="0.05" max="1.0">
-                                                <span style="font-size: 10px; color: var(--text-muted);">e.g. 0.20 sends tests to 20% of your list (divided equally among variants), then sends the winner to the remaining 80%.</span>
+                                                <input type="number" x-model.number="editingCampaign.ab_test_ratio" step="0.05" min="0.05" max="1.0" style="width: 100%;">
+                                                <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 6px; padding-left: 6px; line-height: 1.3;">e.g. 0.20 sends tests to 20% of your list (divided equally among variants), then sends the winner to the remaining 80%.</span>
                                             </div>
                                             <div class="field">
                                                 <label>Test Duration (Hours)</label>
-                                                <input type="number" x-model.number="editingCampaign.ab_test_hours" min="1">
+                                                <input type="number" x-model.number="editingCampaign.ab_test_hours" min="1" style="width: 100%;">
                                             </div>
                                             <div class="field">
                                                 <label>Winner Selection Criteria</label>
@@ -326,8 +345,8 @@
                                                 </select>
                                             </div>
                                             
-                                            <button @click="openManageABVariantsModal()" class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 5px;">
-                                                <i data-lucide="layers" style="width:14px; height:14px; vertical-align:middle; margin-right:4px;"></i> Configure Variants (<span x-text="(editingCampaign.ab_variants || []).length"></span>)
+                                            <button @click="openManageABVariantsModal()" class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 5px; height: 36px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                                <i data-lucide="layers" style="width:14px; height:14px;"></i> Configure Variants (<span x-text="(editingCampaign.ab_variants || []).length"></span>)
                                             </button>
                                         </div>
                                     </div>

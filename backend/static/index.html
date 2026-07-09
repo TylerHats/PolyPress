@@ -483,9 +483,9 @@
             </div>
             
             <!-- Integration Tabs -->
-            <div style="display: flex; gap: 15px; border-bottom: 1px solid var(--border-glass); margin-bottom: 20px; padding: 0 20px;">
-                <button @click="embedTab = 'widget'" :class="embedTab === 'widget' ? 'active' : ''" class="tab-btn" style="padding: 10px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #fff; cursor: pointer; font-weight: 600;" :style="embedTab === 'widget' ? 'border-bottom-color: var(--color-primary); color: var(--color-primary);' : ''">iFrame Subscribe Widget</button>
-                <button @click="embedTab = 'api'" :class="embedTab === 'api' ? 'active' : ''" class="tab-btn" style="padding: 10px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #fff; cursor: pointer; font-weight: 600;" :style="embedTab === 'api' ? 'border-bottom-color: var(--color-primary); color: var(--color-primary);' : ''">JSON REST API Docs</button>
+            <div style="display: flex; border-bottom: 1px solid var(--border-glass); margin-bottom: 20px; padding: 0 20px;">
+                <button @click="embedTab = 'widget'" :class="embedTab === 'widget' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: #fff; cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px;" :style="embedTab === 'widget' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: var(--color-primary);' : ''">iFrame Subscribe Widget</button>
+                <button @click="embedTab = 'api'" :class="embedTab === 'api' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: #fff; cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px;" :style="embedTab === 'api' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: var(--color-primary);' : ''">JSON REST API Docs</button>
             </div>
             
             <div class="modal-body" style="padding-top: 0;">
@@ -524,12 +524,12 @@
                         Use PolyPress API Keys to programmatically sign up or import subscriber databases into this list from external static forms, backend services, or webflow hooks.
                     </p>
                     
-                    <div class="field">
+                    <div class="field" style="margin-bottom: 20px;">
                         <label>Endpoint URL</label>
                         <input type="text" readonly :value="window.location.origin + '/api/developer/v1/subscribers'" style="font-family: monospace; font-size: 13px; background: rgba(0,0,0,0.2); color: #fff; width: 100%; border: 1px solid var(--border-glass); border-radius: 6px; padding: 8px;">
                     </div>
                     
-                    <div class="field">
+                    <div class="field" style="margin-bottom: 20px;">
                         <label>HTTP Headers</label>
                         <pre style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; padding: 12px; font-size: 12px; color: #38bdf8; font-family: monospace; margin: 0; line-height: 1.5; white-space: pre-wrap;">
 Content-Type: application/json
@@ -537,7 +537,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                         </pre>
                     </div>
 
-                    <div class="field">
+                    <div class="field" style="margin-bottom: 20px;">
                         <label>POST JSON Payload Schema</label>
                         <pre style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; padding: 12px; font-size: 12px; color: #f472b6; font-family: monospace; margin: 0; line-height: 1.4; white-space: pre-wrap;" x-text="JSON.stringify({
     list_id: fieldsListTarget.id,
@@ -548,9 +548,9 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
 }, null, 4)"></pre>
                     </div>
 
-                    <div class="field">
+                    <div class="field" style="margin-bottom: 20px;">
                         <label>Sample cURL Command</label>
-                        <textarea readonly style="height: 140px; font-family: monospace; font-size: 11px; line-height: 1.4;" x-text="`curl -X POST &quot;\${window.location.origin}/api/developer/v1/subscribers&quot; \\
+                        <pre style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; padding: 12px; font-size: 11px; color: #a7f3d0; font-family: monospace; margin: 0; line-height: 1.4; white-space: pre-wrap;" x-text="`curl -X POST &quot;\${window.location.origin}/api/developer/v1/subscribers&quot; \\
   -H &quot;Content-Type: application/json&quot; \\
   -H &quot;X-PolyPress-Key: YOUR_API_KEY&quot; \\
   -d '{
@@ -559,7 +559,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
     &quot;name&quot;: &quot;Jane Doe&quot;,
     &quot;custom_data&quot;: ${JSON.stringify((fieldsListTarget.custom_fields || []).reduce((acc, f) => { if (f.key !== 'name') acc[f.key] = 'value'; return acc; }, {}))},
     &quot;source_tag&quot;: &quot;My API Form&quot;
-  }'`"></textarea>
+  }'`"></pre>
                     </div>
                 </div>
             </div>
