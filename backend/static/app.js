@@ -1643,6 +1643,14 @@
                     return baseStyle;
                 },
 
+                getTriggerNodeStyle() {
+                    let baseStyle = 'background: #1e1b4b; border: 2px solid rgba(129, 140, 248, 0.5); border-radius: 8px; padding: 12px 20px; width: 260px; text-align: center; color: #fff; font-weight: 600; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: all 0.2s; position: relative; cursor: pointer; display: block; box-sizing: border-box;';
+                    if (this.selectedAutomationNodeId === 'trigger') {
+                        baseStyle += ' border-color: var(--color-primary) !important; transform: scale(1.02); box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);';
+                    }
+                    return baseStyle;
+                },
+
                 getNodeTitleStyle(type) {
                     if (type === 'delay') return 'color: #34d399;';
                     if (type === 'action_send_email') return 'color: #60a5fa;';
@@ -1810,7 +1818,7 @@
                 },
 
                 async deleteAutomationFlow(id) {
-                    if (!confirm('Are you sure you want to delete this automation flow? All subscriber states and logs will be permanently deleted.')) return;
+                    if (!await this.askConfirm('Are you sure you want to delete this automation flow? All subscriber states and logs will be permanently deleted.', 'Delete Automation Flow', true)) return;
                     try {
                         const res = await fetch(`/api/automations/${id}`, {
                             method: 'DELETE',

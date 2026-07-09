@@ -109,6 +109,52 @@ def find_node_and_parent(nodes: list, target_id: str) -> tuple[dict, list]:
                 return found_node, found_parent
     return None, None
 
+def find_node_parent_and_ancestors(nodes: list, target_id: str, ancestors: list = None) -> tuple[dict, list, list]:
+    if ancestors is None:
+        ancestors = []
+    for i, node in enumerate(nodes):
+        if node.get("id") == target_id:
+            return node, nodes, ancestors
+        if node.get("type") == "condition":
+            found_node, found_parent, found_anc = find_node_parent_and_ancestors(node.get("true_nodes", []), target_id, ancestors + [node])
+            if found_node:
+                return found_node, found_parent, found_anc
+            found_node, found_parent, found_anc = find_node_parent_and_ancestors(node.get("false_nodes", []), target_id, ancestors + [node])
+            if found_node:
+                return found_node, found_parent, found_anc
+    return None, None, None
+
+def is_descendant(nodes: list, target_id: str) -> bool:
+    for node in nodes:
+        if node.get("id") == target_id:
+            return True
+        if node.get("type") == "condition":
+            if is_descendant(node.get("true_nodes", []), target_id):
+                return True
+            if is_descendant(node.get("false_nodes", []), target_id):
+                return True
+    return False
+
+def get_next_step_after_node(nodes: list, node_id: str) -> str:
+    node, parent_array, ancestors = find_node_parent_and_ancestors(nodes, node_id)
+    if not node or not parent_array:
+        return None
+    idx = parent_array.index(node)
+    if idx + 1 < len(parent_array):
+        return parent_array[idx + 1].get("id")
+    # If parent array ended, traverse up ancestors
+    if ancestors:
+        parent_condition = ancestors[-1]
+        is_true_branch = is_descendant(parent_condition.get("true_nodes", []), node_id)
+        config = parent_condition.get("config", {})
+        if is_true_branch:
+            if config.get("true_continue"):
+                return get_next_step_after_node(nodes, parent_condition.get("id"))
+        else:
+            if config.get("false_continue"):
+                return get_next_step_after_node(nodes, parent_condition.get("id"))
+    return None
+
 def trigger_automation_on_list_join(db, subscriber: Subscriber, list_id: int):
     """
     Checks active flows for list join triggers and launches AutomationStates.
@@ -234,8 +280,7 @@ async def process_automation_states():
                         delta = timedelta(days=duration)
                         
                     state.scheduled_for = now + delta
-                    idx = parent_array.index(node)
-                    state.current_node_id = parent_array[idx + 1].get("id") if idx + 1 < len(parent_array) else None
+                    state.current_node_id = get_next_step_after_node(nodes, node.get("id"))
                     if not state.current_node_id:
                         state.status = "completed"
                     
@@ -271,8 +316,7 @@ async def process_automation_states():
                         )
                         db.add(log)
                         
-                        idx = parent_array.index(node)
-                        state.current_node_id = parent_array[idx + 1].get("id") if idx + 1 < len(parent_array) else None
+                        state.current_node_id = get_next_step_after_node(nodes, node.get("id"))
                         if not state.current_node_id:
                             state.status = "completed"
                         db.commit()
@@ -306,8 +350,7 @@ async def process_automation_states():
                     db.commit()
 
                     # Advance state
-                    idx = parent_array.index(node)
-                    state.current_node_id = parent_array[idx + 1].get("id") if idx + 1 < len(parent_array) else None
+                    state.current_node_id = get_next_step_after_node(nodes, node.get("id"))
                     if not state.current_node_id:
                         state.status = "completed"
                     state.scheduled_for = datetime.utcnow() # Process next step immediately
@@ -334,11 +377,16 @@ async def process_automation_states():
                         branch_nodes = node.get("true_nodes", []) if is_true else node.get("false_nodes", [])
                         if branch_nodes:
                             next_id = branch_nodes[0].get("id")
+                        else:
+                            should_continue = config.get("true_continue") if is_true else config.get("false_continue")
+                            if should_continue:
+                                next_id = get_next_step_after_node(nodes, node.get("id"))
                     else:
                         if is_true:
-                            idx = parent_array.index(node)
-                            if idx + 1 < len(parent_array):
-                                next_id = parent_array[idx + 1].get("id")
+                            next_id = get_next_step_after_node(nodes, node.get("id"))
+                        else:
+                            if config.get("false_continue"):
+                                next_id = get_next_step_after_node(nodes, node.get("id"))
                     
                     state.current_node_id = next_id
                     if not state.current_node_id:
