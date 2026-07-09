@@ -845,16 +845,16 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                 </p>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; background: rgba(0,0,0,0.15); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);" :style="editingCampaign && editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template ? 'grid-template-columns: 1fr 1fr 180px;' : ''">
                     <div class="field">
-                        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 2px; display: block;">Mock Subscriber Name ({{name}})</label>
+                        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block;">Mock Subscriber Name ({{name}})</label>
                         <input type="text" x-model="mockPreviewFields.name" @input="updatePreviewIframe()" placeholder="John Doe">
                     </div>
                     <div class="field">
-                        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 2px; display: block;">Mock Subscriber Email ({{email}})</label>
+                        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block;">Mock Subscriber Email ({{email}})</label>
                         <input type="email" x-model="mockPreviewFields.email" @input="updatePreviewIframe()" placeholder="john@example.com">
                     </div>
                     <template x-if="editingCampaign && editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template">
                         <div class="field">
-                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 2px; display: block;">Preview Variant</label>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block;">Preview Variant</label>
                             <select x-model="previewVariantId" @change="updatePreviewIframe()" style="width: 100%;">
                                 <option value="A">Variant A (Main)</option>
                                 <template x-for="v in (editingCampaign.ab_variants || [])" :key="v.id">
