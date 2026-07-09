@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{APP_NAME}} Admin Dashboard</title>
     <link rel="icon" href="{{APP_LOGO}}" type="image/png">
-    <link href="/static/style.css?v=1.0.1" rel="stylesheet">
+    <link href="/static/style.css?v=1.6.4" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Load ChartJS for premium charts -->
@@ -483,9 +483,9 @@
             </div>
             
             <!-- Integration Tabs -->
-            <div style="display: flex; align-items: flex-end; border-bottom: 1px solid var(--border-glass); margin-bottom: 20px; padding: 0 20px; gap: 8px;">
-                <div @click="embedTab = 'widget'" class="tab-btn" style="padding: 12px 24px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 8px; border-top-right-radius: 8px; transition: all 0.2s; font-family: inherit; font-size: 14px; user-select: none; box-sizing: border-box;" :style="embedTab === 'widget' ? 'background: rgba(255,255,255,0.1); border-bottom: 2px solid var(--color-primary); color: #fff; box-shadow: 0 -4px 12px rgba(255,255,255,0.02);' : ''">iFrame Subscribe Widget</div>
-                <div @click="embedTab = 'api'" class="tab-btn" style="padding: 12px 24px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 8px; border-top-right-radius: 8px; transition: all 0.2s; font-family: inherit; font-size: 14px; user-select: none; box-sizing: border-box;" :style="embedTab === 'api' ? 'background: rgba(255,255,255,0.1); border-bottom: 2px solid var(--color-primary); color: #fff; box-shadow: 0 -4px 12px rgba(255,255,255,0.02);' : ''">JSON REST API Docs</div>
+            <div class="tab-container-header">
+                <div @click="embedTab = 'widget'" class="tab-btn" :class="embedTab === 'widget' ? 'active' : ''">iFrame Subscribe Widget</div>
+                <div @click="embedTab = 'api'" class="tab-btn" :class="embedTab === 'api' ? 'active' : ''">JSON REST API Docs</div>
             </div>
             
             <div class="modal-body" style="padding-top: 0;">
@@ -843,18 +843,18 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                 <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">
                     Mock variables dynamically to inspect responsive layout rendering on desktop and mobile clients.
                 </p>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);" :style="editingCampaign && editingCampaign.ab_testing_enabled ? 'grid-template-columns: 1fr 1fr 180px;' : ''">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; background: rgba(0,0,0,0.15); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);" :style="editingCampaign && editingCampaign.ab_testing_enabled ? 'grid-template-columns: 1fr 1fr 180px;' : ''">
                     <div class="field">
-                        <label style="font-size:11px;">Mock Subscriber Name ({{name}})</label>
+                        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Mock Subscriber Name ({{name}})</label>
                         <input type="text" x-model="mockPreviewFields.name" @input="updatePreviewIframe()" placeholder="John Doe">
                     </div>
                     <div class="field">
-                        <label style="font-size:11px;">Mock Subscriber Email ({{email}})</label>
+                        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Mock Subscriber Email ({{email}})</label>
                         <input type="email" x-model="mockPreviewFields.email" @input="updatePreviewIframe()" placeholder="john@example.com">
                     </div>
                     <template x-if="editingCampaign && editingCampaign.ab_testing_enabled">
                         <div class="field">
-                            <label style="font-size:11px;">Preview Variant</label>
+                            <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Preview Variant</label>
                             <select x-model="previewVariantId" @change="updatePreviewIframe()" style="width: 100%;">
                                 <option value="A">Variant A (Main)</option>
                                 <template x-for="v in (editingCampaign.ab_variants || [])" :key="v.id">

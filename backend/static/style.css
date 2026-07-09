@@ -975,3 +975,42 @@ input[type="checkbox"]:checked + .toggle-switch::after {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
+
+.tab-container-header {
+    display: flex;
+    align-items: flex-end;
+    border-bottom: 1px solid var(--border-glass);
+    margin-bottom: 20px;
+    padding: 0 20px;
+    gap: 8px;
+}
+
+.tab-btn {
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-glass);
+    border-bottom: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    font-weight: 600;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    transition: var(--transition-smooth);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    user-select: none;
+    box-sizing: border-box;
+}
+
+.tab-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
+
+.tab-btn.active {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--border-glass);
+    border-bottom: 2px solid var(--color-primary);
+    color: #fff;
+    box-shadow: 0 -4px 12px rgba(255, 255, 255, 0.02);
+}
