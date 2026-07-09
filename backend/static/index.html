@@ -484,8 +484,8 @@
             
             <!-- Integration Tabs -->
             <div style="display: flex; border-bottom: 1px solid var(--border-glass); margin-bottom: 20px; padding: 0 20px;">
-                <button @click="embedTab = 'widget'" :class="embedTab === 'widget' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px; font-family: inherit; font-size: 14px; outline: none; box-shadow: none; display: inline-block; vertical-align: bottom; appearance: none; -webkit-appearance: none;" :style="embedTab === 'widget' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: #fff;' : ''">iFrame Subscribe Widget</button>
-                <button @click="embedTab = 'api'" :class="embedTab === 'api' ? 'active' : ''" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px; font-family: inherit; font-size: 14px; outline: none; box-shadow: none; display: inline-block; vertical-align: bottom; appearance: none; -webkit-appearance: none;" :style="embedTab === 'api' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: #fff;' : ''">JSON REST API Docs</button>
+                <div @click="embedTab = 'widget'" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px; font-family: inherit; font-size: 14px; outline: none; box-shadow: none; display: inline-block; vertical-align: bottom; user-select: none;" :style="embedTab === 'widget' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: #fff;' : ''">iFrame Subscribe Widget</div>
+                <div @click="embedTab = 'api'" class="tab-btn" style="padding: 10px 20px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-bottom: none; color: rgba(255,255,255,0.6); cursor: pointer; font-weight: 600; border-top-left-radius: 6px; border-top-right-radius: 6px; transition: all 0.2s; margin-right: 6px; font-family: inherit; font-size: 14px; outline: none; box-shadow: none; display: inline-block; vertical-align: bottom; user-select: none;" :style="embedTab === 'api' ? 'background: rgba(255,255,255,0.08); border-bottom: 2px solid var(--color-primary); color: #fff;' : ''">JSON REST API Docs</div>
             </div>
             
             <div class="modal-body" style="padding-top: 0;">
@@ -1423,6 +1423,12 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                     <div>
                         <p style="margin-bottom: 10px;"><strong>Cancelled:</strong> Campaign sending was cancelled by the administrator.</p>
                         <p>Any remaining unsent items have been permanently purged from the outbox queue, and no further delivery attempts will be made.</p>
+                    </div>
+                </template>
+                <template x-if="explainingStatus === 'automation'">
+                    <div>
+                        <p style="margin-bottom: 10px;"><strong>Automation Template:</strong> This campaign is locked as a reusable template for triggered visual flow automations.</p>
+                        <p>It cannot be broadcast manually or edited, ensuring that automated email campaigns deliver consistent, reliable formatting, and keep isolated tracking metrics.</p>
                     </div>
                 </template>
             </div>

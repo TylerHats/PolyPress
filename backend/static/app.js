@@ -1553,13 +1553,15 @@
                 },
 
                 getNodeStyle(node) {
-                    let baseStyle = '';
+                    let baseStyle = 'border-radius: 8px; padding: 12px 20px; width: 260px; color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; transition: all 0.2s;';
                     if (node.type === 'delay') {
-                        baseStyle = 'background: #022c22; border: 2px solid #059669;';
+                        baseStyle += ' background: #022c22; border: 2px solid #059669;';
                     } else if (node.type === 'action_send_email') {
-                        baseStyle = 'background: #172554; border: 2px solid #2563eb;';
+                        baseStyle += ' background: #172554; border: 2px solid #2563eb;';
                     } else if (node.type === 'condition') {
-                        baseStyle = 'background: #3b0764; border: 2px solid #7c3aed;';
+                        baseStyle += ' background: #3b0764; border: 2px solid #7c3aed;';
+                    } else {
+                        baseStyle += ' background: rgba(15, 23, 42, 0.4); border: 2px solid var(--border-glass);';
                     }
                     if (this.selectedAutomationNodeId === node.id) {
                         baseStyle += ' border-color: var(--color-primary) !important; transform: scale(1.02); box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);';
@@ -2961,6 +2963,7 @@
 
                 startVisualEditor(campaign) {
                     this.editingCampaign = campaign;
+                    this.editingCampaign.is_automation_template = (campaign.status === 'automation');
                     if (!this.editingCampaign.target_rules) {
                         this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '' };
                     } else {
@@ -3240,6 +3243,15 @@
                     this.refreshIcons();
                 },
                 
+                async saveAndLockCampaign() {
+                    if (!confirm("Are you sure you want to Save & Lock this campaign design as an Automation Template?\n\nOnce locked, you will not be able to edit its design or broadcast it manually, but it will be safely available for Visual Flow Automations.")) {
+                        return;
+                    }
+                    this.editingCampaign.status = 'automation';
+                    await this.saveCampaignDraft();
+                    this.switchTab('campaigns');
+                },
+
                 async saveCampaignDraft() {
                     const currentId = this.activeEditorVariantId || 'A';
                     let currentHtml = '';
@@ -3545,6 +3557,7 @@
                     if (status === 'paused') return 'badge-warning';
                     if (status === 'queued') return 'badge-warning';
                     if (status === 'cancelled') return 'badge-muted';
+                    if (status === 'automation') return 'badge-purple';
                     return 'badge-muted'; // draft
                 },
                 

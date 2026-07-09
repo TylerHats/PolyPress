@@ -118,8 +118,8 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    if campaign.status not in ["draft", "automation"]:
-        raise HTTPException(status_code=400, detail="Cannot edit a campaign that has already been queued or sent")
+    if campaign.status != "draft":
+        raise HTTPException(status_code=400, detail="Cannot edit a campaign that has already been locked or sent")
         
     new_status = payload.get("status")
     if new_status in ["draft", "automation"]:

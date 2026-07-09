@@ -17,7 +17,7 @@
                     <tr>
                         <th>Flow Name</th>
                         <th>Description</th>
-                        <th>Status</th>
+                        <th style="text-align: center;">Status</th>
                         <th>Last Updated</th>
                         <th>Actions</th>
                     </tr>
@@ -27,9 +27,9 @@
                         <tr>
                             <td style="font-weight: 600;" x-text="f.name"></td>
                             <td x-text="f.description || 'No description'"></td>
-                            <td>
+                            <td style="text-align: center;">
                                 <span class="badge" 
-                                      :class="f.is_active ? 'badge-success' : 'badge-secondary'" 
+                                      :class="f.is_active ? 'badge-success' : 'badge-muted'" 
                                       x-text="f.is_active ? 'Active' : 'Inactive'"
                                       @click="toggleFlowActiveStatus(f)"
                                       style="cursor: pointer;"
@@ -110,9 +110,8 @@
                                 <div style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid rgba(255,255,255,0.25);"></div>
                             </div>
                             
-                             <div style="border-radius: 8px; padding: 12px 20px; width: 260px; color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid var(--border-glass); cursor: pointer; transition: all 0.2s;"
-                                  :style="getNodeStyle(node)"
-                                  @click="selectedAutomationNodeId = node.id">
+                              <div :style="getNodeStyle(node)"
+                                   @click="selectedAutomationNodeId = node.id">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                     <span style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.7);" x-text="getNodeTypeLabel(node.type)"></span>
                                     <button @click.stop="removeAutomationNode(node.id)" style="background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 0;" class="hover-danger">
@@ -205,11 +204,11 @@
                                     <label>Email Campaign Template</label>
                                     <select x-model="getSelectedAutomationNode().config.campaign_id" style="width: 100%;">
                                         <option value="">-- Pick Template --</option>
-                                        <template x-for="c in campaigns.filter(x => x.status === 'draft' || x.status === 'automation')" :key="c.id">
+                                        <template x-for="c in campaigns.filter(x => x.status === 'automation')" :key="c.id">
                                             <option :value="c.id" x-text="c.name"></option>
                                         </template>
                                     </select>
-                                    <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">Select a campaign template to queue. (Tip: Mark campaign status as 'Automation' or 'Draft' to keep it as a reusable template).</span>
+                                    <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">Select a campaign template to queue. (Tip: Save &amp; Lock a campaign design as an Automation Template to select it here).</span>
                                 </div>
                             </div>
                         </template>

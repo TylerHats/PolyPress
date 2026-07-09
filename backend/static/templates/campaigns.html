@@ -100,9 +100,12 @@
                             <button x-show="!isEditingOptIn && !isEditingFooter" @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
                                 <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
                             </button>
-                            <button x-show="!isEditingOptIn && !isEditingFooter" @click="openLaunchModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
-                                <i data-lucide="send" style="width: 16px; height: 16px;"></i> Queue & Send
-                            </button>
+                            <button x-show="!isEditingOptIn && !isEditingFooter && (!editingCampaign || !editingCampaign.is_automation_template)" @click="openLaunchModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                 <i data-lucide="send" style="width: 16px; height: 16px;"></i> Queue & Send
+                             </button>
+                             <button x-show="!isEditingOptIn && !isEditingFooter && editingCampaign && editingCampaign.is_automation_template" @click="saveAndLockCampaign()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border-color: #6d28d9; box-shadow: 0 4px 15px -4px rgba(139, 92, 246, 0.4);">
+                                 <i data-lucide="lock" style="width: 16px; height: 16px;"></i> Save & Lock
+                             </button>
                             
                             <!-- Double Opt-In Mode Buttons -->
                             <button x-show="isEditingOptIn" @click="saveOptInTemplate()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
@@ -141,8 +144,8 @@
                             
                             <!-- Variant Selection Dropdown -->
                             <template x-if="!isEditingOptIn && !isEditingFooter && editingCampaign && editingCampaign.ab_testing_enabled">
-                                <div style="display: flex; align-items: center; gap: 8px; border-left: 1px solid var(--border-glass); padding-left: 20px;">
-                                    <span style="font-size: 13px; font-weight: 600; color: #fff;">Editing Split Variant:</span>
+                                <div style="display: flex; align-items: center; gap: 8px; border-left: 1px solid var(--border-glass); padding-left: 20px; flex-shrink: 0; white-space: nowrap;">
+                                    <span style="font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; flex-shrink: 0;">Editing Split Variant:</span>
                                     <select :value="activeEditorVariantId" @change="switchEditorVariant($event.target.value)" style="background: rgba(0,0,0,0.3); color: #fff; border: 1px solid var(--border-glass); padding: 4px 12px; font-size: 11px; border-radius: 4px; height: 26px; cursor: pointer;">
                                         <option value="A">Variant A (Main)</option>
                                         <template x-for="v in (editingCampaign.ab_variants || [])" :key="v.id">
@@ -323,7 +326,7 @@
                                 <template x-if="!isEditingOptIn && editingCampaign">
                                     <div style="margin-top: 15px; border-top: 1px dashed var(--border-glass); padding-top: 12px; margin-bottom: 15px;">
                                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 13px;">
-                                            <input type="checkbox" :checked="editingCampaign.status === 'automation'" @change="editingCampaign.status = ($event.target.checked ? 'automation' : 'draft')" style="width:16px; height:16px;">
+                                            <input type="checkbox" x-model="editingCampaign.is_automation_template" style="width:16px; height:16px;">
                                             Is Automation Template
                                         </label>
                                         <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; padding-left: 2px;">Locks the design as a reusable template for automated visual flows and disables accidental manual broadcast queueing.</span>
