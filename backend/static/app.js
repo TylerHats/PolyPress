@@ -273,6 +273,7 @@
                 subscriberForm: { id: null, email: '', name: '', status: 'active', tags: '', custom_data: {} },
                 launchScheduling: { enabled: false, date: '', timezone: 'UTC' },
                 embedCodeTheme: 'dark',
+                embedTab: 'widget',
                 
                 // Host admin & user management state
                 hostAdminMode: true,
@@ -317,6 +318,11 @@
                 lists: [],
                 tenants: [],
                 backups: [],
+                automationsList: [],
+                activeFlowTarget: { name: '', description: '', flow_data: { trigger: { list_id: '' }, nodes: [] } },
+                automationForm: { name: '', description: '', list_id: '' },
+                selectedAutomationNodeId: null,
+                activeAutomationLogs: [],
                 
                 // Modals
                 modals: {
@@ -335,7 +341,10 @@
                     dnsDetails: false,
                     insertLink: false,
                     statusExplainer: false,
-                    loopbackTest: false
+                    loopbackTest: false,
+                    createAutomation: false,
+                    automationLogs: false,
+                    manageABVariants: false
                 },
                 linkForm: { text: '', url: 'https://' },
                 lastFocusedInput: { id: '', selectionStart: 0, selectionEnd: 0 },
@@ -465,7 +474,7 @@
                     this.loadingSession = true;
                     try {
                         // Pre-fetch sub-templates
-                        const templates = ['dashboard', 'campaigns', 'subscribers', 'settings', 'users', 'reports', 'admin'];
+                        const templates = ['dashboard', 'campaigns', 'subscribers', 'settings', 'users', 'reports', 'admin', 'automations'];
                         this.templates = {};
                         for (const t of templates) {
                             try {
@@ -825,15 +834,25 @@
                             if (iframe) {
                                 let html = '';
                                 if (this.isEditingFooter) {
+                                    let footerHtml = '';
+                                    if (this.tenant.email_footer_is_custom_html) {
+                                        footerHtml = this.tenant.email_footer_custom_html || '';
+                                    } else {
+                                        footerHtml = compileBlocksToHtml(this.editorBlocks, null, true);
+                                    }
                                     html = compileBlocksToHtml(
                                         [
                                             { type: 'heading', text: 'Campaign Content Placeholder', align: 'center', color: '#111827', size: '22px' },
                                             { type: 'paragraph', text: 'This is placeholder campaign content to demonstrate how your customized footer appears at the bottom of outgoing emails.', align: 'center', color: '#4b5563', size: '14px' }
                                         ],
-                                        compileBlocksToHtml(this.editorBlocks, null, true)
+                                        footerHtml
                                     );
                                 } else {
-                                    html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                                    if (this.tenant.double_opt_in_is_custom_html) {
+                                        html = this.tenant.double_opt_in_custom_html || '';
+                                    } else {
+                                        html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                                    }
                                 }
                                 const mockHtml = html.replaceAll('{{confirm_url}}', 'https://newsletter.yourdomain.com/api/embed/confirm-optin/mock_token').replaceAll('{confirm_url}', 'https://newsletter.yourdomain.com/api/embed/confirm-optin/mock_token');
                                 const doc = iframe.contentDocument || iframe.contentWindow.document;
@@ -1099,6 +1118,7 @@
                         
                         await this.fetchCampaigns();
                         await this.fetchLists();
+                        await this.fetchAutomations();
                         await this.loadDashboardMetrics();
                         
                         this.switchTab('dashboard');
@@ -1131,6 +1151,7 @@
                         this.fetchGlobalSettings();
                         await this.fetchCampaigns();
                         await this.fetchLists();
+                        await this.fetchAutomations();
                         await this.loadDashboardMetrics();
                     } else {
                         // Switching to client workspace mode: select first tenant if any
@@ -1177,6 +1198,7 @@
                     // Re-load data in selected tenant context
                     await this.fetchCampaigns();
                     await this.fetchLists();
+                    await this.fetchAutomations();
                     await this.loadDashboardMetrics();
                     
                     if (this.activeTab === 'reports') {
@@ -1401,6 +1423,16 @@
                     } catch(e) {}
                 },
                 
+                async fetchAutomations() {
+                    try {
+                        const res = await fetch('/api/automations', { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.automationsList = await res.json();
+                            this.refreshIcons();
+                        }
+                    } catch(e) {}
+                },
+                
                 async fetchLists() {
                     try {
                         const res = await fetch('/api/lists', { headers: this.getAuthHeaders() });
@@ -1420,6 +1452,237 @@
                             this.refreshIcons();
                         }
                     } catch(e) {}
+                },
+                
+                // Visual Automations flow builder actions
+                openCreateAutomationModal() {
+                    this.automationForm = { name: '', description: '', list_id: '' };
+                    this.modals.createAutomation = true;
+                    this.refreshIcons();
+                },
+
+                async submitCreateAutomationFlow() {
+                    if (!this.automationForm.name || !this.automationForm.list_id) {
+                        this.showToast('Name and Trigger List are required.', 'error');
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/automations', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                name: this.automationForm.name,
+                                description: this.automationForm.description,
+                                flow_data: {
+                                    trigger: {
+                                        list_id: parseInt(this.automationForm.list_id)
+                                    },
+                                    nodes: []
+                                }
+                            })
+                        });
+                        if (res.ok) {
+                            this.modals.createAutomation = false;
+                            this.showToast('Automation flow created successfully');
+                            await this.fetchAutomations();
+                            const newFlow = this.automationsList[0]; // The newest is sorted first
+                            if (newFlow) this.startFlowBuilder(newFlow);
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                startFlowBuilder(flow) {
+                    this.activeFlowTarget = JSON.parse(JSON.stringify(flow));
+                    if (!this.activeFlowTarget.flow_data) {
+                        this.activeFlowTarget.flow_data = { trigger: { list_id: '' }, nodes: [] };
+                    }
+                    if (!this.activeFlowTarget.flow_data.nodes) {
+                        this.activeFlowTarget.flow_data.nodes = [];
+                    }
+                    this.selectedAutomationNodeId = 'trigger';
+                    this.switchTab('automation-builder');
+                },
+
+                addAutomationNode(type) {
+                    const id = 'node_' + Math.random().toString(36).substr(2, 9);
+                    let config = {};
+                    if (type === 'delay') {
+                        config = { duration_value: 1, duration_unit: 'days' };
+                    } else if (type === 'action_send_email') {
+                        config = { campaign_id: '' };
+                    } else if (type === 'condition') {
+                        config = { field: '', operator: 'equals', value: '' };
+                    }
+
+                    const newNode = {
+                        id: id,
+                        type: type,
+                        config: config
+                    };
+
+                    this.activeFlowTarget.flow_data.nodes.push(newNode);
+                    this.selectedAutomationNodeId = id;
+                    this.refreshIcons();
+                },
+
+                removeAutomationNode(id) {
+                    const idx = this.activeFlowTarget.flow_data.nodes.findIndex(n => n.id === id);
+                    if (idx > -1) {
+                        this.activeFlowTarget.flow_data.nodes.splice(idx, 1);
+                    }
+                    if (this.selectedAutomationNodeId === id) {
+                        this.selectedAutomationNodeId = 'trigger';
+                    }
+                    this.refreshIcons();
+                },
+
+                getSequentialNodes() {
+                    return this.activeFlowTarget && this.activeFlowTarget.flow_data ? (this.activeFlowTarget.flow_data.nodes || []) : [];
+                },
+
+                getNodeTypeLabel(type) {
+                    if (type === 'delay') return 'Delay Step';
+                    if (type === 'action_send_email') return 'Send Email Action';
+                    if (type === 'condition') return 'Filter Condition';
+                    return 'Node';
+                },
+
+                getNodeColorClass(type) {
+                    if (type === 'delay') return 'bg-emerald-950'; // delay color
+                    if (type === 'action_send_email') return 'bg-blue-950'; // action color
+                    if (type === 'condition') return 'bg-purple-950'; // condition color
+                    return '';
+                },
+
+                getNodeTitleStyle(type) {
+                    if (type === 'delay') return 'color: #34d399;';
+                    if (type === 'action_send_email') return 'color: #60a5fa;';
+                    if (type === 'condition') return 'color: #c084fc;';
+                    return '';
+                },
+
+                getNodeDescription(node) {
+                    if (node.type === 'delay') {
+                        const val = node.config.duration_value || 1;
+                        const unit = node.config.duration_unit || 'days';
+                        return `Wait for ${val} ${unit}`;
+                    }
+                    if (node.type === 'action_send_email') {
+                        const cid = node.config.campaign_id;
+                        if (!cid) return 'Choose campaign to send...';
+                        const camp = this.campaigns.find(c => c.id == cid);
+                        return camp ? `Send Campaign: "${camp.name}"` : `Send Campaign [ID: ${cid}]`;
+                    }
+                    if (node.type === 'condition') {
+                        const field = node.config.field;
+                        const op = node.config.operator;
+                        const val = node.config.value;
+                        if (!field) return 'Configure conditional logic...';
+                        if (op === 'is_set') return `If ${field} is set`;
+                        if (op === 'is_not_set') return `If ${field} is empty`;
+                        return `If ${field} ${op} "${val}"`;
+                    }
+                    return 'Sequence Block';
+                },
+
+                getAutomationTriggerLabel() {
+                    if (!this.activeFlowTarget || !this.activeFlowTarget.flow_data || !this.activeFlowTarget.flow_data.trigger) {
+                        return 'Trigger: Subscriber Joins List';
+                    }
+                    const lid = this.activeFlowTarget.flow_data.trigger.list_id;
+                    if (!lid) return 'Trigger: Subscriber Joins List';
+                    const list = this.lists.find(l => l.id == lid);
+                    return list ? `Subscriber Joins List: "${list.name}"` : `Subscriber Joins List [ID: ${lid}]`;
+                },
+
+                getTriggerListFields() {
+                    if (!this.activeFlowTarget || !this.activeFlowTarget.flow_data || !this.activeFlowTarget.flow_data.trigger) {
+                        return [];
+                    }
+                    const lid = this.activeFlowTarget.flow_data.trigger.list_id;
+                    const list = this.lists.find(l => l.id == lid);
+                    return list ? (list.custom_fields || []) : [];
+                },
+
+                getSelectedAutomationNode() {
+                    if (this.selectedAutomationNodeId === 'trigger' || this.selectedAutomationNodeId === null) return null;
+                    return this.activeFlowTarget.flow_data.nodes.find(n => n.id === this.selectedAutomationNodeId) || null;
+                },
+
+                async saveAutomationFlow() {
+                    try {
+                        const res = await fetch(`/api/automations/${this.activeFlowTarget.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                name: this.activeFlowTarget.name,
+                                description: this.activeFlowTarget.description,
+                                flow_data: this.activeFlowTarget.flow_data,
+                                is_active: this.activeFlowTarget.is_active
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast('Automation flow saved successfully');
+                            await this.fetchAutomations();
+                            this.switchTab('automations');
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to save flow', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async toggleFlowActiveStatus(flow) {
+                    try {
+                        const res = await fetch(`/api/automations/${flow.id}`, {
+                            method: 'PUT',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify({
+                                is_active: !flow.is_active
+                            })
+                        });
+                        if (res.ok) {
+                            this.showToast(flow.is_active ? 'Automation flow deactivated' : 'Automation flow activated');
+                            await this.fetchAutomations();
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async deleteAutomationFlow(id) {
+                    if (!confirm('Are you sure you want to delete this automation flow? All subscriber states and logs will be permanently deleted.')) return;
+                    try {
+                        const res = await fetch(`/api/automations/${id}`, {
+                            method: 'DELETE',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Automation flow deleted');
+                            await this.fetchAutomations();
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    }
+                },
+
+                async openAutomationLogs(flow) {
+                    this.activeFlowTarget = flow;
+                    this.activeAutomationLogs = [];
+                    this.modals.automationLogs = true;
+                    this.refreshIcons();
+                    try {
+                        const res = await fetch(`/api/automations/${flow.id}/logs`, { headers: this.getAuthHeaders() });
+                        if (res.ok) {
+                            this.activeAutomationLogs = await res.json();
+                        }
+                    } catch(e) {
+                        this.showToast('Failed to load logs', 'error');
+                    }
                 },
                 
                 async fetchGlobalSettings() {
@@ -2245,6 +2508,39 @@
                     }, 50);
                 },
                 
+                openManageABVariantsModal() {
+                    if (!this.editingCampaign) return;
+                    if (!this.editingCampaign.ab_variants) {
+                        this.editingCampaign.ab_variants = [];
+                    }
+                    this.modals.manageABVariants = true;
+                    this.refreshIcons();
+                },
+
+                addABVariant() {
+                    if (!this.editingCampaign) return;
+                    if (!this.editingCampaign.ab_variants) {
+                        this.editingCampaign.ab_variants = [];
+                    }
+                    const nextId = String.fromCharCode(65 + this.editingCampaign.ab_variants.length + 1); // 65 is A, so B, C, D...
+                    this.editingCampaign.ab_variants.push({
+                        id: nextId,
+                        subject: '',
+                        body_html: ''
+                    });
+                    this.refreshIcons();
+                },
+
+                removeABVariant(index) {
+                    if (!this.editingCampaign || !this.editingCampaign.ab_variants) return;
+                    this.editingCampaign.ab_variants.splice(index, 1);
+                    // Re-calculate letters B, C, D...
+                    this.editingCampaign.ab_variants.forEach((v, idx) => {
+                        v.id = String.fromCharCode(65 + idx + 1);
+                    });
+                    this.refreshIcons();
+                },
+                
                 // Create Campaign Actions
                 openCreateCampaignModal() {
                     this.campaignForm = { name: '', subject: '', list_id: '', list_ids: [] };
@@ -2660,10 +2956,75 @@
                     if (!this.editingCampaign.list_ids) {
                         this.editingCampaign.list_ids = this.editingCampaign.list_id ? [this.editingCampaign.list_id] : [];
                     }
+                    if (this.editingCampaign.ab_testing_enabled === undefined) {
+                        this.editingCampaign.ab_testing_enabled = false;
+                    }
+                    if (!this.editingCampaign.ab_variants) {
+                        this.editingCampaign.ab_variants = [];
+                    }
+                    if (this.editingCampaign.ab_test_ratio === undefined) {
+                        this.editingCampaign.ab_test_ratio = 0.2;
+                    }
+                    if (this.editingCampaign.ab_test_hours === undefined) {
+                        this.editingCampaign.ab_test_hours = 24;
+                    }
+                    if (this.editingCampaign.ab_winner_criteria === undefined) {
+                        this.editingCampaign.ab_winner_criteria = 'open_rate';
+                    }
                     this.targetingCollapsed = true;
                     this.selectedBlockIndex = null;
                     this.editorBlocks = campaign.body_blocks || [];
                     this.switchTab('editor');
+                },
+                
+                getEditorIsCustomHtml() {
+                    if (this.isEditingOptIn) {
+                        return !!this.tenant.double_opt_in_is_custom_html;
+                    }
+                    if (this.isEditingFooter) {
+                        return !!this.tenant.email_footer_is_custom_html;
+                    }
+                    return this.editingCampaign ? !!this.editingCampaign.is_custom_html : false;
+                },
+                
+                setEditorCustomHtmlMode(val) {
+                    if (this.isEditingOptIn) {
+                        this.tenant.double_opt_in_is_custom_html = val;
+                        if (val && !this.tenant.double_opt_in_custom_html) {
+                            this.tenant.double_opt_in_custom_html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                        }
+                    } else if (this.isEditingFooter) {
+                        this.tenant.email_footer_is_custom_html = val;
+                        if (val && !this.tenant.email_footer_custom_html) {
+                            this.tenant.email_footer_custom_html = compileBlocksToHtml(this.editorBlocks, null, true);
+                        }
+                    } else if (this.editingCampaign) {
+                        this.editingCampaign.is_custom_html = val;
+                        if (val && !this.editingCampaign.custom_html) {
+                            this.editingCampaign.custom_html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                        }
+                    }
+                    this.refreshIcons();
+                },
+                
+                getEditorCustomHtmlString() {
+                    if (this.isEditingOptIn) {
+                        return this.tenant.double_opt_in_custom_html || '';
+                    }
+                    if (this.isEditingFooter) {
+                        return this.tenant.email_footer_custom_html || '';
+                    }
+                    return this.editingCampaign ? (this.editingCampaign.custom_html || '') : '';
+                },
+                
+                updateEditorCustomHtmlString(val) {
+                    if (this.isEditingOptIn) {
+                        this.tenant.double_opt_in_custom_html = val;
+                    } else if (this.isEditingFooter) {
+                        this.tenant.email_footer_custom_html = val;
+                    } else if (this.editingCampaign) {
+                        this.editingCampaign.custom_html = val;
+                    }
                 },
                 
                 toggleEditingCampaignList(id) {
@@ -2762,7 +3123,15 @@
                 },
                 
                 async saveCampaignDraft() {
-                    const html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                    let html;
+                    if (this.editingCampaign.is_custom_html) {
+                        html = this.editingCampaign.custom_html || '';
+                        if (this.tenant.email_footer_html && !html.includes('api/embed/unsubscribe')) {
+                            html += '<br>' + this.tenant.email_footer_html;
+                        }
+                    } else {
+                        html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                    }
                     try {
                         const res = await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
                             method: 'PUT',
@@ -2772,6 +3141,13 @@
                                 subject: this.editingCampaign.subject,
                                 body_blocks: this.editorBlocks,
                                 body_html: html,
+                                is_custom_html: this.editingCampaign.is_custom_html,
+                                custom_html: this.editingCampaign.custom_html,
+                                ab_testing_enabled: this.editingCampaign.ab_testing_enabled,
+                                ab_test_ratio: this.editingCampaign.ab_test_ratio,
+                                ab_test_hours: this.editingCampaign.ab_test_hours,
+                                ab_winner_criteria: this.editingCampaign.ab_winner_criteria,
+                                ab_variants: this.editingCampaign.ab_variants,
                                 target_rules: this.editingCampaign.target_rules,
                                 list_ids: this.editingCampaign.list_ids
                             })
@@ -2790,7 +3166,15 @@
                 
                 async submitLaunchCampaign() {
                     this.modals.confirmLaunch = false;
-                    const html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                    let html;
+                    if (this.editingCampaign.is_custom_html) {
+                        html = this.editingCampaign.custom_html || '';
+                        if (this.tenant.email_footer_html && !html.includes('api/embed/unsubscribe')) {
+                            html += '<br>' + this.tenant.email_footer_html;
+                        }
+                    } else {
+                        html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                    }
                     try {
                           await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
                               method: 'PUT',
@@ -2801,6 +3185,8 @@
                                   preheader: this.editingCampaign.preheader,
                                   body_blocks: this.editorBlocks,
                                   body_html: html,
+                                  is_custom_html: this.editingCampaign.is_custom_html,
+                                  custom_html: this.editingCampaign.custom_html,
                                   target_rules: this.editingCampaign.target_rules,
                                   list_ids: this.editingCampaign.list_ids
                               })
@@ -3490,7 +3876,12 @@
                 },
                 
                 async saveOptInTemplate() {
-                    const html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                    let html;
+                    if (this.tenant.double_opt_in_is_custom_html) {
+                        html = this.tenant.double_opt_in_custom_html || '';
+                    } else {
+                        html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
+                    }
                     try {
                         const res = await fetch('/api/tenants/my', {
                             method: 'PUT',
@@ -3498,7 +3889,9 @@
                             body: JSON.stringify({
                                 double_opt_in_subject: this.optInSubject,
                                 double_opt_in_body_blocks: this.editorBlocks,
-                                double_opt_in_body_html: html
+                                double_opt_in_body_html: html,
+                                double_opt_in_is_custom_html: this.tenant.double_opt_in_is_custom_html,
+                                double_opt_in_custom_html: this.tenant.double_opt_in_custom_html
                             })
                         });
                         if (res.ok) {
@@ -3535,14 +3928,21 @@
                 },
                 
                 async saveFooterTemplate() {
-                    const html = compileBlocksToHtml(this.editorBlocks, null, true);
+                    let html;
+                    if (this.tenant.email_footer_is_custom_html) {
+                        html = this.tenant.email_footer_custom_html || '';
+                    } else {
+                        html = compileBlocksToHtml(this.editorBlocks, null, true);
+                    }
                     try {
                         const res = await fetch('/api/tenants/my', {
                             method: 'PUT',
                             headers: this.getAuthHeaders(),
                             body: JSON.stringify({
                                 email_footer_blocks: this.editorBlocks,
-                                email_footer_html: html
+                                email_footer_html: html,
+                                email_footer_is_custom_html: this.tenant.email_footer_is_custom_html,
+                                email_footer_custom_html: this.tenant.email_footer_custom_html
                             })
                         });
                         if (res.ok) {

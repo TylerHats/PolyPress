@@ -1,0 +1,354 @@
+<!-- AUTOMATIONS VIEW -->
+<div x-show="activeTab === 'automations'">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Visual Automations</h1>
+            <p class="page-subtitle">Build trigger-based visual flows, scheduled email sequences, and branch logic paths.</p>
+        </div>
+        <button x-show="user.role !== 'tenant_user'" @click="openCreateAutomationModal()" class="btn btn-primary">
+            <i data-lucide="plus"></i> Create Flow
+        </button>
+    </div>
+
+    <div class="card">
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Flow Name</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Last Updated</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="f in automationsList" :key="f.id">
+                        <tr>
+                            <td style="font-weight: 600;" x-text="f.name"></td>
+                            <td x-text="f.description || 'No description'"></td>
+                            <td>
+                                <span class="badge" 
+                                      :class="f.is_active ? 'badge-success' : 'badge-secondary'" 
+                                      x-text="f.is_active ? 'Active' : 'Inactive'"
+                                      @click="toggleFlowActiveStatus(f)"
+                                      style="cursor: pointer;"
+                                      title="Click to toggle status"></span>
+                            </td>
+                            <td x-text="new Date(f.updated_at + 'Z').toLocaleString()"></td>
+                            <td>
+                                <div style="display: flex; gap: 8px;">
+                                    <button @click="startFlowBuilder(f)" class="btn btn-secondary btn-sm">
+                                        <i data-lucide="git-branch" style="width:14px; height:14px;"></i> Builder
+                                    </button>
+                                    <button @click="openAutomationLogs(f)" class="btn btn-secondary btn-sm">
+                                        <i data-lucide="history" style="width:14px; height:14px;"></i> Logs
+                                    </button>
+                                    <button x-show="user.role !== 'tenant_user'" @click="deleteAutomationFlow(f.id)" class="btn btn-danger btn-sm">
+                                        <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="automationsList.length === 0">
+                        <td colspan="5" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                            No automation flows found. Create one to get started!
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- VISUAL FLOW BUILDER VIEW -->
+<div x-show="activeTab === 'automation-builder'" style="display: flex; flex-direction: column; gap: 20px; height: 100%;">
+    <div class="page-header" style="margin-bottom: 10px;">
+        <div>
+            <span style="font-size: 13px; color: var(--text-muted); cursor: pointer;" @click="switchTab('automations')">← Back to flows</span>
+            <h1 class="page-title" style="font-size: 22px; margin-top: 4px;" x-text="'Flow Builder: ' + (activeFlowTarget ? activeFlowTarget.name : '')"></h1>
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); padding: 6px 12px; border-radius: 6px;">
+                <span style="font-size: 13px; font-weight: 600;">Status:</span>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; margin: 0; color: #fff;">
+                    <input type="checkbox" x-model="activeFlowTarget.is_active" style="width:16px; height:16px; cursor:pointer;">
+                    Active / Live
+                </label>
+            </div>
+            <button @click="saveAutomationFlow()" class="btn btn-primary">
+                <i data-lucide="save" style="width:16px; height:16px;"></i> Save Flow
+            </button>
+        </div>
+    </div>
+
+    <!-- Visual Builder workspace grid -->
+    <div style="display: grid; grid-template-columns: 1fr 320px; gap: 20px; flex-grow: 1; min-height: 500px;">
+        
+        <!-- Center Panel: The Visual Node Map Canvas -->
+        <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-glass); border-radius: 12px; padding: 30px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; position: relative;">
+            
+            <!-- Visual Flow Recursive Rendering Container -->
+            <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                
+                <!-- Flow Start Node -->
+                <div style="background: #1e1b4b; border: 2px solid #818cf8; border-radius: 8px; padding: 12px 20px; width: 220px; text-align: center; color: #fff; font-weight: 600; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2); position: relative; cursor: pointer;" 
+                     @click="selectedAutomationNodeId = 'trigger'">
+                    <div style="font-size: 11px; text-transform: uppercase; color: #a5b4fc; font-weight: 700; margin-bottom: 4px;">Trigger Node</div>
+                    <div style="font-size: 13px;" x-text="getAutomationTriggerLabel()"></div>
+                </div>
+                
+                <!-- Recursive Node Chain -->
+                <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                    <template x-if="activeFlowTarget && activeFlowTarget.flow_data">
+                        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                            <!-- Helper template to initiate the visual chain starting from trigger's next_node_id -->
+                            <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                                <template x-html="renderFlowChainNode(activeFlowTarget.flow_data.trigger_node_next_id)"></template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Custom Visual Chain Rendering without manual recursion constraints (sequential node mapping) -->
+                <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                    <template x-for="(node, index) in getSequentialNodes()" :key="node.id">
+                        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                            <!-- Arrow connector -->
+                            <div style="height: 35px; width: 2px; background: rgba(255,255,255,0.15); position: relative; margin: 4px 0;">
+                                <div style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid rgba(255,255,255,0.25);"></div>
+                            </div>
+                            
+                            <!-- Node block card -->
+                            <div style="border-radius: 8px; padding: 12px 20px; width: 260px; color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid var(--border-glass); cursor: pointer; transition: all 0.2s;"
+                                 :style="selectedAutomationNodeId === node.id ? 'border-color: var(--color-primary); transform: scale(1.02);' : ''"
+                                 :class="getNodeColorClass(node.type)"
+                                 @click="selectedAutomationNodeId = node.id">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.7);" x-text="getNodeTypeLabel(node.type)"></span>
+                                    <button @click.stop="removeAutomationNode(node.id)" style="background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 0;" class="hover-danger">
+                                        <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+                                    </button>
+                                </div>
+                                <div style="font-size: 13px; font-weight: 600;" x-text="getNodeDescription(node)"></div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Add Node Overlay Connector -->
+                    <div style="display: flex; flex-direction: column; align-items: center; margin-top: 15px;">
+                        <div style="height: 30px; width: 2px; background: rgba(255,255,255,0.15); position: relative; margin-bottom: 10px;"></div>
+                        <div style="display: flex; gap: 8px;">
+                            <button @click="addAutomationNode('delay')" class="btn btn-secondary btn-xs" style="padding: 4px 10px; font-size:11px; background: #064e3b; border-color: #059669; color: #34d399;">+ Add Delay</button>
+                            <button @click="addAutomationNode('action_send_email')" class="btn btn-secondary btn-xs" style="padding: 4px 10px; font-size:11px; background: #1e3a8a; border-color: #3b82f6; color: #93c5fd;">+ Send Email</button>
+                            <button @click="addAutomationNode('condition')" class="btn btn-secondary btn-xs" style="padding: 4px 10px; font-size:11px; background: #581c87; border-color: #a855f7; color: #d8b4fe;">+ Add Condition</button>
+                        </div>
+                    </div>
+
+                    <!-- Flow End Card -->
+                    <div style="display: flex; flex-direction: column; align-items: center; margin-top: 25px;">
+                        <div style="height: 30px; width: 2px; background: rgba(255,255,255,0.15); position: relative; margin-bottom: 4px;"></div>
+                        <div style="background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.15); border-radius: 30px; padding: 6px 16px; color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase;">
+                            End of Flow Sequence
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- Right Side Panel: Edit Selected Node Properties -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto;">
+            <h3 style="font-size: 14px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; border-bottom: 1px solid var(--border-glass); padding-bottom: 10px;">Node Configurations</h3>
+            
+            <template x-if="selectedAutomationNodeId === null">
+                <div style="color: var(--text-muted); font-size: 13px; font-style: italic; text-align: center; padding-top: 20px;">
+                    Click any card on the visual flow builder canvas to configure properties.
+                </div>
+            </template>
+
+            <template x-if="selectedAutomationNodeId === 'trigger'">
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <h4 style="font-size: 13px; font-weight: 600; color: #818cf8;">Flow Entry Trigger</h4>
+                    <div class="field">
+                        <label>Select Mailing List</label>
+                        <select x-model="activeFlowTarget.flow_data.trigger.list_id" style="width: 100%;" @change="refreshIcons()">
+                            <option value="">-- Choose target list --</option>
+                            <template x-for="list in lists" :key="list.id">
+                                <option :value="list.id" x-text="list.name"></option>
+                            </template>
+                        </select>
+                        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">This automation flow starts automatically whenever a subscriber joins this mailing list.</span>
+                    </div>
+                </div>
+            </template>
+
+            <template x-if="selectedAutomationNodeId !== null && selectedAutomationNodeId !== 'trigger'">
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <!-- Fetch active node details -->
+                    <div x-data="{ node: getSelectedAutomationNode() }">
+                        <template x-if="node">
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <h4 style="font-size: 13px; font-weight: 700;" :style="getNodeTitleStyle(node.type)" x-text="getNodeTypeLabel(node.type)"></h4>
+                                
+                                <!-- Delay node inputs -->
+                                <template x-if="node.type === 'delay'">
+                                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                                        <div class="field">
+                                            <label>Wait Duration</label>
+                                            <input type="number" x-model.number="node.config.duration_value" min="1" style="width: 100%;">
+                                        </div>
+                                        <div class="field">
+                                            <label>Time Unit</label>
+                                            <select x-model="node.config.duration_unit" style="width: 100%;">
+                                                <option value="minutes">Minutes</option>
+                                                <option value="hours">Hours</option>
+                                                <option value="days">Days</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- Action Send Email node inputs -->
+                                <template x-if="node.type === 'action_send_email'">
+                                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                                        <div class="field">
+                                            <label>Email Campaign Template</label>
+                                            <select x-model="node.config.campaign_id" style="width: 100%;">
+                                                <option value="">-- Choose Campaign Draft --</option>
+                                                <template x-for="c in campaigns.filter(x => x.status === 'draft' || x.status === 'automation')" :key="c.id">
+                                                    <option :value="c.id" x-text="c.name"></option>
+                                                </template>
+                                            </select>
+                                            <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">Select a campaign template to queue. (Tip: Mark campaign status as 'Automation' or 'Draft' to keep it as a reusable template).</span>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- Condition node inputs -->
+                                <template x-if="node.type === 'condition'">
+                                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                                        <div class="field">
+                                            <label>Attribute / Property</label>
+                                            <select x-model="node.config.field" style="width: 100%;">
+                                                <option value="">-- Choose field --</option>
+                                                <option value="name">Subscriber Name</option>
+                                                <option value="email">Subscriber Email</option>
+                                                <option value="status">Status (active/pending)</option>
+                                                <option value="tag">Tags CSV</option>
+                                                <template x-for="field in getTriggerListFields()" :key="field.key">
+                                                    <option :value="field.key" x-text="'Custom: ' + field.label"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label>Operator Check</label>
+                                            <select x-model="node.config.operator" style="width: 100%;">
+                                                <option value="equals">Equals</option>
+                                                <option value="contains">Contains substring</option>
+                                                <option value="is_set">Is set / not empty</option>
+                                                <option value="is_not_set">Is empty / not set</option>
+                                            </select>
+                                        </div>
+                                        <div class="field" x-show="node.config.operator !== 'is_set' && node.config.operator !== 'is_not_set'">
+                                            <label>Target Value</label>
+                                            <input type="text" x-model="node.config.value" style="width: 100%;" placeholder="e.g. New York">
+                                        </div>
+                                        
+                                        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 6px; padding: 10px; font-size:11px; color: var(--text-secondary); line-height: 1.4;">
+                                            <strong>Routing Logic:</strong> If evaluation is true, flow proceeds down this chain. If false, execution skips the subsequent email/delay actions.
+                                        </div>
+                                    </div>
+                                </template>
+
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+        </div>
+    </div>
+</div>
+
+<!-- CREATE AUTOMATION FLOW MODAL -->
+<div x-show="modals.createAutomation" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Create Automation Flow</h3>
+            <button @click="modals.createAutomation = false" class="close-btn"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="field" style="margin-bottom: 15px;">
+                <label>Automation Name</label>
+                <input type="text" x-model="automationForm.name" placeholder="e.g. Subscriber Onboarding Sequence">
+            </div>
+            <div class="field" style="margin-bottom: 15px;">
+                <label>Description</label>
+                <textarea x-model="automationForm.description" placeholder="Describe the purpose of this flow..." style="height: 80px;"></textarea>
+            </div>
+            <div class="field">
+                <label>Mailing List Trigger</label>
+                <select x-model="automationForm.list_id" style="width: 100%;">
+                    <option value="">-- Select trigger list --</option>
+                    <template x-for="list in lists" :key="list.id">
+                        <option :value="list.id" x-text="list.name"></option>
+                    </template>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button @click="modals.createAutomation = false" class="btn btn-secondary">Cancel</button>
+            <button @click="submitCreateAutomationFlow()" class="btn btn-primary">Create Flow</button>
+        </div>
+    </div>
+</div>
+
+<!-- AUTOMATION LOGS MODAL -->
+<div x-show="modals.automationLogs" class="modal-overlay" style="display: none;">
+    <div class="modal-content large" style="max-height: 80vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h3 x-text="'Automation Execution Logs: ' + (activeFlowTarget ? activeFlowTarget.name : '')">Flow Logs</h3>
+            <button @click="modals.automationLogs = false" class="close-btn"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="table-container" style="max-height: 450px; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Recipient Email</th>
+                            <th>Node Type</th>
+                            <th>Action Taken</th>
+                            <th>Details</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="log in activeAutomationLogs" :key="log.id">
+                            <tr>
+                                <td x-text="log.subscriber_email"></td>
+                                <td>
+                                    <span class="badge" :style="getNodeTitleStyle(log.node_type)" x-text="log.node_type.toUpperCase()"></span>
+                                </td>
+                                <td x-text="log.action_taken" style="font-weight: 600;"></td>
+                                <td x-text="log.details || 'No additional details'"></td>
+                                <td x-text="new Date(log.created_at + 'Z').toLocaleString()"></td>
+                            </tr>
+                        </template>
+                        <tr x-show="activeAutomationLogs.length === 0">
+                            <td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                                No execution logs recorded for this flow yet.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button @click="modals.automationLogs = false" class="btn btn-primary">Close</button>
+        </div>
+    </div>
+</div>

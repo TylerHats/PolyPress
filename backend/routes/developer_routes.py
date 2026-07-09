@@ -210,6 +210,10 @@ def developer_add_subscriber(payload: dict, request: Request, background_tasks: 
     db.commit()
     db.refresh(sub)
     
+    if sub.status == "active":
+        from automation_worker import trigger_automation_on_list_join
+        trigger_automation_on_list_join(db, sub, list_id)
+    
     # Secure Webhook Dispatch
     trigger_webhook(tenant.id, "subscriber.subscribe", {
         "id": sub.id,

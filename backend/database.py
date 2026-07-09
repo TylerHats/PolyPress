@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, text, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, Float, text, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 BASE_DIR = os.path.realpath(os.path.dirname(__file__))
@@ -153,7 +153,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -238,8 +238,12 @@ class Tenant(Base):
     double_opt_in_subject = Column(String, default="Confirm Your Subscription")
     double_opt_in_body_blocks = Column(JSON, nullable=True)
     double_opt_in_body_html = Column(Text, nullable=True)
+    double_opt_in_is_custom_html = Column(Boolean, default=False)
+    double_opt_in_custom_html = Column(Text, nullable=True)
     email_footer_blocks = Column(JSON, nullable=True)
     email_footer_html = Column(Text, nullable=True)
+    email_footer_is_custom_html = Column(Boolean, default=False)
+    email_footer_custom_html = Column(Text, nullable=True)
     
     # History logs settings
     history_retention_days = Column(Integer, default=30)
@@ -336,6 +340,16 @@ class Campaign(Base):
     # Format: [{"type": "header", "content": "Welcome"}, ...]
     body_blocks = Column(JSON, default=list)
     body_html = Column(Text) # Exported raw HTML for actual email transmission
+    is_custom_html = Column(Boolean, default=False)
+    custom_html = Column(Text, nullable=True)
+    
+    # A/B Testing Configuration
+    ab_testing_enabled = Column(Boolean, default=False)
+    ab_test_ratio = Column(Float, default=0.2)
+    ab_test_hours = Column(Integer, default=24)
+    ab_winner_criteria = Column(String, default="open_rate")
+    ab_variants = Column(JSON, default=list)
+    ab_winning_variant = Column(String, nullable=True)
     
     status = Column(String, default="draft") # draft, queued, sending, sent, cancelled
     target_rules = Column(JSON, default=dict)
@@ -375,6 +389,7 @@ class QueueItem(Base):
     error_message = Column(Text, nullable=True)
     last_mx_response = Column(Text, nullable=True)
     error_code = Column(Integer, nullable=True)
+    ab_variant = Column(String, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -394,6 +409,7 @@ class TrackingLog(Base):
     
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
+    ab_variant = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     campaign = relationship("Campaign", back_populates="tracking_logs")
@@ -419,6 +435,59 @@ class WebhookSubscription(Base):
     events = Column(JSON, default=list)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class AutomationFlow(Base):
+    __tablename__ = "automation_flows"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+    name = Column(String, index=True)
+    description = Column(String, nullable=True)
+    flow_data = Column(JSON, default=dict)
+    is_active = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    tenant = relationship("Tenant")
+    states = relationship("AutomationState", back_populates="flow", cascade="all, delete-orphan")
+    logs = relationship("AutomationLog", back_populates="flow", cascade="all, delete-orphan")
+
+class AutomationState(Base):
+    __tablename__ = "automation_states"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
+    flow_id = Column(Integer, ForeignKey("automation_flows.id", ondelete="CASCADE"), index=True)
+    subscriber_id = Column(Integer, ForeignKey("subscribers.id", ondelete="CASCADE"), index=True)
+    
+    current_node_id = Column(String, nullable=True)
+    status = Column(String, default="waiting", index=True) # waiting, completed, failed
+    scheduled_for = Column(DateTime, nullable=True, index=True)
+    state_metadata = Column(JSON, default=dict)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    flow = relationship("AutomationFlow", back_populates="states")
+    subscriber = relationship("Subscriber")
+
+class AutomationLog(Base):
+    __tablename__ = "automation_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
+    flow_id = Column(Integer, ForeignKey("automation_flows.id", ondelete="CASCADE"), index=True)
+    subscriber_id = Column(Integer, ForeignKey("subscribers.id", ondelete="CASCADE"), index=True)
+    
+    node_id = Column(String)
+    node_type = Column(String) # trigger, action, delay, condition
+    action_taken = Column(String)
+    details = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    flow = relationship("AutomationFlow", back_populates="logs")
+    subscriber = relationship("Subscriber")
 
 # History Logs Separate Database Engine
 HISTORY_DATABASE_URL = os.getenv("HISTORY_DATABASE_URL")
@@ -654,5 +723,25 @@ def init_db():
             settings = GlobalSettings(app_name="PolyPress", schema_version=CURRENT_SCHEMA_VERSION)
             db.add(settings)
             db.commit()
+            
+        # Migrate SubscriberList custom_fields to ensure Name field exists by default
+        from sqlalchemy.orm.attributes import flag_modified
+        sub_lists = db.query(SubscriberList).all()
+        for sl in sub_lists:
+            cf = sl.custom_fields
+            if not isinstance(cf, list):
+                cf = []
+            if not any(isinstance(f, dict) and f.get("key") == "name" for f in cf):
+                cf.insert(0, {
+                    "key": "name",
+                    "label": "Name",
+                    "type": "text",
+                    "required": False,
+                    "show_on_form": True,
+                    "form_order": 1
+                })
+                sl.custom_fields = list(cf)
+                flag_modified(sl, "custom_fields")
+        db.commit()
     finally:
         db.close()

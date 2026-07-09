@@ -296,29 +296,65 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
         
     tenant = db.query(Tenant).filter(Tenant.id == sub_list.tenant_id).first()
     
-    # Check form_settings for name requirement
-    name_required = False
+    # Generate form inputs dynamically based on fields schema and ordering
+    fields_to_render = []
+    
+    # 1. Email Field settings
+    email_order = 0
     if sub_list.form_settings:
-        name_required = sub_list.form_settings.get("name_required", False)
-        
-    # Generate form inputs dynamically for custom fields
-    custom_inputs = ""
+        email_order = sub_list.form_settings.get("email_form_order", 0)
+    fields_to_render.append({
+        "key": "email",
+        "label": "Email Address",
+        "type": "email",
+        "required": True,
+        "show_on_form": True,
+        "form_order": email_order
+    })
+    
+    # 2. Schema Fields settings (Name and custom fields)
     if sub_list.custom_fields:
         for field in sub_list.custom_fields:
             key = field.get("key")
             label = field.get("label", key.capitalize())
             ftype = field.get("type", "text")
             required = field.get("required", False)
+            show = field.get("show_on_form", True)
+            order = field.get("form_order", 1)
             
-            req_attr = "required" if required else ""
-            req_star = " *" if required else ""
-            
-            custom_inputs += f"""
-            <div class="form-group">
-                <label for="custom_{key}">{label}{req_star}</label>
-                <input type="{ftype}" id="custom_{key}" name="custom_{key}" placeholder="Enter your {label.lower()}" {req_attr}>
-            </div>
-            """
+            if show:
+                fields_to_render.append({
+                    "key": key,
+                    "label": label,
+                    "type": ftype,
+                    "required": required,
+                    "show_on_form": True,
+                    "form_order": order
+                })
+                
+    # Sort fields by form_order
+    fields_to_render.sort(key=lambda x: x["form_order"])
+    
+    # Generate fields inputs HTML
+    inputs_html = ""
+    for field in fields_to_render:
+        key = field["key"]
+        label = field["label"]
+        ftype = field["type"]
+        required = field["required"]
+        req_attr = "required" if required else ""
+        req_star = " *" if required else ""
+        
+        # Name and Email have special input names/IDs for database model compatibility
+        input_name = key if key in ["email", "name"] else f"custom_{key}"
+        input_id = key if key in ["email", "name"] else f"custom_{key}"
+        
+        inputs_html += f"""
+        <div class="form-group">
+            <label for="{input_id}">{label}{req_star}</label>
+            <input type="{ftype}" id="{input_id}" name="{input_name}" placeholder="Enter your {label.lower()}" {req_attr}>
+        </div>
+        """
             
     submit_url = f"/api/embed/subscribe/{list_id}/submit?theme={theme}"
     
@@ -335,15 +371,7 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
             <h2>Subscribe to {tenant.name if tenant else "Newsletter"}</h2>
             <form action="{submit_url}" method="POST">
                 <input type="hidden" name="tag" value="{tag}">
-                <div class="form-group">
-                    <label for="email">Email Address *</label>
-                    <input type="email" id="email" name="email" required placeholder="you@example.com">
-                </div>
-                <div class="form-group">
-                    <label for="name">Name{" *" if name_required else ""}</label>
-                    <input type="text" id="name" name="name" placeholder="Your Name" {"required" if name_required else ""}>
-                </div>
-                {custom_inputs}
+                {inputs_html}
                 <button type="submit" class="btn">Subscribe</button>
             </form>
         </div>
@@ -368,28 +396,28 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
     if not email or "@" not in email:
         return HTMLResponse("<h2>Invalid email address</h2>", status_code=400)
         
-    # Check form_settings for name requirement
-    name_required = False
-    if sub_list.form_settings:
-        name_required = sub_list.form_settings.get("name_required", False)
-        
-    if name_required and not name:
-        return HTMLResponse("<h2>Name is a required field</h2>", status_code=400)
-        
-    # Extract custom values
+    # Extract custom values and validate required fields
     custom_data = {}
+    
+    # Validate name field schema if present
+    name_field = None
     if sub_list.custom_fields:
         for field in sub_list.custom_fields:
             key = field.get("key")
-            label = field.get("label", key.capitalize())
             required = field.get("required", False)
-            form_val = form_data.get(f"custom_{key}")
+            show = field.get("show_on_form", True)
             
-            if required and not form_val:
-                return HTMLResponse(f"<h2>{label} is a required field</h2>", status_code=400)
-                
-            if form_val is not None:
-                custom_data[key] = form_val
+            if key == "name":
+                name_field = field
+                if show and required and not name:
+                    return HTMLResponse("<h2>Name is a required field</h2>", status_code=400)
+            else:
+                form_val = form_data.get(f"custom_{key}")
+                if show and required and not form_val:
+                    label = field.get("label", key.capitalize())
+                    return HTMLResponse(f"<h2>{label} is a required field</h2>", status_code=400)
+                if form_val is not None:
+                    custom_data[key] = form_val
                 
     # Double Opt-In settings check
     is_double_optin = tenant.double_opt_in if tenant else False
@@ -425,6 +453,11 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         subscriber_id = sub.id
         
     db.commit()
+    
+    sub_obj = existing if existing else sub
+    if status_state == "active":
+        from automation_worker import trigger_automation_on_list_join
+        trigger_automation_on_list_join(db, sub_obj, list_id)
     
     from webhook_dispatcher import trigger_webhook
     trigger_webhook(sub_list.tenant_id, "subscriber.subscribe", {
@@ -529,6 +562,9 @@ def confirm_optin(token: str, db: Session = Depends(get_db)):
     subscriber.status = "active"
     subscriber.double_opt_in_token = None
     db.commit()
+    
+    from automation_worker import trigger_automation_on_list_join
+    trigger_automation_on_list_join(db, subscriber, subscriber.list_id)
     
     from webhook_dispatcher import trigger_webhook
     trigger_webhook(subscriber.tenant_id, "subscriber.active", {

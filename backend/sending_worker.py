@@ -16,8 +16,9 @@ try:
 except ImportError:
     dkim = None
 from sqlalchemy.orm import Session
-from database import SessionLocal, QueueItem, Campaign, Tenant, Subscriber
+from database import SessionLocal, QueueItem, Campaign, Tenant, Subscriber, TrackingLog, GlobalSettings
 from ntp_sync import get_corrected_time
+from routes.campaign_routes import render_email_template
 
 def html_to_text(html: str) -> str:
     if not html:
@@ -405,7 +406,10 @@ def deliver_item_task(item_id: int):
         except Exception as webhook_err:
             logger.error(f"Failed to dispatch webhooks for item {item.id}: {webhook_err}")
             
-        # Reconcile campaign status
+        # Reconcile campaign status (bypass for automation campaigns)
+        if campaign.status == "automation":
+            return
+            
         pending_or_sending = db.query(QueueItem).filter(
             QueueItem.campaign_id == campaign.id,
             QueueItem.status.in_(["pending", "sending"])
@@ -459,6 +463,148 @@ async def process_queue():
         try:
             now = get_corrected_time()
             
+            # Check and evaluate A/B test campaigns whose test periods have elapsed
+            try:
+                from datetime import timedelta
+                ab_campaigns = db.query(Campaign).filter(
+                    Campaign.ab_testing_enabled == True,
+                    Campaign.ab_winning_variant == None,
+                    Campaign.status.in_(["sending", "flushing"]),
+                    Campaign.sent_at != None
+                ).all()
+                
+                for ac in ab_campaigns:
+                    eval_hours = ac.ab_test_hours if ac.ab_test_hours is not None else 24
+                    eval_time = ac.sent_at + timedelta(hours=eval_hours)
+                    if now >= eval_time:
+                        logger.info(f"Evaluating A/B test campaign '{ac.name}' (ID: {ac.id}) after {eval_hours} hours...")
+                        
+                        best_variant = "A"
+                        best_score = -1.0
+                        
+                        if ac.ab_variants:
+                            for variant in ac.ab_variants:
+                                vid = variant.get("id", "A")
+                                opens = db.query(TrackingLog.subscriber_id).filter(
+                                    TrackingLog.campaign_id == ac.id,
+                                    TrackingLog.ab_variant == vid,
+                                    TrackingLog.event_type == "open"
+                                ).distinct().count()
+                                
+                                clicks = db.query(TrackingLog.subscriber_id).filter(
+                                    TrackingLog.campaign_id == ac.id,
+                                    TrackingLog.ab_variant == vid,
+                                    TrackingLog.event_type == "click"
+                                ).distinct().count()
+                                
+                                score = float(opens) if ac.ab_winner_criteria == "open_rate" else float(clicks)
+                                logger.info(f"Variant '{vid}' scored {score} (opens: {opens}, clicks: {clicks})")
+                                
+                                if score > best_score:
+                                    best_score = score
+                                    best_variant = vid
+                                    
+                            ac.ab_winning_variant = best_variant
+                            db.commit()
+                            logger.info(f"Variant '{best_variant}' declared winner for campaign '{ac.name}'!")
+                            
+                            # Find winning variant config
+                            winner = next((v for v in ac.ab_variants if v.get("id") == best_variant), None)
+                            winner_subject = winner.get("subject") if winner else ac.subject
+                            winner_body_html = winner.get("body_html") if winner else ac.body_html
+                            
+                            # Find subscribers who already received a test email
+                            sent_sub_ids = db.query(QueueItem.subscriber_id).filter(QueueItem.campaign_id == ac.id).all()
+                            sent_sub_ids = {r[0] for r in sent_sub_ids}
+                            
+                            # Get all target subscribers for lists
+                            target_lists = ac.list_ids or [ac.list_id] if (ac.list_ids or ac.list_id) else []
+                            sub_query = db.query(Subscriber).filter(
+                                Subscriber.list_id.in_(target_lists),
+                                Subscriber.tenant_id == ac.tenant_id,
+                                Subscriber.status.in_(["active", "deferred"])
+                            )
+                            
+                            # Evaluate targeting rules
+                            rules = ac.target_rules or {}
+                            if rules:
+                                target_tag = rules.get("tag")
+                                if target_tag:
+                                    tags_list = [t.strip() for t in target_tag.split(",") if t.strip()]
+                                    if tags_list:
+                                        from sqlalchemy import or_
+                                        tag_filters = [Subscriber.tags.like(f'%"{t}"%') for t in tags_list]
+                                        sub_query = sub_query.filter(or_(*tag_filters))
+                                    
+                                target_engagements = rules.get("engagement")
+                                if target_engagements:
+                                    if isinstance(target_engagements, list):
+                                        scores = [int(e) for e in target_engagements if str(e).isdigit()]
+                                        if scores:
+                                            sub_query = sub_query.filter(Subscriber.engagement_score.in_(scores))
+                                    elif str(target_engagements).isdigit():
+                                        sub_query = sub_query.filter(Subscriber.engagement_score == int(target_engagements))
+                                    
+                                signup_after = rules.get("signup_after")
+                                if signup_after and str(signup_after).strip():
+                                    try:
+                                        dt = datetime.fromisoformat(str(signup_after).replace("Z", ""))
+                                        sub_query = sub_query.filter(Subscriber.created_at >= dt)
+                                    except Exception:
+                                        pass
+                                        
+                                signup_before = rules.get("signup_before")
+                                if signup_before and str(signup_before).strip():
+                                    try:
+                                        dt = datetime.fromisoformat(str(signup_before).replace("Z", ""))
+                                        sub_query = sub_query.filter(Subscriber.created_at <= dt)
+                                    except Exception:
+                                        pass
+                            
+                            target_subscribers = sub_query.all()
+                            
+                            # De-duplicate
+                            unique_subs = {}
+                            for sub in target_subscribers:
+                                if sub.email.lower() not in unique_subs:
+                                    unique_subs[sub.email.lower()] = sub
+                                    
+                            remaining_subs = [s for s in unique_subs.values() if s.id not in sent_sub_ids]
+                            
+                            if remaining_subs:
+                                settings = db.query(GlobalSettings).first()
+                                tracking_domain = settings.public_url if (settings and settings.public_url) else ""
+                                if tracking_domain:
+                                    tracking_domain = tracking_domain.rstrip("/")
+                                    
+                                for sub in remaining_subs:
+                                    body = render_email_template(
+                                        body_html=winner_body_html,
+                                        subscriber=sub,
+                                        tracking_domain=tracking_domain,
+                                        campaign_id=ac.id,
+                                        subscriber_id=sub.id
+                                    )
+                                    
+                                    item = QueueItem(
+                                        tenant_id=ac.tenant_id,
+                                        campaign_id=ac.id,
+                                        subscriber_id=sub.id,
+                                        email=sub.email,
+                                        subject=winner_subject,
+                                        body_html=body,
+                                        status="pending",
+                                        next_attempt=now,
+                                        ab_variant=best_variant
+                                    )
+                                    db.add(item)
+                                    
+                                ac.total_recipients += len(remaining_subs)
+                                db.commit()
+                                logger.info(f"Queued winning variant '{best_variant}' for {len(remaining_subs)} remaining subscribers.")
+            except Exception as ab_err:
+                logger.error(f"Error evaluating A/B test campaigns: {ab_err}")
+
             # 0. Automatically start sending scheduled campaigns whose scheduled time has passed
             try:
                 scheduled_campaigns = db.query(Campaign).filter(
@@ -542,7 +688,7 @@ async def process_queue():
             items = db.query(QueueItem).join(Campaign).filter(
                 QueueItem.status.in_(["pending", "deferred"]),
                 QueueItem.next_attempt <= now,
-                Campaign.status.in_(["sending", "flushing"]) # Skip paused, draft, or completed campaigns
+                Campaign.status.in_(["sending", "flushing", "automation"]) # Skip paused, draft, or completed campaigns
             ).order_by(QueueItem.created_at.asc()).limit(50).all()
             
             if not items:

@@ -93,6 +93,14 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
         preheader=payload.get("preheader", ""),
         body_blocks=payload.get("body_blocks", []),
         body_html=payload.get("body_html", ""),
+        is_custom_html=payload.get("is_custom_html", False),
+        custom_html=payload.get("custom_html", ""),
+        ab_testing_enabled=payload.get("ab_testing_enabled", False),
+        ab_test_ratio=payload.get("ab_test_ratio", 0.2),
+        ab_test_hours=payload.get("ab_test_hours", 24),
+        ab_winner_criteria=payload.get("ab_winner_criteria", "open_rate"),
+        ab_variants=payload.get("ab_variants", []),
+        ab_winning_variant=None,
         target_rules=payload.get("target_rules", {}),
         status="draft"
     )
@@ -118,6 +126,14 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
     campaign.preheader = payload.get("preheader", campaign.preheader)
     campaign.body_blocks = payload.get("body_blocks", campaign.body_blocks)
     campaign.body_html = payload.get("body_html", campaign.body_html)
+    campaign.is_custom_html = payload.get("is_custom_html", campaign.is_custom_html)
+    campaign.custom_html = payload.get("custom_html", campaign.custom_html)
+    campaign.ab_testing_enabled = payload.get("ab_testing_enabled", campaign.ab_testing_enabled)
+    campaign.ab_test_ratio = payload.get("ab_test_ratio", campaign.ab_test_ratio)
+    campaign.ab_test_hours = payload.get("ab_test_hours", campaign.ab_test_hours)
+    campaign.ab_winner_criteria = payload.get("ab_winner_criteria", campaign.ab_winner_criteria)
+    campaign.ab_variants = payload.get("ab_variants", campaign.ab_variants)
+    campaign.ab_winning_variant = payload.get("ab_winning_variant", campaign.ab_winning_variant)
     campaign.target_rules = payload.get("target_rules", campaign.target_rules)
     
     if "list_ids" in payload:
@@ -268,30 +284,69 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
     
     # Create queue items
     queue_items = []
-    for sub in subscribers:
-        body = render_email_template(
-            body_html=campaign.body_html,
-            subscriber=sub,
-            tracking_domain=tracking_domain,
-            campaign_id=campaign.id,
-            subscriber_id=sub.id
-        )
+    
+    if campaign.ab_testing_enabled and campaign.ab_variants:
+        campaign.ab_winning_variant = None
+        import random
+        random.seed()
         
-        # next_attempt set to future scheduled time or now
-        next_attempt = scheduled_time if scheduled_time else datetime.utcnow()
+        num_variants = len(campaign.ab_variants)
+        test_group_size = int(len(subscribers) * (campaign.ab_test_ratio or 0.2))
+        if test_group_size < num_variants:
+            test_group_size = min(len(subscribers), num_variants)
+            
+        test_subs = random.sample(subscribers, test_group_size)
         
-        item = QueueItem(
-            tenant_id=current_user.tenant_id,
-            campaign_id=campaign.id,
-            subscriber_id=sub.id,
-            email=sub.email,
-            subject=campaign.subject,
-            body_html=body,
-            status="pending",
-            next_attempt=next_attempt
-        )
-        db.add(item)
-        queue_items.append(item)
+        for idx, sub in enumerate(test_subs):
+            variant = campaign.ab_variants[idx % num_variants]
+            body = render_email_template(
+                body_html=variant.get("body_html", ""),
+                subscriber=sub,
+                tracking_domain=tracking_domain,
+                campaign_id=campaign.id,
+                subscriber_id=sub.id
+            )
+            
+            next_attempt = scheduled_time if scheduled_time else datetime.utcnow()
+            
+            item = QueueItem(
+                tenant_id=current_user.tenant_id,
+                campaign_id=campaign.id,
+                subscriber_id=sub.id,
+                email=sub.email,
+                subject=variant.get("subject", "No Subject"),
+                body_html=body,
+                status="pending",
+                next_attempt=next_attempt,
+                ab_variant=variant.get("id", "A")
+            )
+            db.add(item)
+            queue_items.append(item)
+    else:
+        for sub in subscribers:
+            body = render_email_template(
+                body_html=campaign.body_html,
+                subscriber=sub,
+                tracking_domain=tracking_domain,
+                campaign_id=campaign.id,
+                subscriber_id=sub.id
+            )
+            
+            # next_attempt set to future scheduled time or now
+            next_attempt = scheduled_time if scheduled_time else datetime.utcnow()
+            
+            item = QueueItem(
+                tenant_id=current_user.tenant_id,
+                campaign_id=campaign.id,
+                subscriber_id=sub.id,
+                email=sub.email,
+                subject=campaign.subject,
+                body_html=body,
+                status="pending",
+                next_attempt=next_attempt
+            )
+            db.add(item)
+            queue_items.append(item)
         
     if scheduled_time:
         campaign.status = "scheduled"
@@ -426,6 +481,43 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
     
     click_stats = [{"link": c.link_url, "clicks": c.click_count} for c in clicks]
     
+    ab_summary = None
+    if campaign.ab_testing_enabled:
+        variants_list = ["A"]
+        if campaign.ab_variants:
+            for v in campaign.ab_variants:
+                if v.get("id") and v.get("id") not in variants_list:
+                    variants_list.append(v.get("id"))
+                    
+        ab_summary = []
+        for vid in variants_list:
+            sent_v = db.query(QueueItem).filter(
+                QueueItem.campaign_id == campaign_id,
+                QueueItem.ab_variant == vid,
+                QueueItem.status == "sent"
+            ).count()
+            
+            opens_v = db.query(TrackingLog.subscriber_id).filter(
+                TrackingLog.campaign_id == campaign_id,
+                TrackingLog.ab_variant == vid,
+                TrackingLog.event_type == "open"
+            ).distinct().count()
+            
+            clicks_v = db.query(TrackingLog.subscriber_id).filter(
+                TrackingLog.campaign_id == campaign_id,
+                TrackingLog.ab_variant == vid,
+                TrackingLog.event_type == "click"
+            ).distinct().count()
+            
+            ab_summary.append({
+                "variant": vid,
+                "sent": sent_v,
+                "opens": opens_v,
+                "clicks": clicks_v,
+                "open_rate": (opens_v / sent_v) if sent_v > 0 else 0.0,
+                "click_rate": (clicks_v / sent_v) if sent_v > 0 else 0.0
+            })
+
     return {
         "id": campaign.id,
         "name": campaign.name,
@@ -436,7 +528,10 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
         "bounces": campaign.bounce_count,
         "opens": campaign.open_count,
         "clicks": campaign.click_count,
-        "click_stats": click_stats
+        "click_stats": click_stats,
+        "ab_testing_enabled": campaign.ab_testing_enabled,
+        "ab_winning_variant": campaign.ab_winning_variant,
+        "ab_summary": ab_summary
     }
 
 @router.get("/{campaign_id}/preview", response_class=HTMLResponse)

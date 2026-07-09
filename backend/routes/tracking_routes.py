@@ -25,6 +25,13 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 TrackingLog.event_type == "open"
             ).first()
             
+            from database import QueueItem
+            queue_item = db.query(QueueItem).filter(
+                QueueItem.campaign_id == campaign_id,
+                QueueItem.subscriber_id == subscriber_id
+            ).first()
+            ab_variant = queue_item.ab_variant if queue_item else None
+
             # Log open event
             log = TrackingLog(
                 tenant_id=campaign.tenant_id,
@@ -32,7 +39,7 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 subscriber_id=subscriber_id,
                 event_type="open",
                 ip_address=request.client.host if request.client else None,
-                headers=dict(request.headers)
+                ab_variant=ab_variant
             )
             
             # Note: We didn't define `headers` in DB TrackingLog, but let's save user_agent instead to match schema
@@ -81,6 +88,13 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
         subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
         
         if campaign and subscriber:
+            from database import QueueItem
+            queue_item = db.query(QueueItem).filter(
+                QueueItem.campaign_id == campaign_id,
+                QueueItem.subscriber_id == subscriber_id
+            ).first()
+            ab_variant = queue_item.ab_variant if queue_item else None
+
             # Log click event
             log = TrackingLog(
                 tenant_id=campaign.tenant_id,
@@ -89,7 +103,8 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 event_type="click",
                 link_url=url,
                 ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent")
+                user_agent=request.headers.get("user-agent"),
+                ab_variant=ab_variant
             )
             db.add(log)
             

@@ -13,9 +13,10 @@ from auth import hash_password
 from sending_worker import process_queue
 from bounce_worker import bounce_worker_loop
 from update_worker import auto_update_worker_loop
+from automation_worker import process_automation_states
 
 # Import routers
-from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes, user_routes, report_routes
+from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes, user_routes, report_routes, automation_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("polypress")
@@ -167,6 +168,9 @@ async def lifespan(app: FastAPI):
     logger.info("Launching background historical metrics worker...")
     metrics_task = asyncio.create_task(historical_metrics_worker_loop())
     
+    logger.info("Launching background automation flow state processing worker...")
+    automation_task = asyncio.create_task(process_automation_states())
+    
     yield
     
     # Shutdown actions
@@ -175,8 +179,9 @@ async def lifespan(app: FastAPI):
     bounce_task.cancel()
     update_task.cancel()
     metrics_task.cancel()
+    automation_task.cancel()
     try:
-        await asyncio.gather(sending_task, bounce_task, update_task, metrics_task, return_exceptions=True)
+        await asyncio.gather(sending_task, bounce_task, update_task, metrics_task, automation_task, return_exceptions=True)
     except Exception as e:
         logger.warning(f"Error while cleaning background tasks: {e}")
     logger.info("Shutdown complete.")
@@ -233,6 +238,7 @@ app.include_router(backup_routes.router)
 app.include_router(update_routes.router)
 app.include_router(user_routes.router)
 app.include_router(report_routes.router)
+app.include_router(automation_routes.router)
 
 # Mount branding folder for custom assets
 BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))

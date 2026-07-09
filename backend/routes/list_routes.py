@@ -39,7 +39,14 @@ def create_subscriber_list(payload: dict, db: Session = Depends(get_db), current
         tenant_id=current_user.tenant_id,
         name=name,
         description=payload.get("description"),
-        custom_fields=payload.get("custom_fields", []),
+        custom_fields=payload.get("custom_fields") if payload.get("custom_fields") is not None else [{
+            "key": "name",
+            "label": "Name",
+            "type": "text",
+            "required": False,
+            "show_on_form": True,
+            "form_order": 1
+        }],
         form_settings=payload.get("form_settings", {})
     )
     db.add(sub_list)
@@ -153,12 +160,18 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
         ).first()
     
     if existing:
+        old_status = existing.status
         existing.name = payload.get("name", existing.name)
         existing.status = payload.get("status", "active")
         existing.custom_data = payload.get("custom_data", existing.custom_data)
         existing.tags = payload.get("tags", existing.tags)
         db.commit()
         db.refresh(existing)
+        
+        if existing.status == "active" and old_status != "active":
+            from automation_worker import trigger_automation_on_list_join
+            trigger_automation_on_list_join(db, existing, list_id)
+            
         return existing
         
     subscriber = Subscriber(
@@ -174,6 +187,11 @@ def add_subscriber(list_id: int, payload: dict, db: Session = Depends(get_db), c
     db.add(subscriber)
     db.commit()
     db.refresh(subscriber)
+    
+    if subscriber.status == "active":
+        from automation_worker import trigger_automation_on_list_join
+        trigger_automation_on_list_join(db, subscriber, list_id)
+        
     return subscriber
 
 @router.delete("/{list_id}/subscribers/{sub_id}")
@@ -272,6 +290,7 @@ async def import_csv_subscribers(
             Subscriber.tenant_id == current_user.tenant_id
         ).all()}
     
+    new_actives = []
     for row in reader:
         # Resolve column names (handling whitespace)
         row_clean = {k.strip(): v.strip() for k, v in row.items() if k}
@@ -292,10 +311,13 @@ async def import_csv_subscribers(
                 
         if email_key in existing_subs:
             sub = existing_subs[email_key]
+            old_status = sub.status
             if name_val:
                 sub.name = name_val
             sub.status = "active" # Reset status to active on re-import
             sub.custom_data.update(custom_data)
+            if old_status != "active":
+                new_actives.append(sub)
         else:
             sub = Subscriber(
                 tenant_id=current_user.tenant_id,
@@ -308,6 +330,7 @@ async def import_csv_subscribers(
             )
             db.add(sub)
             existing_subs[email_key] = sub
+            new_actives.append(sub)
             
         imported_count += 1
         # Flush every 100 rows
@@ -315,4 +338,10 @@ async def import_csv_subscribers(
             db.flush()
             
     db.commit()
+    
+    # Trigger automation list join flows
+    from automation_worker import trigger_automation_on_list_join
+    for active_sub in new_actives:
+        trigger_automation_on_list_join(db, active_sub, list_id)
+        
     return {"imported": imported_count, "skipped": skipped_count}

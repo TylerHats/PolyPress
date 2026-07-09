@@ -204,8 +204,12 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "double_opt_in_subject": tenant.double_opt_in_subject,
         "double_opt_in_body_blocks": tenant.double_opt_in_body_blocks,
         "double_opt_in_body_html": tenant.double_opt_in_body_html,
+        "double_opt_in_is_custom_html": tenant.double_opt_in_is_custom_html,
+        "double_opt_in_custom_html": tenant.double_opt_in_custom_html,
         "email_footer_blocks": tenant.email_footer_blocks,
         "email_footer_html": tenant.email_footer_html,
+        "email_footer_is_custom_html": tenant.email_footer_is_custom_html,
+        "email_footer_custom_html": tenant.email_footer_custom_html,
         "sending_ip_override": tenant.sending_ip_override
     }
 
@@ -260,10 +264,18 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
         tenant.double_opt_in_body_blocks = payload["double_opt_in_body_blocks"]
     if "double_opt_in_body_html" in payload:
         tenant.double_opt_in_body_html = payload["double_opt_in_body_html"]
+    if "double_opt_in_is_custom_html" in payload:
+        tenant.double_opt_in_is_custom_html = payload["double_opt_in_is_custom_html"]
+    if "double_opt_in_custom_html" in payload:
+        tenant.double_opt_in_custom_html = payload["double_opt_in_custom_html"]
     if "email_footer_blocks" in payload:
         tenant.email_footer_blocks = payload["email_footer_blocks"]
     if "email_footer_html" in payload:
         tenant.email_footer_html = payload["email_footer_html"]
+    if "email_footer_is_custom_html" in payload:
+        tenant.email_footer_is_custom_html = payload["email_footer_is_custom_html"]
+    if "email_footer_custom_html" in payload:
+        tenant.email_footer_custom_html = payload["email_footer_custom_html"]
         
     db.commit()
     db.refresh(tenant)
