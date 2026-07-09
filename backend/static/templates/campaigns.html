@@ -17,7 +17,7 @@
                                     <tr>
                                         <th>Campaign Name</th>
                                         <th>Subject</th>
-                                        <th>Status</th>
+                                        <th style="text-align: center;">Status</th>
                                         <th>Delivered</th>
                                         <th>Opens</th>
                                         <th>Clicks</th>
@@ -29,7 +29,7 @@
                                         <tr>
                                             <td style="font-weight: 600;" x-text="c.name"></td>
                                             <td x-text="c.subject"></td>
-                                            <td>
+                                            <td style="text-align: center;">
                                                  <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status" @click.stop="openStatusExplainer(c.status)" style="cursor: pointer;" title="Click to view status details"></span>
                                             </td>
                                             <td x-text="c.sent_count + '/' + c.total_recipients"></td>
@@ -37,7 +37,7 @@
                                             <td x-text="c.click_count + ' (' + calculatePercentage(c.click_count, c.sent_count) + '%)'"></td>
                                             <td>
                                                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                                     <button x-show="['draft', 'automation'].includes(c.status) && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Design/Content">
+                                                     <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Design/Content">
                                                          <i data-lucide="edit-3"></i> Design
                                                      </button>
                                                      <button x-show="user.role === 'tenant_user'" @click="openPreviewOnlyModal(c)" class="btn btn-secondary btn-sm" title="Preview Campaign">

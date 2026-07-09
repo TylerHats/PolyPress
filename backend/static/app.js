@@ -3244,9 +3244,11 @@
                 },
                 
                 async saveAndLockCampaign() {
-                    if (!confirm("Are you sure you want to Save & Lock this campaign design as an Automation Template?\n\nOnce locked, you will not be able to edit its design or broadcast it manually, but it will be safely available for Visual Flow Automations.")) {
-                        return;
-                    }
+                    const ok = await this.askConfirm(
+                        "Are you sure you want to Save & Lock this campaign design as an Automation Template?\n\nOnce locked, you will not be able to edit its design or broadcast it manually, but it will be safely available for Visual Flow Automations.",
+                        "Lock Automation Template"
+                    );
+                    if (!ok) return;
                     this.editingCampaign.status = 'automation';
                     await this.saveCampaignDraft();
                     this.switchTab('campaigns');
@@ -3552,12 +3554,13 @@
                 
                 // Badge color mappings
                 getCampaignBadgeClass(status) {
-                    if (status === 'sent' || status === 'completed') return 'badge-success';
-                    if (status === 'sending' || status === 'flushing') return 'badge-info';
-                    if (status === 'paused') return 'badge-warning';
-                    if (status === 'queued') return 'badge-warning';
-                    if (status === 'cancelled') return 'badge-muted';
-                    if (status === 'automation') return 'badge-purple';
+                    const s = (status || '').toLowerCase().trim();
+                    if (s === 'sent' || s === 'completed') return 'badge-success';
+                    if (s === 'sending' || s === 'flushing') return 'badge-info';
+                    if (s === 'paused') return 'badge-warning';
+                    if (s === 'queued') return 'badge-warning';
+                    if (s === 'cancelled') return 'badge-muted';
+                    if (s === 'automation') return 'badge-purple';
                     return 'badge-muted'; // draft
                 },
                 
