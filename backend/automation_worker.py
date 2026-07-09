@@ -43,10 +43,40 @@ def evaluate_condition_single(subscriber: Subscriber, field: str, operator: str,
     
     return False
 
+def evaluate_condition_list(subscriber: Subscriber, conditions: list) -> bool:
+    if not conditions:
+        return True
+        
+    result = evaluate_condition_single(
+        subscriber, 
+        conditions[0].get("field", ""), 
+        conditions[0].get("operator", "equals"), 
+        conditions[0].get("value", "")
+    )
+    
+    for i in range(1, len(conditions)):
+        cond = conditions[i]
+        logic = cond.get("logic", "and").lower()
+        cond_res = evaluate_condition_single(
+            subscriber, 
+            cond.get("field", ""), 
+            cond.get("operator", "equals"), 
+            cond.get("value", "")
+        )
+        if logic == "or":
+            result = result or cond_res
+        else:
+            result = result and cond_res
+            
+    return result
+
 def evaluate_condition(subscriber: Subscriber, config: dict) -> bool:
     """
     Evaluates condition configuration against subscriber properties and custom fields.
     """
+    if "conditions" in config and isinstance(config["conditions"], list) and len(config["conditions"]) > 0:
+        return evaluate_condition_list(subscriber, config["conditions"])
+
     primary_ok = evaluate_condition_single(
         subscriber, 
         config.get("field", ""), 
@@ -63,6 +93,22 @@ def evaluate_condition(subscriber: Subscriber, config: dict) -> bool:
         return primary_ok or secondary_ok
     return primary_ok
 
+def find_node_and_parent(nodes: list, target_id: str) -> tuple[dict, list]:
+    """
+    Finds a node and its containing array (parent array) in the flow tree.
+    """
+    for i, node in enumerate(nodes):
+        if node.get("id") == target_id:
+            return node, nodes
+        if node.get("type") == "condition":
+            found_node, found_parent = find_node_and_parent(node.get("true_nodes", []), target_id)
+            if found_node:
+                return found_node, found_parent
+            found_node, found_parent = find_node_and_parent(node.get("false_nodes", []), target_id)
+            if found_node:
+                return found_node, found_parent
+    return None, None
+
 def trigger_automation_on_list_join(db, subscriber: Subscriber, list_id: int):
     """
     Checks active flows for list join triggers and launches AutomationStates.
@@ -75,57 +121,61 @@ def trigger_automation_on_list_join(db, subscriber: Subscriber, list_id: int):
 
         for flow in active_flows:
             flow_data = flow.flow_data or {}
-            nodes = flow_data.get("nodes", [])
+            trigger = flow_data.get("trigger", {})
             
-            # Find list join triggers for this list
-            for node in nodes:
-                if node.get("type") == "trigger":
-                    config = node.get("config", {})
-                    trigger_list = config.get("list_id")
-                    is_match = False
-                    if str(trigger_list).strip().lower() == "any":
-                        is_match = True
-                    else:
-                        try:
-                            is_match = (int(trigger_list or 0) == list_id)
-                        except ValueError:
-                            pass
+            is_match = False
+            if trigger.get("any_list") or trigger.get("list_id") == "any":
+                is_match = True
+            else:
+                list_ids = trigger.get("list_ids", [])
+                if not isinstance(list_ids, list):
+                    list_ids = []
+                
+                # Check old list_id field for backward compatibility
+                old_list_id = trigger.get("list_id")
+                if old_list_id and old_list_id != "any":
+                    try:
+                        list_ids = list_ids + [int(old_list_id)]
+                    except ValueError:
+                        pass
+                
+                is_match = (list_id in list_ids)
 
-                    if config.get("event") == "list_joined" and is_match:
-                        # Check if state already exists to prevent duplicate entries
-                        exists = db.query(AutomationState).filter(
-                            AutomationState.flow_id == flow.id,
-                            AutomationState.subscriber_id == subscriber.id
-                        ).first()
+            if is_match:
+                # Check if state already exists to prevent duplicate entries
+                exists = db.query(AutomationState).filter(
+                    AutomationState.flow_id == flow.id,
+                    AutomationState.subscriber_id == subscriber.id
+                ).first()
+                
+                if not exists:
+                    nodes = flow_data.get("nodes", [])
+                    if nodes:
+                        first_node = nodes[0]
+                        state = AutomationState(
+                            tenant_id=subscriber.tenant_id,
+                            flow_id=flow.id,
+                            subscriber_id=subscriber.id,
+                            current_node_id=first_node.get("id"),
+                            status="waiting",
+                            scheduled_for=datetime.utcnow()
+                        )
+                        db.add(state)
+                        db.commit()
                         
-                        if not exists:
-                            # Start flow at next node
-                            next_node_id = node.get("next_node_id")
-                            if next_node_id:
-                                state = AutomationState(
-                                    tenant_id=subscriber.tenant_id,
-                                    flow_id=flow.id,
-                                    subscriber_id=subscriber.id,
-                                    current_node_id=next_node_id,
-                                    status="waiting",
-                                    scheduled_for=datetime.utcnow()
-                                )
-                                db.add(state)
-                                db.commit()
-                                
-                                # Log trigger execution
-                                log = AutomationLog(
-                                    tenant_id=subscriber.tenant_id,
-                                    flow_id=flow.id,
-                                    subscriber_id=subscriber.id,
-                                    node_id=node.get("id"),
-                                    node_type="trigger",
-                                    action_taken="Triggered list join flow",
-                                    details=f"Subscriber {subscriber.email} joined list {list_id}"
-                                )
-                                db.add(log)
-                                db.commit()
-                                logger.info(f"Triggered automation flow {flow.id} for subscriber {subscriber.id}")
+                        # Log trigger execution
+                        log = AutomationLog(
+                            tenant_id=subscriber.tenant_id,
+                            flow_id=flow.id,
+                            subscriber_id=subscriber.id,
+                            node_id="trigger",
+                            node_type="trigger",
+                            action_taken="Triggered list join flow",
+                            details=f"Subscriber {subscriber.email} joined list {list_id}"
+                        )
+                        db.add(log)
+                        db.commit()
+                        logger.info(f"Triggered automation flow {flow.id} for subscriber {subscriber.id}")
     except Exception as e:
         logger.exception(f"Error triggering list join automation: {e}")
 
@@ -160,8 +210,8 @@ async def process_automation_states():
                 flow_data = flow.flow_data or {}
                 nodes = flow_data.get("nodes", [])
                 
-                # Retrieve current node
-                node = next((n for n in nodes if n.get("id") == state.current_node_id), None)
+                # Retrieve current node and parent array
+                node, parent_array = find_node_and_parent(nodes, state.current_node_id)
                 if not node:
                     state.status = "completed"
                     db.commit()
@@ -184,7 +234,8 @@ async def process_automation_states():
                         delta = timedelta(days=duration)
                         
                     state.scheduled_for = now + delta
-                    state.current_node_id = node.get("next_node_id")
+                    idx = parent_array.index(node)
+                    state.current_node_id = parent_array[idx + 1].get("id") if idx + 1 < len(parent_array) else None
                     if not state.current_node_id:
                         state.status = "completed"
                     
@@ -220,7 +271,8 @@ async def process_automation_states():
                         )
                         db.add(log)
                         
-                        state.current_node_id = node.get("next_node_id")
+                        idx = parent_array.index(node)
+                        state.current_node_id = parent_array[idx + 1].get("id") if idx + 1 < len(parent_array) else None
                         if not state.current_node_id:
                             state.status = "completed"
                         db.commit()
@@ -254,7 +306,8 @@ async def process_automation_states():
                     db.commit()
 
                     # Advance state
-                    state.current_node_id = node.get("next_node_id")
+                    idx = parent_array.index(node)
+                    state.current_node_id = parent_array[idx + 1].get("id") if idx + 1 < len(parent_array) else None
                     if not state.current_node_id:
                         state.status = "completed"
                     state.scheduled_for = datetime.utcnow() # Process next step immediately
@@ -276,7 +329,16 @@ async def process_automation_states():
 
                 elif node_type == "condition":
                     is_true = evaluate_condition(subscriber, config)
-                    next_id = node.get("true_node_id") if is_true else node.get("false_node_id")
+                    next_id = None
+                    if config.get("enable_else_branch"):
+                        branch_nodes = node.get("true_nodes", []) if is_true else node.get("false_nodes", [])
+                        if branch_nodes:
+                            next_id = branch_nodes[0].get("id")
+                    else:
+                        if is_true:
+                            idx = parent_array.index(node)
+                            if idx + 1 < len(parent_array):
+                                next_id = parent_array[idx + 1].get("id")
                     
                     state.current_node_id = next_id
                     if not state.current_node_id:
@@ -293,14 +355,15 @@ async def process_automation_states():
                         node_id=node.get("id"),
                         node_type="condition",
                         action_taken=f"Evaluated condition to {is_true}",
-                        details=f"Condition on '{config.get('field')}' {config.get('operator')} '{config.get('value')}' evaluated to {is_true}. Routing to node {next_id}."
+                        details=f"Logic criteria evaluated to {is_true}. Next step: {next_id}."
                     )
                     db.add(log)
                     db.commit()
 
                 else:
                     # Unknown node, skip it and advance
-                    state.current_node_id = node.get("next_node_id")
+                    idx = parent_array.index(node)
+                    state.current_node_id = parent_array[idx + 1].get("id") if idx + 1 < len(parent_array) else None
                     if not state.current_node_id:
                         state.status = "completed"
                     db.commit()

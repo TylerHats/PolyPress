@@ -93,16 +93,17 @@
             <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
                 
                 <!-- Flow Start Node -->
-                <div style="background: #1e1b4b; border: 2px solid #818cf8; border-radius: 8px; padding: 12px 20px; width: 220px; text-align: center; color: #fff; font-weight: 600; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2); position: relative; cursor: pointer;" 
-                     @click="selectedAutomationNodeId = 'trigger'">
-                    <div style="font-size: 11px; text-transform: uppercase; color: #a5b4fc; font-weight: 700; margin-bottom: 4px;">Trigger Node</div>
-                    <div style="font-size: 13px;" x-text="getAutomationTriggerLabel()"></div>
-                </div>
+                 <div style="background: #1e1b4b; border: 2px solid rgba(129, 140, 248, 0.5); border-radius: 8px; padding: 12px 20px; width: 260px; text-align: center; color: #fff; font-weight: 600; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: all 0.2s; position: relative; cursor: pointer;" 
+                      :style="selectedAutomationNodeId === 'trigger' ? 'border-color: var(--color-primary) !important; transform: scale(1.02); box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);' : ''"
+                      @click="selectedAutomationNodeId = 'trigger'">
+                     <div style="font-size: 11px; text-transform: uppercase; color: #a5b4fc; font-weight: 700; margin-bottom: 4px;">Trigger Node</div>
+                     <div style="font-size: 13px;" x-text="getAutomationTriggerLabel()"></div>
+                 </div>
                 
-
-
-                <!-- Custom Visual Chain Rendering without manual recursion constraints (sequential node mapping) -->
+                <!-- Custom Visual Chain Rendering with branching support -->
                 <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                    
+                    <!-- Main Level 1 Nodes list -->
                     <template x-for="(node, index) in getSequentialNodes()" :key="node.id">
                         <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
                             <!-- Arrow connector -->
@@ -110,8 +111,8 @@
                                 <div style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid rgba(255,255,255,0.25);"></div>
                             </div>
                             
-                              <div :style="getNodeStyle(node)"
-                                   @click="selectedAutomationNodeId = node.id">
+                            <!-- Node Card -->
+                            <div :style="getNodeStyle(node)" @click="selectedAutomationNodeId = node.id">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                     <span style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.7);" x-text="getNodeTypeLabel(node.type)"></span>
                                     <button @click.stop="removeAutomationNode(node.id)" style="background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 0;" class="hover-danger">
@@ -120,6 +121,83 @@
                                 </div>
                                 <div style="font-size: 13px; font-weight: 600;" x-text="getNodeDescription(node)"></div>
                             </div>
+
+                            <!-- If node is condition and has else branch enabled, render split branches -->
+                            <template x-if="node.type === 'condition' && node.config.enable_else_branch">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; width: 100%; max-width: 900px; gap: 30px; margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 20px; position: relative;">
+                                    
+                                    <!-- Left Column: IF TRUE branch -->
+                                    <div style="display: flex; flex-direction: column; align-items: center; background: rgba(16, 185, 129, 0.02); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: 12px; padding: 15px; width: 100%;">
+                                        <div style="font-size: 11px; font-weight: 700; color: var(--color-success); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">✔ IF TRUE</div>
+                                        
+                                        <!-- Level 2 True Nodes -->
+                                        <template x-for="(node2, idx2) in (node.true_nodes || [])" :key="node2.id">
+                                            <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                                                <!-- Arrow -->
+                                                <div style="height: 30px; width: 2px; background: rgba(255,255,255,0.15); position: relative; margin: 4px 0;">
+                                                    <div style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid rgba(255,255,255,0.25);"></div>
+                                                </div>
+                                                
+                                                <!-- Card -->
+                                                <div :style="getNodeStyle(node2)" @click="selectedAutomationNodeId = node2.id">
+                                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                                        <span style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.7);" x-text="getNodeTypeLabel(node2.type)"></span>
+                                                        <button @click.stop="removeAutomationNode(node2.id)" style="background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 0;" class="hover-danger">
+                                                            <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+                                                        </button>
+                                                    </div>
+                                                    <div style="font-size: 13px; font-weight: 600;" x-text="getNodeDescription(node2)"></div>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- Level 2 True Add Node Connector -->
+                                        <div style="display: flex; flex-direction: column; align-items: center; margin-top: 15px; width: 100%;">
+                                            <div style="height: 25px; width: 2px; background: rgba(255,255,255,0.15); position: relative; margin-bottom: 8px;"></div>
+                                            <div style="display: flex; gap: 6px; justify-content: center; width: 100%;">
+                                                <button @click="addAutomationNode('delay', node.id, 'true')" class="btn btn-secondary btn-xs" style="padding: 4px 8px; font-size:10px; background: #064e3b; border-color: #059669; color: #34d399;">+ Delay</button>
+                                                <button @click="addAutomationNode('action_send_email', node.id, 'true')" class="btn btn-secondary btn-xs" style="padding: 4px 8px; font-size:10px; background: #1e3a8a; border-color: #3b82f6; color: #93c5fd;">+ Email</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Right Column: IF FALSE (ELSE) branch -->
+                                    <div style="display: flex; flex-direction: column; align-items: center; background: rgba(239, 68, 68, 0.02); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 12px; padding: 15px; width: 100%;">
+                                        <div style="font-size: 11px; font-weight: 700; color: var(--color-danger); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">❌ IF FALSE (ELSE)</div>
+                                        
+                                        <!-- Level 2 False Nodes -->
+                                        <template x-for="(node2, idx2) in (node.false_nodes || [])" :key="node2.id">
+                                            <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                                                <!-- Arrow -->
+                                                <div style="height: 30px; width: 2px; background: rgba(255,255,255,0.15); position: relative; margin: 4px 0;">
+                                                    <div style="position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid rgba(255,255,255,0.25);"></div>
+                                                </div>
+                                                
+                                                <!-- Card -->
+                                                <div :style="getNodeStyle(node2)" @click="selectedAutomationNodeId = node2.id">
+                                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                                        <span style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.7);" x-text="getNodeTypeLabel(node2.type)"></span>
+                                                        <button @click.stop="removeAutomationNode(node2.id)" style="background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 0;" class="hover-danger">
+                                                            <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+                                                        </button>
+                                                    </div>
+                                                    <div style="font-size: 13px; font-weight: 600;" x-text="getNodeDescription(node2)"></div>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- Level 2 False Add Node Connector -->
+                                        <div style="display: flex; flex-direction: column; align-items: center; margin-top: 15px; width: 100%;">
+                                            <div style="height: 25px; width: 2px; background: rgba(255,255,255,0.15); position: relative; margin-bottom: 8px;"></div>
+                                            <div style="display: flex; gap: 6px; justify-content: center; width: 100%;">
+                                                <button @click="addAutomationNode('delay', node.id, 'false')" class="btn btn-secondary btn-xs" style="padding: 4px 8px; font-size:10px; background: #064e3b; border-color: #059669; color: #34d399;">+ Delay</button>
+                                                <button @click="addAutomationNode('action_send_email', node.id, 'false')" class="btn btn-secondary btn-xs" style="padding: 4px 8px; font-size:10px; background: #1e3a8a; border-color: #3b82f6; color: #93c5fd;">+ Email</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                            </template>
                         </div>
                     </template>
 
@@ -158,19 +236,41 @@
             </template>
 
             <template x-if="selectedAutomationNodeId === 'trigger'">
-                <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <h4 style="font-size: 13px; font-weight: 600; color: #818cf8;">Flow Entry Trigger</h4>
-                    <div class="field">
-                        <label>Select Mailing List</label>
-                        <select x-model="activeFlowTarget.flow_data.trigger.list_id" style="width: 100%;" @change="refreshIcons()">
-                            <option value="">-- Choose target list --</option>
-                            <option value="any">Any Mailing List (All Subscribers)</option>
-                            <template x-for="list in lists" :key="list.id">
-                                <option :value="list.id" x-text="list.name"></option>
-                            </template>
-                        </select>
-                        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">This automation flow starts automatically whenever a subscriber joins this mailing list.</span>
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <h4 style="font-size: 13px; font-weight: 700; color: #818cf8; text-transform: uppercase; letter-spacing: 0.5px;">Flow Entry Trigger</h4>
+                    
+                    <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 12px;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; color: #fff; cursor: pointer;">
+                            <input type="checkbox" x-model="activeFlowTarget.flow_data.trigger.any_list" style="width: 16px; height: 16px;">
+                            Any Mailing List (All Subscribers)
+                        </label>
                     </div>
+
+                    <div class="field" :style="activeFlowTarget.flow_data.trigger.any_list ? 'opacity: 0.5;' : ''">
+                        <label style="margin-bottom: 4px;">Target Mailing Lists</label>
+                        <div style="display: flex; flex-direction: column; gap: 10px; max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.15); padding: 10px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                            <template x-for="list in lists" :key="list.id">
+                                <label style="display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 13px; color: #fff;" :style="activeFlowTarget.flow_data.trigger.any_list ? 'cursor: not-allowed;' : 'cursor: pointer;'">
+                                    <input type="checkbox" :value="list.id"
+                                           :disabled="activeFlowTarget.flow_data.trigger.any_list"
+                                           :checked="activeFlowTarget.flow_data.trigger.list_ids && activeFlowTarget.flow_data.trigger.list_ids.includes(list.id)"
+                                           @change="
+                                               if ($event.target.checked) {
+                                                   if (!activeFlowTarget.flow_data.trigger.list_ids) activeFlowTarget.flow_data.trigger.list_ids = [];
+                                                   activeFlowTarget.flow_data.trigger.list_ids.push(list.id);
+                                               } else {
+                                                   activeFlowTarget.flow_data.trigger.list_ids = activeFlowTarget.flow_data.trigger.list_ids.filter(id => id !== list.id);
+                                               }
+                                           "
+                                           style="width: 16px; height: 16px;">
+                                    <span x-text="list.name"></span>
+                                </label>
+                            </template>
+                            <div x-show="lists.length === 0" style="font-size: 11px; color: var(--text-muted); font-style: italic;">No mailing lists configured.</div>
+                        </div>
+                    </div>
+                    
+                    <span style="font-size: 11px; color: var(--text-muted); line-height: 1.35; display: block; padding-left: 2px;">This flow starts automatically whenever a subscriber joins any of the selected target lists.</span>
                 </div>
             </template>
 
@@ -216,48 +316,68 @@
                         <!-- Condition node inputs -->
                         <template x-if="getSelectedAutomationNode().type === 'condition'">
                             <div style="display: flex; flex-direction: column; gap: 14px;">
-                                <div class="field">
-                                    <label>Attribute / Property</label>
-                                    <select x-model="getSelectedAutomationNode().config.field" style="width: 100%;">
-                                        <option value="">-- Choose field --</option>
-                                        <option value="name">Subscriber Name</option>
-                                        <option value="email">Subscriber Email</option>
-                                        <option value="status">Status (active/pending)</option>
-                                        <option value="tag">Tags CSV</option>
-                                        <template x-for="field in getTriggerListFields()" :key="field.key">
-                                            <option :value="field.key" x-text="'Custom: ' + field.label"></option>
-                                        </template>
-                                    </select>
-                                </div>
-                                <div class="field">
-                                    <label>Operator Check</label>
-                                    <select x-model="getSelectedAutomationNode().config.operator" style="width: 100%;">
-                                        <option value="equals">Equals</option>
-                                        <option value="contains">Contains substring</option>
-                                        <option value="is_set">Is set / not empty</option>
-                                        <option value="is_not_set">Is empty / not set</option>
-                                    </select>
-                                </div>
-                                <div class="field" x-show="getSelectedAutomationNode().config.operator !== 'is_set' && getSelectedAutomationNode().config.operator !== 'is_not_set'">
-                                    <label>Target Value</label>
-                                    <input type="text" x-model="getSelectedAutomationNode().config.value" style="width: 100%;" placeholder="e.g. New York">
-                                </div>
                                 
-                                <!-- Optional OR flow toggle -->
-                                <div style="margin-top: 5px; margin-bottom: 5px; border-top: 1px dashed var(--border-glass); padding-top: 12px;">
-                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 13px;">
-                                        <input type="checkbox" x-model="getSelectedAutomationNode().config.enable_or" style="width:16px; height:16px; cursor: pointer;">
-                                        Add OR Condition Check
-                                    </label>
-                                </div>
-
-                                <template x-if="getSelectedAutomationNode().config.enable_or">
-                                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 5px;">
-                                        <h5 style="font-size: 11px; font-weight: 700; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">OR Condition (B)</h5>
+                                <!-- Multiple Conditions Editor -->
+                                <template x-if="getSelectedAutomationNode().config.conditions && getSelectedAutomationNode().config.conditions.length > 0">
+                                    <div style="display: flex; flex-direction: column; gap: 16px;">
+                                        <h5 style="font-size: 11px; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Condition Rules Chain</h5>
                                         
+                                        <template x-for="(cond, idx) in getSelectedAutomationNode().config.conditions" :key="idx">
+                                            <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-glass); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; position: relative;">
+                                                <button @click="removeConditionOperation(idx)" style="position: absolute; top: 10px; right: 10px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 0;" class="hover-danger">
+                                                    <i data-lucide="x" style="width:14px; height:14px;"></i>
+                                                </button>
+                                                
+                                                <!-- Logic connector (for idx > 0) -->
+                                                <div x-show="idx > 0" class="field" style="width: 100px;">
+                                                    <label style="font-size: 10px; text-transform: uppercase;">Connector</label>
+                                                    <select x-model="cond.logic" style="padding: 4px 8px; font-size: 11px; height: 26px;">
+                                                        <option value="and">AND</option>
+                                                        <option value="or">OR</option>
+                                                    </select>
+                                                </div>
+
+                                                <div class="field">
+                                                    <label style="font-size: 11px;">Attribute / Property</label>
+                                                    <select x-model="cond.field" style="width: 100%;" @change="refreshIcons()">
+                                                        <option value="">-- Choose field --</option>
+                                                        <option value="name">Subscriber Name</option>
+                                                        <option value="email">Subscriber Email</option>
+                                                        <option value="status">Status (active/pending)</option>
+                                                        <option value="tag">Tags CSV</option>
+                                                        <template x-for="field in getTriggerListFields()" :key="field.key">
+                                                            <option :value="field.key" x-text="'Custom: ' + field.label"></option>
+                                                        </template>
+                                                    </select>
+                                                </div>
+                                                <div class="field">
+                                                    <label style="font-size: 11px;">Operator Check</label>
+                                                    <select x-model="cond.operator" style="width: 100%;" @change="refreshIcons()">
+                                                        <option value="equals">Equals</option>
+                                                        <option value="contains">Contains substring</option>
+                                                        <option value="is_set">Is set / not empty</option>
+                                                        <option value="is_not_set">Is empty / not set</option>
+                                                    </select>
+                                                </div>
+                                                <div class="field" x-show="cond.operator !== 'is_set' && cond.operator !== 'is_not_set'">
+                                                    <label style="font-size: 11px;">Target Value</label>
+                                                    <input type="text" x-model="cond.value" style="width: 100%;" placeholder="e.g. New York">
+                                                </div>
+                                            </div>
+                                        </template>
+                                        
+                                        <button @click="addConditionOperation()" class="btn btn-secondary btn-sm" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                            <i data-lucide="plus" style="width: 14px; height: 14px;"></i> Add AND/OR Rule
+                                        </button>
+                                    </div>
+                                </template>
+
+                                <!-- Single Condition Fallback Editor -->
+                                <template x-if="!getSelectedAutomationNode().config.conditions || getSelectedAutomationNode().config.conditions.length === 0">
+                                    <div style="display: flex; flex-direction: column; gap: 14px;">
                                         <div class="field">
-                                            <label style="font-size: 12px; color: var(--text-secondary);">OR Attribute / Property</label>
-                                            <select x-model="getSelectedAutomationNode().config.or_field" style="width: 100%;">
+                                            <label>Attribute / Property</label>
+                                            <select x-model="getSelectedAutomationNode().config.field" style="width: 100%;" @change="refreshIcons()">
                                                 <option value="">-- Choose field --</option>
                                                 <option value="name">Subscriber Name</option>
                                                 <option value="email">Subscriber Email</option>
@@ -269,20 +389,76 @@
                                             </select>
                                         </div>
                                         <div class="field">
-                                            <label style="font-size: 12px; color: var(--text-secondary);">OR Operator Check</label>
-                                            <select x-model="getSelectedAutomationNode().config.or_operator" style="width: 100%;">
+                                            <label>Operator Check</label>
+                                            <select x-model="getSelectedAutomationNode().config.operator" style="width: 100%;" @change="refreshIcons()">
                                                 <option value="equals">Equals</option>
                                                 <option value="contains">Contains substring</option>
                                                 <option value="is_set">Is set / not empty</option>
                                                 <option value="is_not_set">Is empty / not set</option>
                                             </select>
                                         </div>
-                                        <div class="field" x-show="getSelectedAutomationNode().config.or_operator !== 'is_set' && getSelectedAutomationNode().config.or_operator !== 'is_not_set'">
-                                            <label style="font-size: 12px; color: var(--text-secondary);">OR Target Value</label>
-                                            <input type="text" x-model="getSelectedAutomationNode().config.or_value" style="width: 100%;" placeholder="e.g. Los Angeles">
+                                        <div class="field" x-show="getSelectedAutomationNode().config.operator !== 'is_set' && getSelectedAutomationNode().config.operator !== 'is_not_set'">
+                                            <label>Target Value</label>
+                                            <input type="text" x-model="getSelectedAutomationNode().config.value" style="width: 100%;" placeholder="e.g. New York">
+                                        </div>
+                                        
+                                        <!-- Optional OR flow toggle -->
+                                        <div style="margin-top: 5px; margin-bottom: 5px; border-top: 1px dashed var(--border-glass); padding-top: 12px;">
+                                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 13px;">
+                                                <input type="checkbox" x-model="getSelectedAutomationNode().config.enable_or" style="width:16px; height:16px; cursor: pointer;">
+                                                Add OR Condition Check
+                                            </label>
+                                        </div>
+
+                                        <template x-if="getSelectedAutomationNode().config.enable_or">
+                                            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 5px;">
+                                                <h5 style="font-size: 11px; font-weight: 700; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">OR Condition (B)</h5>
+                                                
+                                                <div class="field">
+                                                    <label style="font-size: 12px; color: var(--text-secondary);">OR Attribute / Property</label>
+                                                    <select x-model="getSelectedAutomationNode().config.or_field" style="width: 100%;" @change="refreshIcons()">
+                                                        <option value="">-- Choose field --</option>
+                                                        <option value="name">Subscriber Name</option>
+                                                        <option value="email">Subscriber Email</option>
+                                                        <option value="status">Status (active/pending)</option>
+                                                        <option value="tag">Tags CSV</option>
+                                                        <template x-for="field in getTriggerListFields()" :key="field.key">
+                                                            <option :value="field.key" x-text="'Custom: ' + field.label"></option>
+                                                        </template>
+                                                    </select>
+                                                </div>
+                                                <div class="field">
+                                                    <label style="font-size: 12px; color: var(--text-secondary);">OR Operator Check</label>
+                                                    <select x-model="getSelectedAutomationNode().config.or_operator" style="width: 100%;" @change="refreshIcons()">
+                                                        <option value="equals">Equals</option>
+                                                        <option value="contains">Contains substring</option>
+                                                        <option value="is_set">Is set / not empty</option>
+                                                        <option value="is_not_set">Is empty / not set</option>
+                                                    </select>
+                                                </div>
+                                                <div class="field" x-show="getSelectedAutomationNode().config.or_operator !== 'is_set' && getSelectedAutomationNode().config.or_operator !== 'is_not_set'">
+                                                    <label style="font-size: 12px; color: var(--text-secondary);">OR Target Value</label>
+                                                    <input type="text" x-model="getSelectedAutomationNode().config.or_value" style="width: 100%;" placeholder="e.g. Los Angeles">
+                                                </div>
+                                            </div>
+                                        </template>
+                                        
+                                        <div style="border-top: 1px dashed var(--border-glass); padding-top: 12px; margin-top: 5px;">
+                                            <button @click="addConditionOperation()" class="btn btn-secondary btn-xs" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                                <i data-lucide="plus" style="width:12px; height:12px;"></i> Convert to Advanced Multi-Rule
+                                            </button>
                                         </div>
                                     </div>
                                 </template>
+
+                                <!-- IF / ELSE branch pathways toggle -->
+                                <div style="margin-top: 10px; margin-bottom: 5px; border-top: 1px dashed var(--border-glass); padding-top: 12px; display: flex; flex-direction: column; gap: 4px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 13px;">
+                                        <input type="checkbox" x-model="getSelectedAutomationNode().config.enable_else_branch" @change="refreshIcons()" style="width:16px; height:16px; cursor: pointer;">
+                                        Enable IF / ELSE branching pathways
+                                    </label>
+                                    <span style="font-size: 10px; color: var(--text-muted); line-height: 1.35; display: block; padding-left: 2px;">Splits the visual builder canvas into parallel columns (True routes down the IF TRUE sequence, False routes down the IF FALSE ELSE sequence).</span>
+                                </div>
 
                                 <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 6px; padding: 10px; font-size:11px; color: var(--text-secondary); line-height: 1.4;">
                                     <strong>Routing Logic:</strong> If evaluation is true, flow proceeds down this chain. If false, execution skips the subsequent email/delay actions.
@@ -313,15 +489,6 @@
             <div class="field" style="margin-bottom: 15px;">
                 <label>Description</label>
                 <textarea x-model="automationForm.description" placeholder="Describe the purpose of this flow..." style="height: 80px;"></textarea>
-            </div>
-            <div class="field">
-                <label>Mailing List Trigger</label>
-                <select x-model="automationForm.list_id" style="width: 100%;">
-                    <option value="">-- Select trigger list --</option>
-                    <template x-for="list in lists" :key="list.id">
-                        <option :value="list.id" x-text="list.name"></option>
-                    </template>
-                </select>
             </div>
         </div>
         <div class="modal-footer">

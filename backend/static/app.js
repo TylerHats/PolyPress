@@ -1465,8 +1465,8 @@
                 },
 
                 async submitCreateAutomationFlow() {
-                    if (!this.automationForm.name || !this.automationForm.list_id) {
-                        this.showToast('Name and Trigger List are required.', 'error');
+                    if (!this.automationForm.name) {
+                        this.showToast('Name is required.', 'error');
                         return;
                     }
                     try {
@@ -1478,7 +1478,8 @@
                                 description: this.automationForm.description,
                                 flow_data: {
                                     trigger: {
-                                        list_id: parseInt(this.automationForm.list_id)
+                                        any_list: false,
+                                        list_ids: []
                                     },
                                     nodes: []
                                 }
@@ -1499,7 +1500,21 @@
                 startFlowBuilder(flow) {
                     this.activeFlowTarget = JSON.parse(JSON.stringify(flow));
                     if (!this.activeFlowTarget.flow_data) {
-                        this.activeFlowTarget.flow_data = { trigger: { list_id: '' }, nodes: [] };
+                        this.activeFlowTarget.flow_data = { trigger: { any_list: false, list_ids: [] }, nodes: [] };
+                    }
+                    if (!this.activeFlowTarget.flow_data.trigger) {
+                        this.activeFlowTarget.flow_data.trigger = { any_list: false, list_ids: [] };
+                    }
+                    const trig = this.activeFlowTarget.flow_data.trigger;
+                    if (trig.list_id === 'any') {
+                        trig.any_list = true;
+                        trig.list_ids = [];
+                    } else if (trig.list_id && (!trig.list_ids || trig.list_ids.length === 0)) {
+                        trig.any_list = false;
+                        trig.list_ids = [parseInt(trig.list_id)];
+                    } else {
+                        if (trig.any_list === undefined) trig.any_list = false;
+                        if (!trig.list_ids) trig.list_ids = [];
                     }
                     if (!this.activeFlowTarget.flow_data.nodes) {
                         this.activeFlowTarget.flow_data.nodes = [];
@@ -1508,7 +1523,7 @@
                     this.switchTab('automation-builder');
                 },
 
-                addAutomationNode(type) {
+                addAutomationNode(type, parentId = null, branchType = null) {
                     const id = 'node_' + Math.random().toString(36).substr(2, 9);
                     let config = {};
                     if (type === 'delay') {
@@ -1516,25 +1531,84 @@
                     } else if (type === 'action_send_email') {
                         config = { campaign_id: '' };
                     } else if (type === 'condition') {
-                        config = { field: '', operator: 'equals', value: '' };
+                        config = { field: '', operator: 'equals', value: '', conditions: [], enable_else_branch: false };
                     }
 
                     const newNode = {
                         id: id,
                         type: type,
-                        config: config
+                        config: config,
+                        true_nodes: [],
+                        false_nodes: []
                     };
 
-                    this.activeFlowTarget.flow_data.nodes.push(newNode);
+                    if (!parentId) {
+                        this.activeFlowTarget.flow_data.nodes.push(newNode);
+                    } else {
+                        const findAndAdd = (nodes) => {
+                            for (let n of nodes) {
+                                if (n.id === parentId) {
+                                    if (branchType === 'true') {
+                                        if (!n.true_nodes) n.true_nodes = [];
+                                        n.true_nodes.push(newNode);
+                                    } else {
+                                        if (!n.false_nodes) n.false_nodes = [];
+                                        n.false_nodes.push(newNode);
+                                    }
+                                    return true;
+                                }
+                                if (n.type === 'condition') {
+                                    if (n.true_nodes && findAndAdd(n.true_nodes)) return true;
+                                    if (n.false_nodes && findAndAdd(n.false_nodes)) return true;
+                                }
+                            }
+                            return false;
+                        };
+                        findAndAdd(this.activeFlowTarget.flow_data.nodes);
+                    }
+
                     this.selectedAutomationNodeId = id;
                     this.refreshIcons();
                 },
 
-                removeAutomationNode(id) {
-                    const idx = this.activeFlowTarget.flow_data.nodes.findIndex(n => n.id === id);
-                    if (idx > -1) {
-                        this.activeFlowTarget.flow_data.nodes.splice(idx, 1);
+                addConditionOperation() {
+                    const node = this.getSelectedAutomationNode();
+                    if (!node) return;
+                    if (!node.config.conditions) {
+                        node.config.conditions = [];
                     }
+                    node.config.conditions.push({
+                        field: '',
+                        operator: 'equals',
+                        value: '',
+                        logic: 'and'
+                    });
+                    this.refreshIcons();
+                },
+
+                removeConditionOperation(index) {
+                    const node = this.getSelectedAutomationNode();
+                    if (!node || !node.config.conditions) return;
+                    node.config.conditions.splice(index, 1);
+                    this.refreshIcons();
+                },
+
+                removeAutomationNode(id) {
+                    const removeFromList = (list) => {
+                        const idx = list.findIndex(n => n.id === id);
+                        if (idx > -1) {
+                            list.splice(idx, 1);
+                            return true;
+                        }
+                        for (let n of list) {
+                            if (n.type === 'condition') {
+                                if (n.true_nodes && removeFromList(n.true_nodes)) return true;
+                                if (n.false_nodes && removeFromList(n.false_nodes)) return true;
+                            }
+                        }
+                        return false;
+                    };
+                    removeFromList(this.activeFlowTarget.flow_data.nodes);
                     if (this.selectedAutomationNodeId === id) {
                         this.selectedAutomationNodeId = 'trigger';
                     }
@@ -1589,6 +1663,27 @@
                         return camp ? `Send Campaign: "${camp.name}"` : `Send Campaign [ID: ${cid}]`;
                     }
                     if (node.type === 'condition') {
+                        if (node.config.conditions && node.config.conditions.length > 0) {
+                            let textParts = [];
+                            node.config.conditions.forEach((cond, index) => {
+                                const field = cond.field || 'property';
+                                const op = cond.operator || 'equals';
+                                const val = cond.value || '';
+                                let condDesc = '';
+                                if (op === 'is_set') condDesc = `${field} is set`;
+                                else if (op === 'is_not_set') condDesc = `${field} is empty`;
+                                else condDesc = `${field} ${op} "${val}"`;
+                                
+                                if (index > 0) {
+                                    const logic = (cond.logic || 'AND').toUpperCase();
+                                    textParts.push(` ${logic} ${condDesc}`);
+                                } else {
+                                    textParts.push(`If ${condDesc}`);
+                                }
+                            });
+                            return textParts.join('');
+                        }
+
                         const field = node.config.field;
                         const op = node.config.operator;
                         const val = node.config.value;
@@ -1618,25 +1713,57 @@
                     if (!this.activeFlowTarget || !this.activeFlowTarget.flow_data || !this.activeFlowTarget.flow_data.trigger) {
                         return 'Trigger: Subscriber Joins List';
                     }
-                    const lid = this.activeFlowTarget.flow_data.trigger.list_id;
-                    if (!lid) return 'Trigger: Subscriber Joins List';
-                    if (lid === 'any') return 'Subscriber Joins Any Mailing List';
-                    const list = this.lists.find(l => l.id == lid);
-                    return list ? `Subscriber Joins List: "${list.name}"` : `Subscriber Joins List [ID: ${lid}]`;
+                    const trigger = this.activeFlowTarget.flow_data.trigger;
+                    if (trigger.any_list) {
+                        return 'Subscriber Joins Any Mailing List';
+                    }
+                    const ids = trigger.list_ids || [];
+                    if (ids.length === 0) {
+                        return 'Trigger: Subscriber Joins List';
+                    }
+                    if (ids.length === 1) {
+                        const list = this.lists.find(l => l.id == ids[0]);
+                        return list ? `Subscriber Joins: "${list.name}"` : `Subscriber Joins List [ID: ${ids[0]}]`;
+                    }
+                    return `Subscriber Joins: ${ids.length} Selected Lists`;
                 },
 
                 getTriggerListFields() {
                     if (!this.activeFlowTarget || !this.activeFlowTarget.flow_data || !this.activeFlowTarget.flow_data.trigger) {
                         return [];
                     }
-                    const lid = this.activeFlowTarget.flow_data.trigger.list_id;
-                    const list = this.lists.find(l => l.id == lid);
-                    return list ? (list.custom_fields || []) : [];
+                    const trigger = this.activeFlowTarget.flow_data.trigger;
+                    let targetLists = [];
+                    if (trigger.any_list) {
+                        targetLists = this.lists;
+                    } else {
+                        const ids = trigger.list_ids || [];
+                        targetLists = this.lists.filter(l => ids.includes(l.id));
+                    }
+                    const fieldsMap = {};
+                    targetLists.forEach(l => {
+                        (l.custom_fields || []).forEach(f => {
+                            fieldsMap[f.key] = f;
+                        });
+                    });
+                    return Object.values(fieldsMap);
                 },
 
                 getSelectedAutomationNode() {
                     if (this.selectedAutomationNodeId === 'trigger' || this.selectedAutomationNodeId === null) return null;
-                    return this.activeFlowTarget.flow_data.nodes.find(n => n.id === this.selectedAutomationNodeId) || null;
+                    const findInList = (list) => {
+                        for (let n of list) {
+                            if (n.id === this.selectedAutomationNodeId) return n;
+                            if (n.type === 'condition') {
+                                const found = findInList(n.true_nodes || []);
+                                if (found) return found;
+                                const foundElse = findInList(n.false_nodes || []);
+                                if (foundElse) return foundElse;
+                            }
+                        }
+                        return null;
+                    };
+                    return findInList(this.activeFlowTarget.flow_data.nodes);
                 },
 
                 async saveAutomationFlow() {
