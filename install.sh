@@ -43,7 +43,7 @@ After=network.target
 Type=simple
 User=$CURR_USER
 WorkingDirectory=$WORKING_DIR
-ExecStart=$UVICORN_PATH main:app --host 0.0.0.0 --port 8000
+ExecStart=$UVICORN_PATH main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
 Restart=always
 
 [Install]
@@ -69,7 +69,7 @@ echo "If systemd service was installed, the app is running."
 echo "Otherwise, launch it manually with:"
 echo "  source venv/bin/activate"
 echo "  cd backend"
-echo "  uvicorn main:app --host 0.0.0.0 --port 8000"
+echo "  uvicorn main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*"
 echo ""
 echo "Open http://localhost:8000/ in your browser to begin onboarding."
-echo "==========================================="
+echo "================================================="

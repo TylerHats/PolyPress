@@ -27,4 +27,4 @@ EXPOSE 8000
 VOLUME ["/app/data", "/app/backups", "/app/certs", "/app/branding"]
 
 # Start Uvicorn when the container starts
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips=*"]

@@ -116,28 +116,6 @@ def estimate_ip_location(ip: str) -> str:
         
     return "Unknown"
 
-def get_client_ip(request) -> str:
-    if not request:
-        return "Unknown"
-        
-    # Check X-Forwarded-For header
-    x_forwarded_for = request.headers.get("x-forwarded-for")
-    if x_forwarded_for:
-        parts = [p.strip() for p in x_forwarded_for.split(",")]
-        if parts:
-            return parts[0]
-            
-    # Check X-Real-IP header
-    x_real_ip = request.headers.get("x-real-ip")
-    if x_real_ip:
-        return x_real_ip
-        
-    # Fallback to direct connection socket
-    if hasattr(request, "client") and request.client:
-        return request.client.host
-        
-    return "Unknown"
-
 def log_subscriber_activity(db, tenant_id: int, subscriber_id: int, ip_address: str, user_agent: str):
     from database import Subscriber, SubscriberActivity
     try:
