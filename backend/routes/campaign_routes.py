@@ -17,6 +17,10 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
     rendered = rendered.replace("{{email}}", subscriber.email or "")
     rendered = rendered.replace("{{name}}", subscriber.name or "")
     
+    # Inject unsubscribe URL
+    unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/{subscriber.id}/{campaign_id}"
+    rendered = rendered.replace("{{unsubscribe_url}}", unsubscribe_url)
+    
     # Custom attributes replacement
     if subscriber.custom_data:
         for k, v in subscriber.custom_data.items():
@@ -24,10 +28,6 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
             
     # Strip any unresolved double curly brackets to avoid raw markup leaks
     rendered = re.sub(r'\{\{[a-zA-Z0-9_-]+\}\}', '', rendered)
-    
-    # Inject unsubscribe URL
-    unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/{subscriber.id}/{campaign_id}"
-    rendered = rendered.replace("{{unsubscribe_url}}", unsubscribe_url)
     
     # Inject open tracking pixel
     open_pixel = f'<img src="{tracking_domain}/api/track/open/{campaign_id}/{subscriber_id}.gif" width="1" height="1" style="display:none;" />'
