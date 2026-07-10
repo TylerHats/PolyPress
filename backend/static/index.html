@@ -607,7 +607,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                     </div>
                     
                     <!-- Dynamic custom inputs depending on selected list fields -->
-                    <template x-for="f in listSelectedFields" :key="f.key">
+                    <template x-for="f in listSelectedFields.filter(field => field.key !== 'name')" :key="f.key">
                         <div class="field">
                             <label x-text="f.label"></label>
                             <input type="text" x-model="subscriberForm.custom_data[f.key]" :placeholder="'Enter ' + f.label.toLowerCase()">

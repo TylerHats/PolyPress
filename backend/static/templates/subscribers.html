@@ -99,7 +99,7 @@
                                         <th>Origin</th>
                                         <th>Tags</th>
                                         <!-- Dynamic custom field headers -->
-                                        <template x-for="f in listSelectedFields" :key="f.key">
+                                        <template x-for="f in listSelectedFields.filter(field => field.key !== 'name')" :key="f.key">
                                             <th x-text="f.label"></th>
                                         </template>
                                         <th x-show="user.role !== 'tenant_user'">Actions</th>
@@ -138,7 +138,7 @@
                                                 </div>
                                             </td>
                                             <!-- Dynamic Custom Fields data mapping -->
-                                            <template x-for="f in listSelectedFields" :key="f.key">
+                                            <template x-for="f in listSelectedFields.filter(field => field.key !== 'name')" :key="f.key">
                                                 <td x-text="s.custom_data[f.key] || '-'"></td>
                                             </template>
                                             <td x-show="user.role !== 'tenant_user'">
@@ -156,11 +156,11 @@
                                             </td>
                                         </tr>
                                     </template>
-                                    <tr x-show="subscribers.length === 0">
-                                        <td :colspan="8 + listSelectedFields.length" style="text-align: center; padding: 30px; color: var(--text-muted);">
-                                            No subscribers found.
-                                        </td>
-                                    </tr>
+                                     <tr x-show="subscribers.length === 0">
+                                         <td :colspan="8 + listSelectedFields.filter(field => field.key !== 'name').length" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                                             No subscribers found.
+                                         </td>
+                                     </tr>
                                 </tbody>
                             </table>
                         </div>
