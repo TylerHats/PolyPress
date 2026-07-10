@@ -667,16 +667,33 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     """
     return HTMLResponse(content=html)
 
-@router.post("/unsubscribe/{subscriber_id}/{campaign_id}")
+@router.post("/unsubscribe/{subscriber_id}/{campaign_id}", response_class=HTMLResponse)
 def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db: Session = Depends(get_db)):
     if subscriber_id == 0 and campaign_id == 0:
-        return {"unsubscribed": True, "detail": "Test unsubscribe request processed successfully (no subscriber was modified)."}
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Unsubscribed</title>
+            {HTML_STYLE}
+        </head>
+        <body>
+            <div class="card" style="text-align: center;">
+                <h2 style="color: #10b981;">✓ Unsubscribed</h2>
+                <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
+                    Test unsubscribe request processed successfully (no subscriber was modified).
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html)
 
     subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     
     if not subscriber or not campaign:
-        raise HTTPException(status_code=400, detail="Invalid unsubscribe request parameters")
+        return HTMLResponse("<h2>Invalid request</h2>", status_code=400)
         
     if subscriber.status != "unsubscribed":
         subscriber.status = "unsubscribed"
@@ -701,7 +718,24 @@ def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db:
             "campaign_id": campaign_id
         })
         
-    return {"unsubscribed": True, "detail": f"Subscriber {subscriber.email} has been unsubscribed."}
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Unsubscribed</title>
+        {HTML_STYLE}
+    </head>
+    <body>
+        <div class="card" style="text-align: center;">
+            <h2 style="color: #10b981;">✓ Unsubscribed</h2>
+            <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
+                You have been successfully unsubscribed. You will no longer receive emails from this newsletter.
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 def extract_ses_metadata(msg_data: dict):
     campaign_id = None

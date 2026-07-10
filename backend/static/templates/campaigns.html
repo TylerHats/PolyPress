@@ -197,7 +197,7 @@
                             <div style="font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
                                 <code>{{name}}</code>
                                 <code>{{email}}</code>
-                                <template x-for="f in getActiveListFields()" :key="f.key">
+                                <template x-for="f in getActiveListFields().filter(field => field.key !== 'name' && field.key !== 'email')" :key="f.key">
                                     <code x-text="'{{' + f.key + '}}'"></code>
                                 </template>
                                 <code>{{unsubscribe_url}}</code>
