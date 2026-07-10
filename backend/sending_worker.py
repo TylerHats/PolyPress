@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 from email.charset import Charset, QP
+from email.policy import SMTP
 import re
 import socket
 import dns.resolver
@@ -62,7 +63,10 @@ def generate_dkim_signature(msg_bytes: bytes, tenant: Tenant) -> bytes:
         # RFC 8058 requires List-Unsubscribe and List-Unsubscribe-Post to be signed by DKIM if present
         include_headers = [b'To', b'From', b'Subject', b'Content-Type']
         
-        header_part = msg_bytes.split(b'\n\n', 1)[0]
+        if b'\r\n\r\n' in msg_bytes:
+            header_part = msg_bytes.split(b'\r\n\r\n', 1)[0]
+        else:
+            header_part = msg_bytes.split(b'\n\n', 1)[0]
         if b'list-unsubscribe:' in header_part.lower():
             include_headers.append(b'List-Unsubscribe')
         if b'list-unsubscribe-post:' in header_part.lower():
@@ -150,7 +154,7 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         part_html = make_mime_text(item.body_html, "html")
         msg.attach(part_html)
         
-        msg_bytes = msg.as_bytes()
+        msg_bytes = msg.as_bytes(policy=SMTP)
         msg_bytes = generate_dkim_signature(msg_bytes, tenant)
         
         port = tenant.smtp_port or 587
@@ -222,7 +226,7 @@ def send_direct_mta(item: QueueItem, tenant: Tenant) -> tuple:
         part_html = make_mime_text(item.body_html, "html")
         msg.attach(part_html)
         
-        msg_bytes = msg.as_bytes()
+        msg_bytes = msg.as_bytes(policy=SMTP)
         msg_bytes = generate_dkim_signature(msg_bytes, tenant)
         
         # Resolve HELO identity domain from GlobalSettings if set
