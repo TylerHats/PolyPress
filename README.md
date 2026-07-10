@@ -25,6 +25,9 @@
 15. **Engagement Stars & Targeting**: Asynchronous 1-5 star hygiene rating based on subscriber open/click activity ratios, advanced multi-filters, and segmented targeting constraints.
 16. **Hot Backup snap-restore System**: High-portability backups zip packages database files and branding assets. Handles SQLAlchemy pool disposals for transparent restores.
 17. **Click Map Visualizer**: Sandy iframe overlays showing click statistics directly on top of matching newsletter links.
+18. **Visual Marketing Automations (Flow Builder)**: Advanced visual automation builder with delay intervals, multi-logical filter rule chains, and IF/ELSE branched pathways.
+19. **Campaign A/B/C/D Split Testing**: Split sample test distributions with click/open rate comparisons and auto-dispatch of winning variants.
+20. **Custom Fields Schema Controls**: Visibility, ordering, and required validation schema customization per subscriber list.
 
 ---
 
@@ -138,9 +141,22 @@ Navigate to **Sending Settings** to configure your outbound strategy:
 
 ### Contacts & CSV Import
 1. Create a subscriber list under **Subscriber Lists**.
-2. Select **Fields Schema** to add list-specific custom attributes (e.g. `city`, `gender`).
+2. Select **Fields Schema** to add list-specific custom attributes (e.g. `city`, `gender`), control their requirement flags, and custom ordering sequence.
 3. Click **CSV Import** to select your file, map CSV headers to target attributes, and launch the importer.
 4. Obtain the embeddable signup form snippet by clicking **Embed Form**.
+
+### Visual Marketing Automations (Flow Builder)
+1. Navigate to **Automations** and click **Create Flow**.
+2. Design custom marketing sequences visually on the canvas starting from the list-join entry trigger.
+3. Choose one or multiple target mailing lists (or select "Any Mailing List") to trigger subscriber enrolments.
+4. Add **Delay Steps** (wait minutes/hours/days), **Email Actions** (queuing templates), and **Filter Conditions** (checking custom fields or activity).
+5. Enable **IF/ELSE pathways** to branch sequences into parallel columns with separate rejoining controls.
+
+### Campaign A/B/C/D Split Testing
+1. In the campaign editor, check **Enable A/B/C/D Split Testing**.
+2. Configure your test sample size ratio (e.g., `0.20` sends tests to 20% of your list) and target hours.
+3. Click **Configure Variants** to customize alternative layouts/subjects.
+4. When launched, the sending queue runs variant tests, compares metrics after target hours, and sends the winning variant to the remaining 80% automatically.
 
 ---
 
