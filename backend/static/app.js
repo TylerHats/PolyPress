@@ -583,6 +583,16 @@
                         if (this.token) {
                             await this.verifySession();
                         }
+                        
+                        // Periodic poller for active campaigns sending
+                        setInterval(async () => {
+                            if (this.authenticated && this.activeTab === 'campaigns') {
+                                const hasActive = this.campaigns && this.campaigns.some(c => c.status === 'sending' || c.status === 'flushing');
+                                if (hasActive) {
+                                    await this.fetchCampaigns();
+                                }
+                            }
+                        }, 4000);
                     } finally {
                         this.loadingSession = false;
                     }

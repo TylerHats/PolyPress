@@ -353,7 +353,7 @@ def deliver_item_task(item_id: int):
             item.status = "sent"
             item.error_code = 250
             item.last_mx_response = "Sent successfully"
-            campaign.sent_count += 1
+            campaign.sent_count = Campaign.sent_count + 1
         else:
             item.error_code = code
             item.last_mx_response = msg
@@ -365,7 +365,7 @@ def deliver_item_task(item_id: int):
                 item.next_attempt = datetime.utcnow() + timedelta(minutes=retry_mins)
             else:
                 item.status = "failed"
-                campaign.failed_count += 1
+                campaign.failed_count = Campaign.failed_count + 1
                 
                 subscriber.status = "bounced"
                 subscriber.bounce_reason = f"[{code}] {msg}"

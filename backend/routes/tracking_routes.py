@@ -48,7 +48,7 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
             
             if not existing_open:
                 # Increment campaign unique opens
-                campaign.open_count += 1
+                campaign.open_count = Campaign.open_count + 1
                 
             db.commit()
 
@@ -128,7 +128,7 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
             
             # Increment total campaign click count if it is a unique link click by this subscriber
             if not existing_click:
-                campaign.click_count += 1
+                campaign.click_count = Campaign.click_count + 1
                 
             db.commit()
 

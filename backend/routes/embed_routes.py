@@ -781,7 +781,7 @@ def process_webhook_event(db: Session, tenant: Tenant, email: str, event_type: s
                     Campaign.tenant_id == tenant.id
                 ).first()
                 if campaign:
-                    campaign.bounce_count += 1
+                    campaign.bounce_count = Campaign.bounce_count + 1
                     
             db.commit()
             
