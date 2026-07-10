@@ -122,7 +122,8 @@ def process_tenant_bounces(db: Session, tenant: Tenant):
         else:
             imap = imaplib.IMAP4(tenant.imap_host, tenant.imap_port or 143, timeout=15)
             
-        imap.login(tenant.imap_username.encode("utf-8"), tenant.imap_password.encode("utf-8"))
+        imap._encoding = "utf-8"
+        imap.login(tenant.imap_username, tenant.imap_password)
         imap.select("INBOX")
         
         status, messages = imap.search(None, "UNSEEN")

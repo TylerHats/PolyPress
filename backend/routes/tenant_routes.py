@@ -471,7 +471,8 @@ def test_imap_settings(payload: dict = Body(...), db: Session = Depends(get_db),
         else:
             client = imaplib.IMAP4(host, port or 143, timeout=10)
             
-        client.login(username.encode("utf-8"), password.encode("utf-8"))
+        client._encoding = "utf-8"
+        client.login(username, password)
         client.select("INBOX")
         client.close()
         client.logout()
@@ -604,7 +605,8 @@ def test_imap_loopback_receive(payload: dict = Body(...), db: Session = Depends(
                 else:
                     client = imaplib.IMAP4(host, port or 143, timeout=10)
                     
-                client.login(username.encode("utf-8"), password.encode("utf-8"))
+                client._encoding = "utf-8"
+                client.login(username, password)
                 client.select("INBOX")
                 
                 # Search for emails containing the token in the subject
@@ -647,7 +649,8 @@ def test_imap_loopback_receive(payload: dict = Body(...), db: Session = Depends(
                 client = imaplib.IMAP4_SSL(host, port or 993, timeout=10)
             else:
                 client = imaplib.IMAP4(host, port or 143, timeout=10)
-            client.login(username.encode("utf-8"), password.encode("utf-8"))
+            client._encoding = "utf-8"
+            client.login(username, password)
             client.select("INBOX")
             
             search_term = f'SUBJECT "PolyPress Bounce Test - {token}"'
