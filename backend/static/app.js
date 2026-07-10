@@ -346,8 +346,11 @@
                     loopbackTest: false,
                     createAutomation: false,
                     automationLogs: false,
-                    manageABVariants: false
+                    manageABVariants: false,
+                    subscriberActivity: false
                 },
+                selectedSubscriberEmail: '',
+                subscriberActivities: [],
                 linkForm: { text: '', url: 'https://' },
                 lastFocusedInput: { id: '', selectionStart: 0, selectionEnd: 0 },
                 explainingStatus: '',
@@ -3719,6 +3722,41 @@
                     this.refreshIcons();
                 },
                 
+                openSubscriberActivityModal(sub) {
+                    this.selectedSubscriberEmail = sub.email;
+                    this.subscriberActivities = [];
+                    this.modals.subscriberActivity = true;
+                    
+                    fetch(`/api/lists/${this.listSelected}/subscribers/${sub.id}/activity`, {
+                        headers: this.getAuthHeaders()
+                    })
+                    .then(res => {
+                        if (res.ok) return res.json();
+                        throw new Error(res.statusText);
+                    })
+                    .then(data => {
+                        this.subscriberActivities = data;
+                        this.$nextTick(() => {
+                            if (typeof lucide !== 'undefined') {
+                                lucide.createIcons();
+                            }
+                        });
+                    })
+                    .catch(err => {
+                        console.error("Failed to load subscriber activity:", err);
+                    });
+                },
+
+                formatDateTime(dateStr) {
+                    if (!dateStr) return '-';
+                    try {
+                        const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
+                        return d.toLocaleString();
+                    } catch(e) {
+                        return dateStr;
+                    }
+                },
+
                 getSubscriberBadgeClass(status) {
                     if (status === 'active') return 'badge-success';
                     if (status === 'unsubscribed') return 'badge-muted';

@@ -345,3 +345,35 @@ async def import_csv_subscribers(
         trigger_automation_on_list_join(db, active_sub, list_id)
         
     return {"imported": imported_count, "skipped": skipped_count}
+
+@router.get("/{list_id}/subscribers/{sub_id}/activity")
+def get_subscriber_activity(
+    list_id: int,
+    sub_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.get_current_user)
+):
+    if current_user.role == "super_admin":
+        subscriber = db.query(Subscriber).filter(
+            Subscriber.id == sub_id,
+            Subscriber.list_id == list_id
+        ).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        subscriber = db.query(Subscriber).filter(
+            Subscriber.id == sub_id,
+            Subscriber.list_id == list_id,
+            Subscriber.tenant_id == current_user.tenant_id
+        ).first()
+        
+    if not subscriber:
+        raise HTTPException(status_code=404, detail="Subscriber not found")
+        
+    from database import SubscriberActivity
+    activities = db.query(SubscriberActivity)\
+        .filter(SubscriberActivity.subscriber_id == sub_id)\
+        .order_by(SubscriberActivity.created_at.desc())\
+        .all()
+        
+    return activities

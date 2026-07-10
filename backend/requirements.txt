@@ -9,3 +9,5 @@ python-multipart>=0.0.6
 pyjwt>=2.8.0
 aiosmtplib>=3.0.0
 requests>=2.31.0
+maxminddb>=2.4.0
+

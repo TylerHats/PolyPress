@@ -51,6 +51,15 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 campaign.open_count += 1
                 
             db.commit()
+
+            from location_helper import log_subscriber_activity
+            log_subscriber_activity(
+                db=db,
+                tenant_id=campaign.tenant_id,
+                subscriber_id=subscriber_id,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent", "")
+            )
             
             from webhook_dispatcher import trigger_webhook
             trigger_webhook(campaign.tenant_id, "email.open", {
@@ -122,6 +131,15 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 campaign.click_count += 1
                 
             db.commit()
+
+            from location_helper import log_subscriber_activity
+            log_subscriber_activity(
+                db=db,
+                tenant_id=campaign.tenant_id,
+                subscriber_id=subscriber_id,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent", "")
+            )
             
             from webhook_dispatcher import trigger_webhook
             trigger_webhook(campaign.tenant_id, "email.click", {

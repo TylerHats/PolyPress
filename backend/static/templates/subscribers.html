@@ -95,6 +95,7 @@
                                         <th>Name</th>
                                         <th>Engagement</th>
                                         <th>Status</th>
+                                        <th>Location</th>
                                         <th>Origin</th>
                                         <th>Tags</th>
                                         <!-- Dynamic custom field headers -->
@@ -124,6 +125,7 @@
                                                     </template>
                                                 </div>
                                             </td>
+                                            <td x-text="s.ip_location || 'Unknown'"></td>
                                             <td x-text="s.source_tag || '-'"></td>
                                             <td>
                                                 <div style="display: flex; flex-wrap: wrap; gap: 4px; max-width: 150px;">
@@ -141,6 +143,9 @@
                                             </template>
                                             <td x-show="user.role !== 'tenant_user'">
                                                 <div style="display: flex; gap: 6px;">
+                                                    <button @click="openSubscriberActivityModal(s)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;" title="Activity Log">
+                                                        <i data-lucide="activity" style="width: 12px; height: 12px;"></i>
+                                                    </button>
                                                     <button @click="openEditSubscriberModal(s)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;" title="Edit Contact">
                                                         <i data-lucide="edit-2" style="width: 12px; height: 12px;"></i>
                                                     </button>
@@ -152,7 +157,7 @@
                                         </tr>
                                     </template>
                                     <tr x-show="subscribers.length === 0">
-                                        <td :colspan="7 + listSelectedFields.length" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                                        <td :colspan="8 + listSelectedFields.length" style="text-align: center; padding: 30px; color: var(--text-muted);">
                                             No subscribers found.
                                         </td>
                                     </tr>

@@ -41,12 +41,7 @@ def get_update_status(db: Session = Depends(get_db), current_user: User = Depend
     if not latest_tag:
         latest_tag = run_git_command(["describe", "--tags", "--abbrev=0", f"origin/{branch}"]) or current_tag
         latest_commit_sha = run_git_command(["rev-parse", "--short", latest_tag]) or ""
-        
     latest_commit = latest_commit_sha or latest_main_commit
-    
-    # If beta update channel, compare commits on main branch too
-    if channel == "beta" and latest_main_commit and latest_main_commit != current_commit:
-        update_available = True
     
     is_systemd = "INVOCATION_ID" in os.environ
     

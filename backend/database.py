@@ -153,7 +153,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -320,11 +320,28 @@ class Subscriber(Base):
     complaint_reason = Column(Text, nullable=True)
     bounce_source_email = Column(String, nullable=True)
     
+    ip_location = Column(String, nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     tenant = relationship("Tenant", back_populates="subscribers")
     subscriber_list = relationship("SubscriberList", back_populates="subscribers")
+
+class SubscriberActivity(Base):
+    __tablename__ = "subscriber_activities"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
+    subscriber_id = Column(Integer, ForeignKey("subscribers.id", ondelete="CASCADE"), index=True)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    platform = Column(String, nullable=True)
+    app = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    subscriber = relationship("Subscriber")
 
 class Campaign(Base):
     __tablename__ = "campaigns"

@@ -456,6 +456,14 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
     
     sub_obj = existing if existing else sub
     if status_state == "active":
+        from location_helper import log_subscriber_activity
+        log_subscriber_activity(
+            db=db,
+            tenant_id=sub_list.tenant_id,
+            subscriber_id=subscriber_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent", "")
+        )
         from automation_worker import trigger_automation_on_list_join
         trigger_automation_on_list_join(db, sub_obj, list_id)
     
@@ -536,7 +544,7 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
     return HTMLResponse(content=html)
 
 @router.get("/confirm-optin/{token}", response_class=HTMLResponse)
-def confirm_optin(token: str, db: Session = Depends(get_db)):
+def confirm_optin(token: str, request: Request, db: Session = Depends(get_db)):
     subscriber = db.query(Subscriber).filter(Subscriber.double_opt_in_token == token).first()
     if not subscriber:
         html = f"""
@@ -562,6 +570,15 @@ def confirm_optin(token: str, db: Session = Depends(get_db)):
     subscriber.status = "active"
     subscriber.double_opt_in_token = None
     db.commit()
+
+    from location_helper import log_subscriber_activity
+    log_subscriber_activity(
+        db=db,
+        tenant_id=subscriber.tenant_id,
+        subscriber_id=subscriber.id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent", "")
+    )
     
     from automation_worker import trigger_automation_on_list_join
     trigger_automation_on_list_join(db, subscriber, subscriber.list_id)
@@ -651,7 +668,7 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     return HTMLResponse(content=html)
 
 @router.post("/unsubscribe/{subscriber_id}/{campaign_id}")
-def post_unsubscribe(subscriber_id: int, campaign_id: int, db: Session = Depends(get_db)):
+def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db: Session = Depends(get_db)):
     if subscriber_id == 0 and campaign_id == 0:
         return {"unsubscribed": True, "detail": "Test unsubscribe request processed successfully (no subscriber was modified)."}
 
@@ -664,6 +681,15 @@ def post_unsubscribe(subscriber_id: int, campaign_id: int, db: Session = Depends
     if subscriber.status != "unsubscribed":
         subscriber.status = "unsubscribed"
         db.commit()
+
+        from location_helper import log_subscriber_activity
+        log_subscriber_activity(
+            db=db,
+            tenant_id=subscriber.tenant_id,
+            subscriber_id=subscriber.id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent", "")
+        )
         
         from webhook_dispatcher import trigger_webhook
         trigger_webhook(subscriber.tenant_id, "subscriber.unsubscribe", {
