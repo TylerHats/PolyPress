@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 import database as db_mod
 from database import get_db, Campaign, TrackingLog, Subscriber
 from datetime import datetime
+from location_helper import get_client_ip
 
 router = APIRouter(prefix="/api/track", tags=["tracking"])
 
@@ -38,7 +39,7 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 campaign_id=campaign_id,
                 subscriber_id=subscriber_id,
                 event_type="open",
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
                 ab_variant=ab_variant
             )
             
@@ -57,7 +58,7 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 db=db,
                 tenant_id=campaign.tenant_id,
                 subscriber_id=subscriber_id,
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
                 user_agent=request.headers.get("user-agent", "")
             )
             
@@ -111,7 +112,7 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 subscriber_id=subscriber_id,
                 event_type="click",
                 link_url=url,
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
                 user_agent=request.headers.get("user-agent"),
                 ab_variant=ab_variant
             )
@@ -137,7 +138,7 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 db=db,
                 tenant_id=campaign.tenant_id,
                 subscriber_id=subscriber_id,
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
                 user_agent=request.headers.get("user-agent", "")
             )
             

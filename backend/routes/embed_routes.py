@@ -5,6 +5,7 @@ import database as db_mod
 from database import get_db, SubscriberList, Subscriber, Campaign, Tenant, GlobalSettings
 import json
 import secrets
+from location_helper import get_client_ip
 
 router = APIRouter(prefix="/api/embed", tags=["embed"])
 
@@ -461,7 +462,7 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
             db=db,
             tenant_id=sub_list.tenant_id,
             subscriber_id=subscriber_id,
-            ip_address=request.client.host if request.client else None,
+            ip_address=get_client_ip(request),
             user_agent=request.headers.get("user-agent", "")
         )
         from automation_worker import trigger_automation_on_list_join
@@ -576,7 +577,7 @@ def confirm_optin(token: str, request: Request, db: Session = Depends(get_db)):
         db=db,
         tenant_id=subscriber.tenant_id,
         subscriber_id=subscriber.id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
         user_agent=request.headers.get("user-agent", "")
     )
     
@@ -687,7 +688,7 @@ def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db:
             db=db,
             tenant_id=subscriber.tenant_id,
             subscriber_id=subscriber.id,
-            ip_address=request.client.host if request.client else None,
+            ip_address=get_client_ip(request),
             user_agent=request.headers.get("user-agent", "")
         )
         
