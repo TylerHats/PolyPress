@@ -122,7 +122,7 @@ def process_tenant_bounces(db: Session, tenant: Tenant):
         else:
             imap = imaplib.IMAP4(tenant.imap_host, tenant.imap_port or 143, timeout=15)
             
-        imap.login(tenant.imap_username, tenant.imap_password)
+        imap.login(tenant.imap_username.encode("utf-8"), tenant.imap_password.encode("utf-8"))
         imap.select("INBOX")
         
         status, messages = imap.search(None, "UNSEEN")
@@ -176,7 +176,7 @@ def process_tenant_bounces(db: Session, tenant: Tenant):
                                 Campaign.tenant_id == tenant.id
                             ).first()
                             if campaign:
-                                campaign.bounce_count += 1
+                                campaign.bounce_count = Campaign.bounce_count + 1
                                 
                     db.commit()
                     
