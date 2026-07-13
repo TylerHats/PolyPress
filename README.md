@@ -6,28 +6,33 @@
 
 **PolyPress** is a premium, self-hosted, multitenant email newsletter management system. Designed to replace commercial newsletter tools, it offers strong data privacy, white-labeling capabilities, OIDC authorization, and flexible sending profiles (external SMTP relays or an internal direct-sending MTA).
 
-## Key Features
+### Key Features
 
 1. **Multitenancy**: Domain-scoped subscriber lists, campaigns, and configurations.
-2. **Global OIDC Login**: Single sign-on authentication with role management (Super Admin vs. Tenant Admin).
+2. **Global OIDC Login**: Single sign-on authentication with configurable claim keys for role and tenant mapping.
 3. **Internal MTA (Direct Send)**: Resolves MX records of recipient domains directly and delivers emails without using third-party relays.
 4. **DKIM Signature Layer**: Generates 2048-bit RSA key pairs per domain and displays the DNS TXT record layout directly in the UI.
 5. **Bounce & Complaint Handler**: Supports both periodic IMAP scanning of a dedicated bounce mailbox (parsing DSNs/ARF reports) and incoming HTTPS event webhooks from external SMTP relays (SendGrid, Mailgun, Postmark, and Amazon SES) to instantly flag bounced/spam contacts.
-6. **Visual Newsletter Builder**: Inline block editor (Heading, Paragraph, Button, Image, Divider, Spacer) with template compile engine and subscriber merge tags.
+6. **Visual Newsletter Builder**: Inline block editor (Heading, Paragraph, Button, Image, Divider, Spacer) with template compile engine, subscriber merge tags, and conditional show/hide display blocks.
 7. **Double Opt-In Flow**: Per-domain toggle sends responsive verification emails to pending subscribers with activation links.
 8. **Visual Mock Previews**: Renders newsletter templates inside the browser with live subscriber merge-tag variable overrides.
 9. **RFC 8058 One-Click Unsubscribe**: Appends `List-Unsubscribe` headers to support direct client-side unsubscribes.
 10. **Outbox Queue Board**: Displays pending/deferred sends, MX responses, retry intervals, and allows purging queue items.
-11. **Developer REST API & HMAC Webhooks**: API Key authentication for programmatic subscriber additions, and secure HMAC-SHA256 signed event postbacks.
+11. **Developer REST API & HMAC Webhooks**: API Key authentication for programmatic subscriber additions, signed HMAC-SHA256 event postbacks, and instant transactional email dispatch.
 12. **In-Process Let's Encrypt SSL (ACME)**: Acquire Let's Encrypt certificates directly inside the Admin console with automatic in-process HTTP-01 challenge routing.
 13. **White Label System**: Brand custom naming and logo support.
 14. **Parallel Send & Retries Queue**: Multithreaded sending workers with token bucket rate limits, continuous transient failures retry logic, and active pause/resume buttons.
-15. **Engagement Stars & Targeting**: Asynchronous 1-5 star hygiene rating based on subscriber open/click activity ratios, advanced multi-filters, and segmented targeting constraints.
-16. **Hot Backup snap-restore System**: High-portability backups zip packages database files and branding assets. Handles SQLAlchemy pool disposals for transparent restores.
+15. **Engagement Stars & Targeting**: Asynchronous 1-5 star hygiene rating based on subscriber open/click activity ratios, advanced multi-filters (activity log metrics, location), and segmented targeting constraints.
+16. **Hot Backup snap-restore System**: High-portability backups zip packages database files and branding assets. Handles transparent restores.
 17. **Click Map Visualizer**: Sandy iframe overlays showing click statistics directly on top of matching newsletter links.
 18. **Visual Marketing Automations (Flow Builder)**: Advanced visual automation builder with delay intervals, multi-logical filter rule chains, and IF/ELSE branched pathways.
 19. **Campaign A/B/C/D Split Testing**: Split sample test distributions with click/open rate comparisons and auto-dispatch of winning variants.
 20. **Custom Fields Schema Controls**: Visibility, ordering, and required validation schema customization per subscriber list.
+21. **Subscription Preference Center**: Toggled multi-list check preferences on unsubscription links.
+22. **Custom Confirmation Landing HTML**: Customize HTML confirmation screens for successful opt-ins and unsubscribes.
+23. **Live MTA Diagnostics & Speeds**: Periodic rolling thread counters, outbox stats, and failed MX logs.
+24. **System Storage stats**: Host admin dashboard for SQLite file footprint, asset size, and tenant metrics.
+25. **One-Off Direct Mail Composer**: Instantly compose and send single-user transactional emails.
 
 ---
 
@@ -201,6 +206,31 @@ Synchronize contacts to specific mailing lists.
     "id": 42,
     "status": "active",
     "detail": "Subscriber added successfully via Developer API."
+  }
+  ```
+
+#### Send Transactional Email
+Dispatch a single email immediately via direct MTA with optional SMTP relay fallback.
+
+- **Endpoint**: `POST /api/developer/v1/send`
+- **Headers**:
+  - `X-PolyPress-Key: pp_live_...`
+  - `Content-Type: application/json`
+- **Request Body**:
+  ```json
+  {
+    "to_email": "recipient@domain.com",
+    "subject": "Direct Notification",
+    "body_html": "<p>Hello, this is an instant notification sent directly via PolyPress.</p>",
+    "smtp_fallback": true
+  }
+  ```
+- **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "recipient": "recipient@domain.com",
+    "detail": "Sent successfully"
   }
   ```
 
