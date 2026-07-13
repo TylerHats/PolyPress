@@ -425,12 +425,141 @@
                                     </template>
                                     
                                     <template x-if="editorBlocks[selectedBlockIndex].type === 'conditional'">
-                                        <div class="field">
-                                            <label>Visibility Condition</label>
-                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].condition" @input="reRenderCanvas()" placeholder="e.g. tag contains 'VIP' or name == 'John'">
-                                            <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">
-                                                Syntax: <code>tag contains 'X'</code>, <code>tag not contains 'X'</code>, <code>location contains 'Canada'</code>, <code>field_name == 'value'</code>, or just <code>field_name</code> (checking if set).
-                                            </span>
+                                        <div>
+                                            <div class="field">
+                                                <label>Visibility Condition</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].condition" @input="reRenderCanvas()" placeholder="e.g. tag contains 'VIP' or name == 'John'">
+                                                <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">
+                                                    Syntax: <code>tag contains 'X'</code>, <code>tag not contains 'X'</code>, <code>location contains 'Canada'</code>, <code>field_name == 'value'</code>, or just <code>field_name</code> (checking if set).
+                                                </span>
+                                            </div>
+                                            
+                                            <div class="field" style="margin-top: 15px;">
+                                                <label>Inner Block Type</label>
+                                                <select :value="editorBlocks[selectedBlockIndex].innerBlock ? editorBlocks[selectedBlockIndex].innerBlock.type : 'paragraph'" 
+                                                        @change="setConditionalInnerBlockType($event.target.value); reRenderCanvas();">
+                                                    <option value="paragraph">Paragraph</option>
+                                                    <option value="heading">Heading</option>
+                                                    <option value="button">Button</option>
+                                                    <option value="image">Image</option>
+                                                    <option value="divider">Divider</option>
+                                                    <option value="spacer">Spacer</option>
+                                                </select>
+                                            </div>
+                                            
+                                            <template x-if="editorBlocks[selectedBlockIndex].innerBlock">
+                                                <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 15px; display: flex; flex-direction: column; gap: 14px;">
+                                                    <h4 style="font-size: 12px; margin: 0; color: var(--color-accent); font-weight: 600;">Inner Block Settings</h4>
+                                                    
+                                                    <!-- Inner Text Content -->
+                                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].innerBlock.type)">
+                                                        <div class="field">
+                                                            <label>Inner Text Content</label>
+                                                            <textarea x-model="editorBlocks[selectedBlockIndex].innerBlock.text" @input="reRenderCanvas()" rows="3" style="font-size:12px;"></textarea>
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Inner Button Redirect URL -->
+                                                    <template x-if="editorBlocks[selectedBlockIndex].innerBlock.type === 'button'">
+                                                        <div class="field">
+                                                            <label>Redirect URL</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.url" @input="reRenderCanvas()">
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Inner Image Settings -->
+                                                    <template x-if="editorBlocks[selectedBlockIndex].innerBlock.type === 'image'">
+                                                        <div>
+                                                            <div class="field">
+                                                                <label>Image Source URL</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.url" @input="reRenderCanvas()">
+                                                            </div>
+                                                            <div class="field" style="margin-top:10px;">
+                                                                <label>Alt Text</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.alt" @input="reRenderCanvas()">
+                                                            </div>
+                                                            <div class="field" style="margin-top:10px;">
+                                                                <label>Click URL Link</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.link" @input="reRenderCanvas()">
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Alignment -->
+                                                    <template x-if="['heading', 'paragraph', 'button', 'image'].includes(editorBlocks[selectedBlockIndex].innerBlock.type)">
+                                                        <div class="field">
+                                                            <label>Alignment</label>
+                                                            <select x-model="editorBlocks[selectedBlockIndex].innerBlock.align" @change="reRenderCanvas()">
+                                                                <option value="left">Left</option>
+                                                                <option value="center">Center</option>
+                                                                <option value="right">Right</option>
+                                                            </select>
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Fonts & Colors -->
+                                                    <template x-if="['heading', 'paragraph'].includes(editorBlocks[selectedBlockIndex].innerBlock.type)">
+                                                        <div class="form-grid">
+                                                            <div class="field">
+                                                                <label>Font Size</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.size" @input="reRenderCanvas()">
+                                                            </div>
+                                                            <div class="field">
+                                                                <label>Text Color</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.color" @input="reRenderCanvas()">
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Button Color customizations -->
+                                                    <template x-if="editorBlocks[selectedBlockIndex].innerBlock.type === 'button'">
+                                                        <div class="form-grid">
+                                                            <div class="field">
+                                                                <label>BG Color</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.bg_color" @input="reRenderCanvas()">
+                                                            </div>
+                                                            <div class="field">
+                                                                <label>Text Color</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.text_color" @input="reRenderCanvas()">
+                                                            </div>
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Corner Radius</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.border_radius" @input="reRenderCanvas()">
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Divider Height & Color -->
+                                                    <template x-if="editorBlocks[selectedBlockIndex].innerBlock.type === 'divider'">
+                                                        <div class="form-grid">
+                                                            <div class="field">
+                                                                <label>Height (px)</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.height" @input="reRenderCanvas()">
+                                                            </div>
+                                                            <div class="field">
+                                                                <label>Line Color</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.color" @input="reRenderCanvas()">
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Spacer Height -->
+                                                    <template x-if="editorBlocks[selectedBlockIndex].innerBlock.type === 'spacer'">
+                                                        <div class="field">
+                                                            <label>Height (px)</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.height" @input="reRenderCanvas()">
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Padding -->
+                                                    <template x-if="['heading', 'paragraph', 'divider', 'button', 'image'].includes(editorBlocks[selectedBlockIndex].innerBlock.type)">
+                                                        <div class="field">
+                                                            <label>Padding</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].innerBlock.padding" @input="reRenderCanvas()">
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </template>
                                         </div>
                                     </template>
 

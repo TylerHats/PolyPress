@@ -338,11 +338,11 @@ def get_system_stats(
                 except Exception:
                     pass
                     
-    from database import Tenant, Subscriber, SubscriberList, Campaign, User
+    from database import Tenant, Subscriber, SubscriberList, Campaign, User, QueueItem
     tenants = db.query(Tenant).all()
     tenant_stats = []
     for t in tenants:
-        sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == t.id).count()
+        sub_count = db.query(Subscriber).join(SubscriberList).filter(SubscriberList.tenant_id == t.id).count()
         list_count = db.query(SubscriberList).filter(SubscriberList.tenant_id == t.id).count()
         campaign_count = db.query(Campaign).filter(Campaign.tenant_id == t.id).count()
         user_count = db.query(User).filter(User.tenant_id == t.id).count()
@@ -355,10 +355,34 @@ def get_system_stats(
             "users": user_count
         })
         
+    # Calculate estimated max emails per hour based on recent sending data
+    recent_sent = db.query(QueueItem).filter(
+        QueueItem.status == "sent"
+    ).order_by(QueueItem.updated_at.desc()).limit(100).all()
+    recent_sent = [r for r in recent_sent if r.updated_at]
+    
+    est_max_per_hour = 36000 # default
+    if len(recent_sent) >= 5:
+        recent_sent.sort(key=lambda x: x.updated_at)
+        max_rate = 0.0
+        # Check window size of 10 consecutive sends to find peak speed under load
+        window_size = min(10, len(recent_sent))
+        for i in range(len(recent_sent) - window_size + 1):
+            t1 = recent_sent[i].updated_at
+            t2 = recent_sent[i + window_size - 1].updated_at
+            delta = (t2 - t1).total_seconds()
+            if delta > 0.1:
+                rate = (window_size - 1) / delta
+                if rate > max_rate:
+                    max_rate = rate
+        if max_rate > 0.0:
+            est_max_per_hour = int(max_rate * 3600)
+        
     return {
         "db_size": db_size,
         "history_db_size": history_db_size,
         "assets_size": assets_size,
         "assets_count": assets_count,
-        "tenant_stats": tenant_stats
+        "tenant_stats": tenant_stats,
+        "est_max_per_hour": est_max_per_hour
     }

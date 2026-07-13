@@ -161,12 +161,32 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         host = tenant.smtp_host
         username = tenant.smtp_username
         password = tenant.smtp_password
+        use_ssl = tenant.smtp_use_ssl
+        use_tls = tenant.smtp_use_tls
         
-        if tenant.smtp_use_ssl:
+        if not host:
+            from database import SessionLocal, GlobalSettings
+            db = SessionLocal()
+            try:
+                g = db.query(GlobalSettings).first()
+                if g and g.smtp_host:
+                    host = g.smtp_host
+                    port = g.smtp_port or 587
+                    username = g.smtp_username
+                    password = g.smtp_password
+                    use_ssl = g.smtp_use_ssl
+                    use_tls = g.smtp_use_tls
+            finally:
+                db.close()
+                
+        if not host:
+            return False, False, 500, "Outbound SMTP server not configured"
+            
+        if use_ssl:
             server = smtplib.SMTP_SSL(host, port, timeout=15.0)
         else:
             server = smtplib.SMTP(host, port, timeout=15.0)
-            if tenant.smtp_use_tls:
+            if use_tls:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
@@ -174,7 +194,7 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         if username and password:
             server.login(username, password)
             
-        server.sendmail(tenant.bounce_email or f"bounce@{tenant.dkim_domain or tenant.smtp_host}", item.email, msg_bytes)
+        server.sendmail(tenant.bounce_email or f"bounce@{tenant.dkim_domain or tenant.smtp_host or 'localhost'}", item.email, msg_bytes)
         server.quit()
         return True, True, 250, "Sent successfully"
     except Exception as e:
@@ -292,9 +312,10 @@ def send_transactional_email(to_email: str, subject: str, body_html: str, tenant
         
     if success:
         logger.info(f"Transactional email sent to {to_email} successfully.")
+        return True, "Sent successfully"
     else:
         logger.error(f"Transactional email failed to send to {to_email}: [{code}] {msg}")
-    return success
+        return False, f"[{code}] {msg}"
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -370,7 +391,7 @@ def deliver_item_task(item_id: int):
             item.status = "sent"
             item.error_code = 250
             item.last_mx_response = "Sent successfully"
-            campaign.sent_count = Campaign.sent_count + 1
+            campaign.sent_count = (campaign.sent_count or 0) + 1
         else:
             item.error_code = code
             item.last_mx_response = msg
@@ -382,7 +403,7 @@ def deliver_item_task(item_id: int):
                 item.next_attempt = datetime.utcnow() + timedelta(minutes=retry_mins)
             else:
                 item.status = "failed"
-                campaign.failed_count = Campaign.failed_count + 1
+                campaign.failed_count = (campaign.failed_count or 0) + 1
                 
                 subscriber.status = "bounced"
                 subscriber.bounce_reason = f"[{code}] {msg}"
@@ -730,13 +751,20 @@ async def process_queue():
             for item in items:
                 # Resolve rate limiter for this tenant
                 tenant_id = item.tenant_id
+                
+                # Check active thread footprint for this tenant against limit
+                tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                if tenant:
+                    max_threads = tenant.max_sending_threads or 10
+                    active = get_active_threads_for_tenant(tenant_id)
+                    if active >= max_threads:
+                        continue
+                        
                 if tenant_id not in rate_limiters:
-                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
                     limit = tenant.speed_emails_per_hour if tenant else 500
                     rate_limiters[tenant_id] = TenantRateLimiter(limit)
                 else:
                     # Update limit dynamically if changed in DB
-                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
                     if tenant:
                         rate_limiters[tenant_id].update_limit(tenant.speed_emails_per_hour)
                         

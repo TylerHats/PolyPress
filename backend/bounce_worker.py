@@ -177,7 +177,7 @@ def process_tenant_bounces(db: Session, tenant: Tenant):
                                 Campaign.tenant_id == tenant.id
                             ).first()
                             if campaign:
-                                campaign.bounce_count = Campaign.bounce_count + 1
+                                campaign.bounce_count = (campaign.bounce_count or 0) + 1
                                 
                     db.commit()
                     

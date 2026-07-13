@@ -10,6 +10,9 @@ router = APIRouter(prefix="/api/automations", tags=["automations"])
 @router.get("")
 def list_automations(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     if not current_user.tenant_id:
+        if current_user.role == "super_admin":
+            flows = db.query(AutomationFlow).order_by(AutomationFlow.created_at.desc()).all()
+            return flows
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
     
     flows = db.query(AutomationFlow).filter(AutomationFlow.tenant_id == current_user.tenant_id).order_by(AutomationFlow.created_at.desc()).all()
@@ -17,15 +20,24 @@ def list_automations(db: Session = Depends(get_db), current_user: User = Depends
 
 @router.post("")
 def create_automation(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+    tenant_id = current_user.tenant_id
+    if not tenant_id:
+        if current_user.role == "super_admin":
+            # Default to first tenant if admin is creating a flow
+            from database import Tenant
+            first_t = db.query(Tenant).first()
+            if not first_t:
+                raise HTTPException(status_code=400, detail="No tenants configured. Super admin must create a tenant first.")
+            tenant_id = first_t.id
+        else:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
     name = payload.get("name", "New Flow")
     description = payload.get("description", "")
     flow_data = payload.get("flow_data", {"nodes": []})
     
     flow = AutomationFlow(
-        tenant_id=current_user.tenant_id,
+        tenant_id=tenant_id,
         name=name,
         description=description,
         flow_data=flow_data,
@@ -38,13 +50,13 @@ def create_automation(payload: dict = Body(...), db: Session = Depends(get_db), 
 
 @router.get("/{flow_id}")
 def get_automation(flow_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
+    if not current_user.tenant_id and current_user.role != "super_admin":
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
-    flow = db.query(AutomationFlow).filter(
-        AutomationFlow.id == flow_id,
-        AutomationFlow.tenant_id == current_user.tenant_id
-    ).first()
+    query = db.query(AutomationFlow).filter(AutomationFlow.id == flow_id)
+    if current_user.tenant_id:
+        query = query.filter(AutomationFlow.tenant_id == current_user.tenant_id)
+    flow = query.first()
     
     if not flow:
         raise HTTPException(status_code=404, detail="Automation flow not found")
@@ -53,13 +65,13 @@ def get_automation(flow_id: int, db: Session = Depends(get_db), current_user: Us
 
 @router.put("/{flow_id}")
 def update_automation(flow_id: int, payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
+    if not current_user.tenant_id and current_user.role != "super_admin":
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
-    flow = db.query(AutomationFlow).filter(
-        AutomationFlow.id == flow_id,
-        AutomationFlow.tenant_id == current_user.tenant_id
-    ).first()
+    query = db.query(AutomationFlow).filter(AutomationFlow.id == flow_id)
+    if current_user.tenant_id:
+        query = query.filter(AutomationFlow.tenant_id == current_user.tenant_id)
+    flow = query.first()
     
     if not flow:
         raise HTTPException(status_code=404, detail="Automation flow not found")
@@ -76,13 +88,13 @@ def update_automation(flow_id: int, payload: dict = Body(...), db: Session = Dep
 
 @router.delete("/{flow_id}")
 def delete_automation(flow_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
+    if not current_user.tenant_id and current_user.role != "super_admin":
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
-    flow = db.query(AutomationFlow).filter(
-        AutomationFlow.id == flow_id,
-        AutomationFlow.tenant_id == current_user.tenant_id
-    ).first()
+    query = db.query(AutomationFlow).filter(AutomationFlow.id == flow_id)
+    if current_user.tenant_id:
+        query = query.filter(AutomationFlow.tenant_id == current_user.tenant_id)
+    flow = query.first()
     
     if not flow:
         raise HTTPException(status_code=404, detail="Automation flow not found")
@@ -93,21 +105,21 @@ def delete_automation(flow_id: int, db: Session = Depends(get_db), current_user:
 
 @router.get("/{flow_id}/logs")
 def get_automation_logs(flow_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
+    if not current_user.tenant_id and current_user.role != "super_admin":
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
-    flow = db.query(AutomationFlow).filter(
-        AutomationFlow.id == flow_id,
-        AutomationFlow.tenant_id == current_user.tenant_id
-    ).first()
+    query = db.query(AutomationFlow).filter(AutomationFlow.id == flow_id)
+    if current_user.tenant_id:
+        query = query.filter(AutomationFlow.tenant_id == current_user.tenant_id)
+    flow = query.first()
     
     if not flow:
         raise HTTPException(status_code=404, detail="Automation flow not found")
         
-    logs = db.query(AutomationLog).filter(
-        AutomationLog.flow_id == flow_id,
-        AutomationLog.tenant_id == current_user.tenant_id
-    ).order_by(AutomationLog.created_at.desc()).limit(100).all()
+    log_query = db.query(AutomationLog).filter(AutomationLog.flow_id == flow_id)
+    if current_user.tenant_id:
+        log_query = log_query.filter(AutomationLog.tenant_id == current_user.tenant_id)
+    logs = log_query.order_by(AutomationLog.created_at.desc()).limit(100).all()
     
     # Return formatted logs list
     result = []

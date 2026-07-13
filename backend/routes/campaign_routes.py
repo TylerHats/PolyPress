@@ -844,7 +844,7 @@ def send_test_email(
         raise HTTPException(status_code=400, detail=f"Failed to render campaign template: {e}")
         
     from sending_worker import send_transactional_email
-    success = send_transactional_email(
+    success, err_msg = send_transactional_email(
         to_email=to_email,
         subject=f"[TEST] {campaign.subject or 'Draft Campaign'}",
         body_html=body_html,
@@ -852,7 +852,7 @@ def send_test_email(
     )
     
     if not success:
-        raise HTTPException(status_code=500, detail="Failed to dispatch test email. Check SMTP or MTA settings/logs.")
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch test email: {err_msg}")
         
     return {"detail": "Test email sent successfully"}
 

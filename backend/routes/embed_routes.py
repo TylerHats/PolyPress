@@ -651,18 +651,27 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     if not subscriber or not campaign:
         return HTMLResponse("<h2>Invalid request</h2>", status_code=400)
         
+    tenant_id = campaign.tenant_id
+    
     from sqlalchemy import func
-    lists = db.query(SubscriberList).filter(SubscriberList.tenant_id == subscriber.tenant_id).all()
-    subs = db.query(Subscriber).filter(
-        Subscriber.tenant_id == subscriber.tenant_id,
+    # Join SubscriberList to resolve memberships correctly even if tenant_id is Null on Subscriber
+    subs = db.query(Subscriber).join(SubscriberList).filter(
+        SubscriberList.tenant_id == tenant_id,
         func.lower(Subscriber.email) == subscriber.email.lower()
     ).all()
     
-    subscribed_list_ids = {s.list_id for s in subs if s.status == "active"}
+    subscribed_list_ids = {s.list_id for s in subs}
+    active_list_ids = {s.list_id for s in subs if s.status == "active"}
+    
+    # Filter the shown lists to only the ones they are already subscribed to
+    lists = db.query(SubscriberList).filter(
+        SubscriberList.tenant_id == tenant_id,
+        SubscriberList.id.in_(subscribed_list_ids)
+    ).all()
     
     list_items_html = ""
     for l in lists:
-        is_checked = "checked" if l.id in subscribed_list_ids else ""
+        is_checked = "checked" if l.id in active_list_ids else ""
         list_items_html += f"""
         <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 12px; text-align: left;">
             <input type="checkbox" name="lists" value="{l.id}" {is_checked} style="width: 18px; height: 18px; margin-top: 2px; cursor: pointer;">
@@ -784,11 +793,12 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
     else:
         # Update preferences
         selected_list_ids = [int(lid) for lid in form_data.getlist("lists")]
-        tenant_lists = db.query(SubscriberList).filter(SubscriberList.tenant_id == subscriber.tenant_id).all()
+        tenant_id = campaign.tenant_id
+        tenant_lists = db.query(SubscriberList).filter(SubscriberList.tenant_id == tenant_id).all()
         
         for list_obj in tenant_lists:
+            # Query existing subscriber record without matching tenant_id directly, as list_id is unique enough
             sub_entry = db.query(Subscriber).filter(
-                Subscriber.tenant_id == subscriber.tenant_id,
                 Subscriber.list_id == list_obj.id,
                 func.lower(Subscriber.email) == subscriber.email.lower()
             ).first()
@@ -798,7 +808,7 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
             if should_be_subscribed:
                 if not sub_entry:
                     new_sub = Subscriber(
-                        tenant_id=subscriber.tenant_id,
+                        tenant_id=tenant_id,
                         list_id=list_obj.id,
                         email=subscriber.email,
                         name=subscriber.name,

@@ -1,46 +1,76 @@
         function compileBlocksToHtml(blocks, customFooterHtml = null, isFooterMode = false) {
-            let rowsHtml = '';
-            for (let block of blocks) {
-                if (block.type === 'heading') {
-                    rowsHtml += `
+            function compileSingleBlock(b) {
+                if (!b) return '';
+                if (b.type === 'paragraph') {
+                    return `
                     <tr>
-                        <td align="${block.align || 'center'}" style="padding: ${block.padding || '10px 0'};">
-                            <h1 style="margin: 0; font-family: sans-serif; font-size: ${block.size || '28px'}; color: ${block.color || '#111827'}; font-weight: bold; line-height: 1.3;">
-                                ${block.text}
-                            </h1>
-                        </td>
-                    </tr>`;
-                } else if (block.type === 'paragraph') {
-                    rowsHtml += `
-                    <tr>
-                        <td align="${block.align || 'left'}" style="padding: ${block.padding || '10px 0'};">
-                            <p style="margin: 0; font-family: sans-serif; font-size: ${block.size || '16px'}; color: ${block.color || '#374151'}; line-height: 1.6;">
-                                ${block.text.replace(/\n/g, '<br>')}
+                        <td align="${b.align || 'left'}" style="padding: ${b.padding || '10px 0'};">
+                            <p style="margin: 0; font-family: sans-serif; font-size: ${b.size || '16px'}; color: ${b.color || '#374151'}; line-height: 1.6; text-align: ${b.align || 'left'};">
+                                ${(b.text || '').replace(/\n/g, '<br>')}
                             </p>
                         </td>
                     </tr>`;
-                } else if (block.type === 'button') {
-                    rowsHtml += `
+                } else if (b.type === 'heading') {
+                    return `
                     <tr>
-                        <td align="${block.align || 'center'}" style="padding: 15px 0;">
+                        <td align="${b.align || 'center'}" style="padding: ${b.padding || '10px 0'};">
+                            <h1 style="margin: 0; font-family: sans-serif; font-size: ${b.size || '28px'}; color: ${b.color || '#111827'}; font-weight: bold; line-height: 1.3; text-align: ${b.align || 'center'};">
+                                ${b.text || ''}
+                            </h1>
+                        </td>
+                    </tr>`;
+                } else if (b.type === 'button') {
+                    return `
+                    <tr>
+                        <td align="${b.align || 'center'}" style="padding: 15px 0;">
                             <table border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto; border-collapse: separate;">
                                 <tr>
-                                    <td align="center" bgcolor="${block.bg_color || '#4f46e5'}" style="border-radius: ${block.border_radius || '6px'};">
-                                        <a href="${block.url || '#'}" target="_blank" style="display: inline-block; padding: ${block.padding || '12px 24px'}; font-family: sans-serif; font-size: 15px; font-weight: bold; color: ${block.text_color || '#ffffff'}; text-decoration: none; border-radius: ${block.border_radius || '6px'};">
-                                            ${block.text}
+                                    <td align="center" bgcolor="${b.bg_color || '#4f46e5'}" style="border-radius: ${b.border_radius || '6px'};">
+                                        <a href="${b.url || '#'}" target="_blank" style="display: inline-block; padding: ${b.padding || '12px 24px'}; font-family: sans-serif; font-size: 15px; font-weight: bold; color: ${b.text_color || '#ffffff'}; text-decoration: none; border-radius: ${b.border_radius || '6px'};">
+                                            ${b.text || ''}
                                         </a>
                                     </td>
                                 </tr>
                             </table>
                         </td>
                     </tr>`;
-                } else if (block.type === 'image') {
-                    rowsHtml += `
+                } else if (b.type === 'image') {
+                    return `
                     <tr>
-                        <td align="center" style="padding: ${block.padding || '10px 0'};">
-                            <img src="${block.url || 'https://picsum.photos/600/300'}" alt="${block.alt || 'Image'}" style="display: block; width: 100%; max-width: 600px; height: auto; border: 0; border-radius: ${block.border_radius || '0px'};" />
+                        <td align="center" style="padding: ${b.padding || '10px 0'};">
+                            <img src="${b.url || 'https://picsum.photos/600/300'}" alt="${b.alt || 'Image'}" style="display: block; width: 100%; max-width: 600px; height: auto; border: 0; border-radius: ${b.border_radius || '0px'};" />
                         </td>
                     </tr>`;
+                } else if (b.type === 'divider') {
+                    return `
+                    <tr>
+                        <td style="padding: ${b.padding || '20px 0'};">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td height="${b.height || '1px'}" bgcolor="${b.color || '#e5e7eb'}" style="font-size: 1px; line-height: 1px;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>`;
+                } else if (b.type === 'spacer') {
+                    return `
+                    <tr>
+                        <td height="${b.height || '20px'}" style="font-size: 1px; line-height: 1px;">&nbsp;</td>
+                    </tr>`;
+                }
+                return '';
+            }
+
+            let rowsHtml = '';
+            for (let block of blocks) {
+                if (block.type === 'heading') {
+                    rowsHtml += compileSingleBlock(block);
+                } else if (block.type === 'paragraph') {
+                    rowsHtml += compileSingleBlock(block);
+                } else if (block.type === 'button') {
+                    rowsHtml += compileSingleBlock(block);
+                } else if (block.type === 'image') {
+                    rowsHtml += compileSingleBlock(block);
                 } else if (block.type === 'columns') {
                     let leftPct = '48%';
                     let rightPct = '48%';
@@ -112,31 +142,14 @@
                         </td>
                     </tr>`;
                 } else if (block.type === 'divider') {
-                    rowsHtml += `
-                    <tr>
-                        <td style="padding: ${block.padding || '20px 0'};">
-                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
-                                <tr>
-                                    <td height="${block.height || '1px'}" bgcolor="${block.color || '#e5e7eb'}" style="font-size: 1px; line-height: 1px;">&nbsp;</td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>`;
+                    rowsHtml += compileSingleBlock(block);
                 } else if (block.type === 'spacer') {
-                    rowsHtml += `
-                    <tr>
-                        <td height="${block.height || '20px'}" style="font-size: 1px; line-height: 1px;">&nbsp;</td>
-                    </tr>`;
+                    rowsHtml += compileSingleBlock(block);
                 } else if (block.type === 'conditional') {
+                    const innerHtml = compileSingleBlock(block.innerBlock || { type: 'paragraph', text: block.text || 'Conditional text...', color: block.color, align: block.align, size: block.size, padding: block.padding });
                     rowsHtml += `
                     {% if ${block.condition} %}
-                    <tr>
-                        <td align="${block.align || 'left'}" style="padding: ${block.padding || '10px 0'};">
-                            <div style="font-family: sans-serif; font-size: ${block.size || '15px'}; color: ${block.color || '#6366f1'}; line-height: 1.6;">
-                                ${block.text.replace(/\n/g, '<br>')}
-                            </div>
-                        </td>
-                    </tr>
+                    ${innerHtml}
                     {% endif %}`;
                 }
             }
@@ -2430,7 +2443,7 @@
                     }
                     
                     if (tab !== 'dashboard') {
-                        const canvas = document.getElementById('subscriberChart');
+                        const canvas = document.getElementById('dashboardChart');
                         if (canvas) {
                             const existingChart = Chart.getChart(canvas);
                             if (existingChart) {
@@ -3567,11 +3580,51 @@
                             right: { type: 'paragraph', text: 'Right Content', align: 'left', color: '#334155', size: '15px' }
                         };
                     } else if (type === 'conditional') {
-                        block = { type, condition: "tag contains 'VIP'", text: 'This text is only visible if the condition matches.', align: 'left', color: '#6366f1', size: '15px', padding: '10px 0px' };
+                        block = { 
+                            type, 
+                            condition: "tag contains 'VIP'", 
+                            text: 'This text is only visible if the condition matches.', 
+                            align: 'left', 
+                            color: '#6366f1', 
+                            size: '15px', 
+                            padding: '10px 0px',
+                            innerBlock: {
+                                type: 'paragraph',
+                                text: 'This text is only visible if the condition matches.',
+                                align: 'left',
+                                color: '#6366f1',
+                                size: '15px',
+                                padding: '10px 0px'
+                            }
+                        };
                     }
                     
                     this.editorBlocks.push(block);
                     this.selectedBlockIndex = this.editorBlocks.length - 1;
+                    this.reRenderCanvas();
+                },
+                
+                setConditionalInnerBlockType(innerType) {
+                    if (this.selectedBlockIndex === null) return;
+                    const block = this.editorBlocks[this.selectedBlockIndex];
+                    if (block.type !== 'conditional') return;
+                    
+                    let innerBlock = { type: innerType };
+                    if (innerType === 'paragraph') {
+                        innerBlock = { type: innerType, text: block.text || 'Write your content body here.', align: 'left', color: '#334155', size: '16px', padding: '10px 0px' };
+                    } else if (innerType === 'heading') {
+                        innerBlock = { type: innerType, text: 'Heading Text', align: 'center', color: '#1e293b', size: '28px', padding: '12px 0px' };
+                    } else if (innerType === 'button') {
+                        innerBlock = { type: innerType, text: 'Click Link', url: 'https://example.com', align: 'center', bg_color: '#6366f1', text_color: '#ffffff', padding: '12px 24px', border_radius: '6px' };
+                    } else if (innerType === 'image') {
+                        innerBlock = { type: innerType, url: 'https://picsum.photos/600/300', alt: 'Marketing Banner', border_radius: '0px' };
+                    } else if (innerType === 'divider') {
+                        innerBlock = { type: innerType, color: '#e2e8f0', height: '2px', padding: '20px 0px' };
+                    } else if (innerType === 'spacer') {
+                        innerBlock = { type: innerType, height: '25px' };
+                    }
+                    
+                    block.innerBlock = innerBlock;
                     this.reRenderCanvas();
                 },
                 
@@ -3958,13 +4011,13 @@
                 
                 // Super Admin settings for Tenant registrations
                 openCreateTenantModal() {
-                    this.tenantForm = { id: null, name: '', generate_dkim: true };
+                    this.tenantForm = { id: null, name: '', max_sending_threads: 10, generate_dkim: true };
                     this.modals.createTenant = true;
                     this.refreshIcons();
                 },
                 
                 openEditTenantModal(t) {
-                    this.tenantForm = { id: t.id, name: t.name, generate_dkim: false };
+                    this.tenantForm = { id: t.id, name: t.name, max_sending_threads: t.max_sending_threads || 10, generate_dkim: false };
                     this.modals.createTenant = true;
                     this.refreshIcons();
                 },

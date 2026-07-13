@@ -76,7 +76,8 @@ def create_tenant(payload: dict = Body(...), db: Session = Depends(get_db), curr
         imap_password=payload.get("imap_password"),
         imap_use_ssl=payload.get("imap_use_ssl", True),
         speed_emails_per_hour=payload.get("speed_emails_per_hour", 500),
-        bounce_email=payload.get("bounce_email")
+        bounce_email=payload.get("bounce_email"),
+        max_sending_threads=payload.get("max_sending_threads", 10)
     )
     
     if payload.get("generate_dkim"):
@@ -158,6 +159,16 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     # Auto Backup configuration
     settings.backup_interval_hours = int(payload.get("backup_interval_hours", settings.backup_interval_hours or 0))
     settings.backup_retention_count = int(payload.get("backup_retention_count", settings.backup_retention_count or 10))
+    
+    # Global SMTP relay fallback settings
+    settings.smtp_host = payload.get("smtp_host", settings.smtp_host)
+    if "smtp_port" in payload:
+        settings.smtp_port = int(payload["smtp_port"]) if payload["smtp_port"] else None
+    settings.smtp_username = payload.get("smtp_username", settings.smtp_username)
+    if payload.get("smtp_password"):
+        settings.smtp_password = payload["smtp_password"]
+    settings.smtp_use_ssl = payload.get("smtp_use_ssl", settings.smtp_use_ssl)
+    settings.smtp_use_tls = payload.get("smtp_use_tls", settings.smtp_use_tls)
     
     db.commit()
     db.refresh(settings)
@@ -1110,7 +1121,7 @@ def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depen
     if "direct_send" in payload:
         tenant.direct_send = payload["direct_send"]
         
-    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "imap_delete_processed", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes", "double_opt_in_subject", "double_opt_in_body_blocks", "double_opt_in_body_html", "email_footer_blocks", "email_footer_html", "sending_ip_override"]:
+    for field in ["smtp_host", "smtp_port", "smtp_username", "smtp_use_ssl", "smtp_use_tls", "dkim_selector", "mta_from_prefix", "imap_host", "imap_port", "imap_username", "imap_use_ssl", "imap_delete_processed", "speed_emails_per_hour", "bounce_email", "retry_interval_minutes", "double_opt_in_subject", "double_opt_in_body_blocks", "double_opt_in_body_html", "email_footer_blocks", "email_footer_html", "sending_ip_override", "max_sending_threads"]:
         if field in payload:
             setattr(tenant, field, payload[field])
             

@@ -129,12 +129,15 @@ Once complete, your credentials are saved, database schemas are fully establishe
 
 ## Configuration & Usage
 
-### OIDC & Mail Server Configuration (Super Admin Only)
+### Global Admin & Developer Console (Super Admin Only)
 1. Login as `admin@polypress.local` and click **Global Admin** in the sidebar.
-2. Enable OIDC login and provide your provider issuer URI (e.g. Authentik, Keycloak, or Okta), Client ID, and Client Secret.
-3. Configure the **Allowed Domains** whitelist (e.g. `yourcompany.com`) to restrict registration.
-4. Toggle **Auto-Create Tenant** to automatically register a company tenant whenever a new OIDC email domain logs in.
-5. Set the **Mail Server HELO/EHLO Identity** (HELO Domain) and **Sending IP Override** to match your server's reverse PTR (rPTR) record and egress IP address. These configurations apply host-wide for MTA diagnostics.
+2. Enable OIDC login and configure credentials for provider issuer URI, Client ID, Client Secret, and claim mappings.
+3. Configure the **Allowed Domains** whitelist and **Auto-Create Tenant** options.
+4. **Developer Console & Global APIs**:
+   - **Global SMTP Relay Fallback**: Configure host-wide SMTP credentials. If a tenant has not configured their own SMTP server, the system automatically routes transactional outbox mail via this global fallback.
+   - **Automatic Backup Scheduler**: Define automatic backup frequency intervals (in hours) and a maximum retention zip files count to preserve local snapshots.
+   - **Backup API pull/push**: Set up secure pull tokens or define external POST hooks for automatic backup delivery.
+5. **Tenant Thread Allocations**: Super Admins can configure the `Max Concurrent Sending Threads` limit for each tenant profile during creation or edits.
 
 ### Sending Settings (Tenant Admin)
 Navigate to **Sending Settings** to configure your outbound strategy:
@@ -142,13 +145,20 @@ Navigate to **Sending Settings** to configure your outbound strategy:
 - **Direct Send (Internal MTA)**: Enter your sending domain (e.g. `yourcompany.com`). Generate a DKIM key pair, copy the host name (`polypress._domainkey.yourcompany.com`) and TXT record value (includes the base64 public key), and add it to your domain's DNS registry.
 - **Bounce Handling Settings**:
   - **IMAP Inbox Scan**: Enter the IMAP host, username, password, port, and SSL toggles for the mailbox receiving return-path emails.
-  - **External Webhooks**: Select your provider (SendGrid, Mailgun, Postmark, or Amazon SES) to expose a copyable webhook endpoint. Use this URL in your mail provider's webhook panel to route bounces and spam complaints back to PolyPress instantly. Secret tokens can be rotated for additional security.
+  - **External Webhooks**: Select your provider to route bounces and spam complaints back to PolyPress instantly.
 
 ### Contacts & CSV Import
 1. Create a subscriber list under **Subscriber Lists**.
-2. Select **Fields Schema** to add list-specific custom attributes (e.g. `city`, `gender`), control their requirement flags, and custom ordering sequence.
-3. Click **CSV Import** to select your file, map CSV headers to target attributes, and launch the importer.
-4. Obtain the embeddable signup form snippet by clicking **Embed Form**.
+2. Select **Fields Schema** to add list-specific custom attributes and order sequences.
+3. Click **CSV Import** to upload a file:
+   - Select your preferred delimiter (Comma `,`, Semicolon `;`, or Vertical Bar `|`).
+   - Map CSV columns to target fields.
+   - Select any subscriber status to apply to imported rows (Active, Unsubscribed, Pending, Bounced, or Complained).
+4. Obtain the embeddable signup form snippet by clicking **Embed Form** to direct users to the preference center.
+
+### Visual Newsletter Designer & Conditional Blocks
+1. Choose from Heading, Paragraph, Button, Image, Divider, and Spacer elements.
+2. **Nested Conditional Blocks**: Put any visual element (such as a Button, Image, or Heading) inside a conditional display block. The inner block inherits all custom configurations and style parameters, and compiles correctly inside the conditional template rules wrapper.
 
 ### Visual Marketing Automations (Flow Builder)
 1. Navigate to **Automations** and click **Create Flow**.

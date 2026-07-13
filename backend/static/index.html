@@ -683,6 +683,11 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                         <label>Tenant/Company Name</label>
                         <input type="text" x-model="tenantForm.name" placeholder="HatsThings LLC">
                     </div>
+                    <div class="field">
+                        <label>Max Concurrent Sending Threads</label>
+                        <input type="number" x-model.number="tenantForm.max_sending_threads" placeholder="10" min="1">
+                        <span style="font-size: 11px; color: var(--text-muted);">Max concurrent connection tasks allocated to this tenant.</span>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">

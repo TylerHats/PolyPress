@@ -224,7 +224,8 @@ def detect_delimiter(sample_text: str) -> str:
     counts = {
         ",": first_line.count(","),
         ";": first_line.count(";"),
-        "\t": first_line.count("\t")
+        "\t": first_line.count("\t"),
+        "|": first_line.count("|")
     }
     best_delim = ","
     max_count = 0
@@ -244,12 +245,14 @@ def parse_status_value(raw_val: str, status_mappings: dict = None) -> str:
         for k, v in status_mappings.items():
             if k.strip().lower() == val_lower:
                 v_clean = v.strip().lower()
-                if v_clean in ["active", "unsubscribed", "bounced", "complained"]:
+                if v_clean in ["active", "unsubscribed", "pending", "bounced", "complained"]:
                     return v_clean
                     
     # Default fallback mappings
     if val_lower in ["active", "opt-in", "optin", "yes", "subscribe", "subscribed", "true", "1"]:
         return "active"
+    if val_lower in ["pending", "confirm", "unconfirmed", "double opt-in", "opt-in-pending"]:
+        return "pending"
     if val_lower in ["unsubscribed", "opt-out", "optout", "no", "unsubscribe", "false", "0", "complained", "bounced"]:
         if val_lower in ["complained", "bounced"]:
             return val_lower
@@ -260,7 +263,7 @@ def parse_status_value(raw_val: str, status_mappings: dict = None) -> str:
 # CSV PARSING & IMPORT
 
 @router.post("/{list_id}/parse-headers")
-async def parse_csv_headers(list_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
+async def parse_csv_headers(list_id: int, file: UploadFile = File(...), delimiter: str = None, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if current_user.role == "super_admin":
         sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
     else:
@@ -273,7 +276,19 @@ async def parse_csv_headers(list_id: int, file: UploadFile = File(...), db: Sess
         
     contents = await file.read()
     decoded = contents.decode('utf-8', errors='ignore')
-    delim = detect_delimiter(decoded)
+    
+    # Resolve custom delimiter
+    if delimiter in ["comma", ","]:
+        delim = ","
+    elif delimiter in ["semicolon", ";"]:
+        delim = ";"
+    elif delimiter in ["tab", "\t"]:
+        delim = "\t"
+    elif delimiter in ["bar", "|"]:
+        delim = "|"
+    else:
+        delim = detect_delimiter(decoded)
+        
     reader = csv.reader(io.StringIO(decoded), delimiter=delim)
     
     try:
@@ -288,6 +303,7 @@ async def import_csv_subscribers(
     list_id: int,
     file: UploadFile = File(...),
     mapping: str = Form(...), # JSON mapping: {"email": "Email", "name": "Name", "custom_fields": {"city": "CityCol"}}
+    delimiter: str = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.require_tenant_write_access)
 ):
@@ -317,7 +333,19 @@ async def import_csv_subscribers(
         
     contents = await file.read()
     decoded = contents.decode('utf-8', errors='ignore')
-    delim = detect_delimiter(decoded)
+    
+    # Resolve custom delimiter
+    if delimiter in ["comma", ","]:
+        delim = ","
+    elif delimiter in ["semicolon", ";"]:
+        delim = ";"
+    elif delimiter in ["tab", "\t"]:
+        delim = "\t"
+    elif delimiter in ["bar", "|"]:
+        delim = "|"
+    else:
+        delim = detect_delimiter(decoded)
+        
     reader = csv.DictReader(io.StringIO(decoded), delimiter=delim)
     
     imported_count = 0
@@ -573,7 +601,7 @@ def send_direct_email_to_subscriber(
         body_html += f"<br/><br/>{tenant.email_footer_html}"
         
     from sending_worker import send_transactional_email
-    success = send_transactional_email(
+    success, err_msg = send_transactional_email(
         to_email=sub.email,
         subject=subject,
         body_html=body_html,
@@ -581,7 +609,7 @@ def send_direct_email_to_subscriber(
     )
     
     if not success:
-        raise HTTPException(status_code=500, detail="Failed to dispatch direct email. Please check your outbound settings.")
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch direct email: {err_msg}")
         
     from location_helper import log_subscriber_activity
     log_subscriber_activity(
