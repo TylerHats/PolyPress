@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
 from sqlalchemy.orm import Session
 import database as db_mod
 from database import get_db, SubscriberList, Subscriber, User
