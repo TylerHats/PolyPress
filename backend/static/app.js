@@ -351,6 +351,8 @@
                 directMailRecipient: { id: null, email: '', name: '' },
                 directMailForm: { subject: '', body_html: '' },
                 sendingDirectMail: false,
+                directMailBlocks: [],
+                selectedDirectMailBlockIndex: null,
                 activeFlowTarget: { name: '', description: '', flow_data: { trigger: { list_id: '' }, nodes: [] } },
                 automationForm: { name: '', description: '', list_id: '' },
                 selectedAutomationNodeId: null,
@@ -430,7 +432,8 @@
                 csvListTarget: { name: '', custom_fields: [] },
                 csvFile: null,
                 csvHeaders: [],
-                csvMapping: { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '' }, custom_fields: {} },
+                csvDelimiter: ',',
+                csvMapping: { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '', pending: '', bounced: '', complained: '' }, custom_fields: {} },
                 csvImportStep: 1,
                 
                 // Visual block editor state
@@ -2052,11 +2055,17 @@
                 openDirectMailModal(sub) {
                     this.directMailRecipient = { id: sub.id, email: sub.email, name: sub.name };
                     this.directMailForm = { subject: '', body_html: '' };
+                    this.directMailBlocks = [
+                        { type: 'paragraph', text: 'Hello ' + (sub.name || 'there') + ',\n\n' }
+                    ];
+                    this.selectedDirectMailBlockIndex = 0;
                     this.directMailModalOpen = true;
                     this.refreshIcons();
                 },
 
                 async sendDirectMail() {
+                    // Compile blocks to HTML
+                    this.directMailForm.body_html = compileBlocksToHtml(this.directMailBlocks, this.tenant.email_footer_html);
                     if (!this.directMailForm.subject.trim() || !this.directMailForm.body_html.trim()) {
                         this.showToast('Please fill out all fields', 'error');
                         return;
@@ -2080,6 +2089,121 @@
                     } finally {
                         this.sendingDirectMail = false;
                     }
+                },
+
+                addDirectMailBlock(type) {
+                    const block = { type: type };
+                    if (type === 'heading') {
+                        block.text = 'New Heading';
+                        block.align = 'left';
+                        block.size = '24px';
+                        block.color = '#ffffff';
+                        block.padding = '10px 0px';
+                    } else if (type === 'paragraph') {
+                        block.text = 'Write your content here...';
+                        block.align = 'left';
+                        block.size = '14px';
+                        block.color = '#cbd5e1';
+                        block.padding = '10px 0px';
+                    } else if (type === 'button') {
+                        block.text = 'Click Here';
+                        block.url = '#';
+                        block.align = 'left';
+                        block.bg_color = '#6366f1';
+                        block.text_color = '#ffffff';
+                        block.border_radius = '6px';
+                        block.padding = '10px 20px';
+                    } else if (type === 'image') {
+                        block.url = '';
+                        block.alt = 'Image';
+                        block.align = 'center';
+                        block.border_radius = '0px';
+                    } else if (type === 'divider') {
+                        block.height = '1px';
+                        block.color = '#475569';
+                        block.padding = '15px 0px';
+                    } else if (type === 'spacer') {
+                        block.height = '20px';
+                    } else if (type === 'conditional') {
+                        block.condition = '';
+                        block.preview_visible = true;
+                        block.innerBlock = {
+                            type: 'paragraph',
+                            text: 'Conditional content...',
+                            align: 'left',
+                            size: '14px',
+                            color: '#cbd5e1',
+                            padding: '10px 0px'
+                        };
+                    } else if (type === 'columns') {
+                        block.left = { type: 'paragraph', text: 'Left Column content', align: 'left', size: '14px', color: '#cbd5e1', padding: '5px' };
+                        block.right = { type: 'paragraph', text: 'Right Column content', align: 'left', size: '14px', color: '#cbd5e1', padding: '5px' };
+                        block.ratio = '50-50';
+                    }
+                    this.directMailBlocks.push(block);
+                    this.selectedDirectMailBlockIndex = this.directMailBlocks.length - 1;
+                    this.refreshIcons();
+                },
+
+                deleteDirectMailBlock(index) {
+                    this.directMailBlocks.splice(index, 1);
+                    this.selectedDirectMailBlockIndex = this.directMailBlocks.length > 0 ? 0 : null;
+                    this.refreshIcons();
+                },
+
+                moveDirectMailBlock(from, to) {
+                    if (to < 0 || to >= this.directMailBlocks.length) return;
+                    const el = this.directMailBlocks.splice(from, 1)[0];
+                    this.directMailBlocks.splice(to, 0, el);
+                    this.selectedDirectMailBlockIndex = to;
+                    this.refreshIcons();
+                },
+
+                moveDirectMailBlockUp(index) {
+                    this.moveDirectMailBlock(index, index - 1);
+                },
+
+                moveDirectMailBlockDown(index) {
+                    this.moveDirectMailBlock(index, index + 1);
+                },
+
+                setDirectMailConditionalInnerBlockType(type) {
+                    if (this.selectedDirectMailBlockIndex === null) return;
+                    const b = this.directMailBlocks[this.selectedDirectMailBlockIndex];
+                    if (b.type !== 'conditional') return;
+                    const inner = { type: type };
+                    if (type === 'paragraph') {
+                        inner.text = 'Write conditional content...';
+                        inner.align = 'left';
+                        inner.size = '14px';
+                        inner.color = '#cbd5e1';
+                        inner.padding = '10px 0px';
+                    } else if (type === 'heading') {
+                        inner.text = 'Conditional Heading';
+                        inner.align = 'left';
+                        inner.size = '24px';
+                        inner.color = '#ffffff';
+                        inner.padding = '10px 0px';
+                    } else if (type === 'button') {
+                        inner.text = 'Click Here';
+                        inner.url = '#';
+                        inner.align = 'left';
+                        inner.bg_color = '#6366f1';
+                        inner.text_color = '#ffffff';
+                        inner.border_radius = '6px';
+                        inner.padding = '10px 20px';
+                    } else if (type === 'image') {
+                        inner.url = '';
+                        inner.alt = 'Image';
+                        inner.border_radius = '0px';
+                    } else if (type === 'divider') {
+                        inner.height = '1px';
+                        inner.color = '#475569';
+                        inner.padding = '15px 0px';
+                    } else if (type === 'spacer') {
+                        inner.height = '20px';
+                    }
+                    b.innerBlock = inner;
                 },
 
                 async fetchSystemStats() {
@@ -2811,7 +2935,7 @@
                         this.chartTimeoutId = null;
                         if (this.activeTab !== 'dashboard') return;
                         const ctx = document.getElementById('dashboardChart');
-                        if (!ctx) return;
+                        if (!ctx || ctx.offsetParent === null) return;
                         
                         const labels = chartPoints.map(p => p.date);
                         const opensData = chartPoints.map(p => p.email_opens);
@@ -3222,11 +3346,12 @@
                 },
 
                 // CSV Database Importer
-                openCsvImportModal(list) {
+                 openCsvImportModal(list) {
                     this.csvListTarget = list;
                     this.csvFile = null;
                     this.csvHeaders = [];
-                    this.csvMapping = { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '' }, custom_fields: {} };
+                    this.csvDelimiter = ',';
+                    this.csvMapping = { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '', pending: '', bounced: '', complained: '' }, custom_fields: {} };
                     this.csvImportStep = 1;
                     this.modals.csvImport = true;
                     this.refreshIcons();
@@ -3243,7 +3368,7 @@
                     formData.append('file', file);
                     
                     try {
-                        const res = await fetch(`/api/lists/${this.csvListTarget.id}/parse-headers`, {
+                        const res = await fetch(`/api/lists/${this.csvListTarget.id}/parse-headers?delimiter=${encodeURIComponent(this.csvDelimiter)}`, {
                             method: 'POST',
                             headers: { 'Authorization': `Bearer ${this.token}` },
                             body: formData
@@ -3305,6 +3430,9 @@
                     if (this.csvMapping.status) {
                         const activeVal = this.csvMapping.status_mappings.active || "";
                         const unsubscribedVal = this.csvMapping.status_mappings.unsubscribed || "";
+                        const pendingVal = this.csvMapping.status_mappings.pending || "";
+                        const bouncedVal = this.csvMapping.status_mappings.bounced || "";
+                        const complainedVal = this.csvMapping.status_mappings.complained || "";
                         if (activeVal) {
                             activeVal.split(',').forEach(v => {
                                 if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'active';
@@ -3315,11 +3443,27 @@
                                 if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'unsubscribed';
                             });
                         }
+                        if (pendingVal) {
+                            pendingVal.split(',').forEach(v => {
+                                if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'pending';
+                            });
+                        }
+                        if (bouncedVal) {
+                            bouncedVal.split(',').forEach(v => {
+                                if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'bounced';
+                            });
+                        }
+                        if (complainedVal) {
+                            complainedVal.split(',').forEach(v => {
+                                if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'complained';
+                            });
+                        }
                     }
 
                     const formData = new FormData();
                     formData.append('file', this.csvFile);
                     formData.append('mapping', JSON.stringify(mappingPayload));
+                    formData.append('delimiter', this.csvDelimiter);
                     
                     try {
                         const res = await fetch(`/api/lists/${this.csvListTarget.id}/import`, {
@@ -3755,15 +3899,20 @@
                             },
                             body: JSON.stringify({ email: this.testSendEmail })
                         });
-                        const data = await res.json();
+                        let data = {};
+                        try {
+                            data = await res.json();
+                        } catch (jsonErr) {
+                            data = { detail: res.statusText || 'Internal Server Error' };
+                        }
                         if (res.ok) {
                             this.showToast(data.detail || 'Test email dispatched successfully!');
                             this.modals.sendTest = false;
                         } else {
-                            this.showToast(data.detail || 'Failed to send test email', 'error');
+                            this.showToast(data.detail || `Failed to send test email (Status ${res.status})`, 'error');
                         }
                     } catch (e) {
-                        this.showToast('Network error sending test email', 'error');
+                        this.showToast(`Network error sending test email: ${e.message}`, 'error');
                     }
                 },
                 

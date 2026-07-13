@@ -22,6 +22,7 @@
                                             <th>Tenant Name</th>
                                             <th>Sending Domain</th>
                                             <th>Direct Send</th>
+                                            <th style="text-align: center;">Max Threads</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -31,6 +32,7 @@
                                                 <td style="font-weight:600;" x-text="t.name"></td>
                                                 <td x-text="t.dkim_domain || 'SMTP Relay'"></td>
                                                 <td x-text="t.direct_send ? 'Yes (MTA)' : 'No'"></td>
+                                                <td style="text-align: center;" x-text="t.max_sending_threads || 10"></td>
                                                 <td>
                                                      <div style="display: flex; gap: 8px;">
                                                          <button @click="openEditTenantModal(t)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;">
@@ -616,6 +618,9 @@
                                         <span style="color: #94a3b8;">Headers:</span> X-PolyPress-Key: <span style="color: var(--color-accent);">[your_api_key]</span><br>
                                         <span style="color: #94a3b8;">Body:</span> { "to_email": "recipient@domain.com", "subject": "Hello", "body_html": "&lt;p&gt;Hi&lt;/p&gt;", "smtp_fallback": true }
                                     </div>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 6px; line-height: 1.4;">
+                                        * API keys must be generated per tenant workspace. Tenant administrators can create keys inside their local workspace settings under the <strong>Developer Console</strong> tab.
+                                    </span>
                                 </div>
                             </div>
                         </div>

@@ -708,6 +708,14 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                 
                 <!-- Step 1: Upload File -->
                 <div x-show="csvImportStep === 1">
+                    <div style="margin-bottom: 15px;" class="field">
+                        <label style="font-size: 13px; font-weight: 600; margin-bottom: 6px; display: block;">CSV Delimiter / Separator</label>
+                        <select x-model="csvDelimiter" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff; border-radius: 6px; padding: 10px; width: 100%; color-scheme: dark; font-size: 13px;">
+                            <option value=",">Comma (,)</option>
+                            <option value=";">Semicolon (;)</option>
+                            <option value="|">Vertical Bar / Pipe (|)</option>
+                        </select>
+                    </div>
                     <div style="border: 2px dashed var(--border-glass); border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.01);"
                          @click="$refs.csvFileInput.click()">
                         <i data-lucide="upload-cloud" style="width: 48px; height: 48px; margin: 0 auto 15px; color: var(--color-primary); display:block;"></i>
@@ -771,10 +779,22 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                                 <div style="font-size: 12px; color: var(--text-secondary);">CSV values for Unsubscribed:</div>
                                 <input type="text" x-model="csvMapping.status_mappings.unsubscribed" placeholder="e.g. No, Unsubscribed, 0" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 28px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
                             </div>
+                            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px; align-items: center;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">CSV values for Pending:</div>
+                                <input type="text" x-model="csvMapping.status_mappings.pending" placeholder="e.g. Pending, Verification, Confirm" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 28px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px; align-items: center;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">CSV values for Bounced:</div>
+                                <input type="text" x-model="csvMapping.status_mappings.bounced" placeholder="e.g. Bounce, Failure, Bounced" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 28px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px; align-items: center;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">CSV values for Complained:</div>
+                                <input type="text" x-model="csvMapping.status_mappings.complained" placeholder="e.g. Spam, Complaint, Complained" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 28px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
                         </div>
 
                         <!-- Custom fields maps -->
-                        <template x-for="f in csvListTarget.custom_fields" :key="f.key">
+                        <template x-for="f in csvListTarget.custom_fields.filter(field => field.key.toLowerCase() !== 'name')" :key="f.key">
                             <div class="mapping-row">
                                 <div style="font-weight:600; font-size:14px;" x-text="f.label"></div>
                                 <div class="mapping-arrow">→</div>
@@ -1071,7 +1091,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                     </div>
                     <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align:center;">
                         <div style="font-size: 12px; color: var(--text-secondary);">Clicks</div>
-                        <div style="font-size: 20px; font-weight:700; color: var(--color-primary);" x-text="campaignStats.clicks + ' (' + calculatePercentage(campaignStats.clicks, campaignStats.sent) + '%)'">0</div>
+                        <div style="font-size: 20px; font-weight:700; color: var(--color-primary);" x-text="campaignStats.clicks">0</div>
                     </div>
                     <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align:center;">
                         <div style="font-size: 12px; color: var(--text-secondary);">Bounces</div>

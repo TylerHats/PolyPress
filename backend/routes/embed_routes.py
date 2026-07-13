@@ -857,6 +857,25 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
         
         success_title = "✓ Preferences Saved"
         success_desc = "Your subscription preferences have been updated successfully."
+        
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{success_title}</title>
+        {HTML_STYLE}
+    </head>
+    <body>
+        <div class="card" style="text-align: center;">
+            <svg width="48" height="48" fill="none" stroke="#10b981" viewBox="0 0 24 24" style="margin: 0 auto 15px; display: block;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <h2 style="color: #10b981;">{success_title}</h2>
+            <p style="font-size: 14px; color: #94a3b8; line-height: 1.5;">
+                {success_desc}
+            </p>
+        </div>
+    </body>
+    </html>
+    """
     return HTMLResponse(content=html)
 
 def extract_ses_metadata(msg_data: dict):

@@ -104,7 +104,12 @@
                     <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 30px; margin-top: 30px;">
                         <div class="card" style="min-height: 380px;">
                             <h2 style="font-size: 16px; margin-bottom: 20px;">Open & Click Dynamics</h2>
-                            <div style="height: 300px; position: relative;">
+                            <template x-if="loadingDashboardStats">
+                                <div style="height: 300px; border-radius: 8px; background: rgba(255,255,255,0.02); animation: pulse 1.5s infinite ease-in-out; display: flex; align-items: center; justify-content: center;">
+                                    <i data-lucide="loader" class="animate-spin" style="width: 24px; height: 24px; color: var(--color-primary);"></i>
+                                </div>
+                            </template>
+                            <div x-show="!loadingDashboardStats" style="height: 300px; position: relative;">
                                 <canvas id="dashboardChart"></canvas>
                             </div>
                         </div>

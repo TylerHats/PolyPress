@@ -852,7 +852,7 @@ def send_test_email(
     )
     
     if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to dispatch test email: {err_msg}")
+        raise HTTPException(status_code=400, detail=f"Failed to dispatch test email: {err_msg}")
         
     return {"detail": "Test email sent successfully"}
 

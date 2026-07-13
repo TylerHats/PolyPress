@@ -37,7 +37,7 @@
                                             </td>
                                             <td x-text="c.sent_count + '/' + c.total_recipients"></td>
                                             <td x-text="c.open_count + ' (' + calculatePercentage(c.open_count, c.sent_count) + '%)'"></td>
-                                            <td x-text="c.click_count + ' (' + calculatePercentage(c.click_count, c.sent_count) + '%)'"></td>
+                                            <td x-text="c.click_count"></td>
                                             <td>
                                                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                                      <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Design/Content">
@@ -308,7 +308,37 @@
                                                         <i data-lucide="eye-off" style="width: 12px; height: 12px;"></i>
                                                         Show IF: <span x-text="b.condition"></span>
                                                     </div>
-                                                    <div :style="'text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding + '; white-space: pre-line;'" x-html="(b.text || '').replace(/\n/g, '<br>')"></div>
+                                                    
+                                                    <!-- Embedded Inner Block Rendering -->
+                                                    <div x-show="b.preview_visible !== false" style="pointer-events: none; margin-top: 5px;">
+                                                        <template x-if="!b.innerBlock || b.innerBlock.type === 'paragraph'">
+                                                            <p :style="'margin:0; text-align:' + (b.innerBlock ? b.innerBlock.align : b.align) + '; font-size:' + (b.innerBlock ? b.innerBlock.size : b.size) + '; color:' + (b.innerBlock ? b.innerBlock.color : b.color) + '; padding:' + (b.innerBlock ? b.innerBlock.padding : b.padding) + '; white-space: pre-line;'" x-html="((b.innerBlock ? b.innerBlock.text : b.text) || '').replace(/\n/g, '<br>')"></p>
+                                                        </template>
+                                                        <template x-if="b.innerBlock && b.innerBlock.type === 'heading'">
+                                                            <h1 :style="'margin:0; text-align:' + b.innerBlock.align + '; font-size:' + b.innerBlock.size + '; color:' + b.innerBlock.color + '; padding:' + b.innerBlock.padding" x-html="b.innerBlock.text"></h1>
+                                                        </template>
+                                                        <template x-if="b.innerBlock && b.innerBlock.type === 'button'">
+                                                            <div :style="'text-align:' + b.innerBlock.align + '; padding: 12px 0;'">
+                                                                <span :style="'display:inline-block; padding:' + b.innerBlock.padding + '; background-color:' + b.innerBlock.bg_color + '; color:' + b.innerBlock.text_color + '; font-weight:bold; border-radius:' + b.innerBlock.border_radius + '; text-decoration:none; font-size:14px;'" x-text="b.innerBlock.text"></span>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="b.innerBlock && b.innerBlock.type === 'image'">
+                                                            <div style="text-align: center; width: 100%;">
+                                                                <img :src="b.innerBlock.url || 'https://picsum.photos/600/300'" :alt="b.innerBlock.alt" :style="'max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius:' + (b.innerBlock.border_radius || '0px')">
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="b.innerBlock && b.innerBlock.type === 'divider'">
+                                                            <div :style="'padding:' + b.innerBlock.padding">
+                                                                <hr :style="'border:none; border-top:' + b.innerBlock.height + ' solid ' + b.innerBlock.color">
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="b.innerBlock && b.innerBlock.type === 'spacer'">
+                                                            <div :style="'height:' + b.innerBlock.height"></div>
+                                                        </template>
+                                                    </div>
+                                                    <div x-show="b.preview_visible === false" style="font-size: 11px; color: var(--text-muted); font-style: italic; pointer-events: none; margin-top: 5px; text-align: center; padding: 10px; border: 1px dashed rgba(255,255,255,0.05);">
+                                                        (Content hidden in editor preview)
+                                                    </div>
                                                 </div>
                                             </template>
                                         </div>
@@ -405,7 +435,7 @@
                             <template x-if="selectedBlockIndex !== null">
                                 <div style="display: flex; flex-direction: column; gap: 14px;">
                                     <!-- Dynamic fields depending on active block type -->
-                                    <template x-if="['heading', 'paragraph', 'button', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="field">
                                             <label>Text Content</label>
                                             <textarea id="editor-text-input" x-model="editorBlocks[selectedBlockIndex].text" @input="reRenderCanvas()"></textarea>
@@ -434,6 +464,13 @@
                                                 </span>
                                             </div>
                                             
+                                            <div class="field" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                                                 <input type="checkbox" :checked="editorBlocks[selectedBlockIndex].preview_visible !== false" 
+                                                        @change="editorBlocks[selectedBlockIndex].preview_visible = $event.target.checked; reRenderCanvas();" 
+                                                        style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+                                                 <label style="margin: 0; cursor: pointer; color: #fff;">Show in Editor Preview</label>
+                                            </div>
+
                                             <div class="field" style="margin-top: 15px;">
                                                 <label>Inner Block Type</label>
                                                 <select :value="editorBlocks[selectedBlockIndex].innerBlock ? editorBlocks[selectedBlockIndex].innerBlock.type : 'paragraph'" 
@@ -799,7 +836,7 @@
                                         </div>
                                     </template>
 
-                                    <template x-if="['heading', 'paragraph', 'button', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="field">
                                             <label>Alignment</label>
                                             <select x-model="editorBlocks[selectedBlockIndex].align" @change="reRenderCanvas()">
@@ -810,7 +847,7 @@
                                         </div>
                                     </template>
 
-                                    <template x-if="['heading', 'paragraph', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="form-grid">
                                             <div class="field">
                                                 <label>Font Size</label>
@@ -860,7 +897,7 @@
                                         </div>
                                     </template>
 
-                                    <template x-if="['heading', 'paragraph', 'divider', 'button', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph', 'divider', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="field">
                                             <label>Padding (margins)</label>
                                             <input type="text" x-model="editorBlocks[selectedBlockIndex].padding" @input="reRenderCanvas()">
