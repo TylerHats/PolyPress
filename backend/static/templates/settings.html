@@ -178,7 +178,7 @@
                             <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 20px; display: flex; align-items: flex-end; gap: 10px;">
                                 <div class="field" style="flex: 1; margin: 0;">
                                     <label style="font-size: 11px;">Test Email Recipient</label>
-                                    <input type="email" x-model="smtpTestEmail" placeholder="yourmail@domain.com" style="height: 32px; font-size: 12px; margin-bottom: 0;">
+                                    <input type="text" name="smtp_test_email_recipient_field" id="smtp_test_email_recipient_field" autocomplete="new-password" x-model="smtpTestEmail" placeholder="yourmail@domain.com" style="height: 32px; font-size: 12px; margin-bottom: 0;">
                                 </div>
                                 <button @click="testSmtpConnection()" class="btn btn-secondary btn-sm" style="height: 32px; display: flex; align-items: center; gap: 6px; white-space: nowrap;" :disabled="testingSmtp">
                                     <i data-lucide="send" style="width: 14px; height: 14px;"></i>
@@ -217,7 +217,7 @@
                                 <div x-show="tenant.direct_send || tenant.bounce_provider === 'imap'" style="display: flex; flex-direction: column; gap: 15px;">
                                     <div class="field">
                                         <label>Bounce/Reply Envelope Email Address</label>
-                                        <input type="email" x-model="tenant.bounce_email" placeholder="bounce@yourdomain.com">
+                                        <input type="text" name="bounce_email_address_field" id="bounce_email_address_field" autocomplete="new-password" x-model="tenant.bounce_email" placeholder="bounce@yourdomain.com">
                                     </div>
                                     <div class="form-grid">
                                         <div class="field">
