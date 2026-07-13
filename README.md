@@ -6,37 +6,24 @@
 
 **PolyPress** is a premium, self-hosted, multitenant email newsletter management system. Designed to replace commercial newsletter tools, it offers strong data privacy, white-labeling capabilities, OIDC authorization, and flexible sending profiles (external SMTP relays or an internal direct-sending MTA).
 
-### Key Features
+---
 
-1. **Multitenancy**: Domain-scoped subscriber lists, campaigns, and configurations.
-2. **Global OIDC Login**: Single sign-on authentication with configurable claim keys for role and tenant mapping.
-3. **Internal MTA (Direct Send)**: Resolves MX records of recipient domains directly and delivers emails without using third-party relays.
-4. **DKIM Signature Layer**: Generates 2048-bit RSA key pairs per domain and displays the DNS TXT record layout directly in the UI.
-5. **Bounce & Complaint Handler**: Supports both periodic IMAP scanning of a dedicated bounce mailbox (parsing DSNs/ARF reports) and incoming HTTPS event webhooks from external SMTP relays (SendGrid, Mailgun, Postmark, and Amazon SES) to instantly flag bounced/spam contacts.
-6. **Visual Newsletter Builder**: Inline block editor (Heading, Paragraph, Button, Image, Divider, Spacer) with template compile engine, subscriber merge tags, and conditional show/hide display blocks.
-7. **Double Opt-In Flow**: Per-domain toggle sends responsive verification emails to pending subscribers with activation links.
-8. **Visual Mock Previews**: Renders newsletter templates inside the browser with live subscriber merge-tag variable overrides.
-9. **RFC 8058 One-Click Unsubscribe**: Appends `List-Unsubscribe` headers to support direct client-side unsubscribes.
-10. **Outbox Queue Board**: Displays pending/deferred sends, MX responses, retry intervals, and allows purging queue items.
-11. **Developer REST API & HMAC Webhooks**: API Key authentication for programmatic subscriber additions, signed HMAC-SHA256 event postbacks, and instant transactional email dispatch.
-12. **In-Process Let's Encrypt SSL (ACME)**: Acquire Let's Encrypt certificates directly inside the Admin console with automatic in-process HTTP-01 challenge routing.
-13. **White Label System**: Brand custom naming and logo support.
-14. **Parallel Send & Retries Queue**: Multithreaded sending workers with token bucket rate limits, continuous transient failures retry logic, and active pause/resume buttons.
-15. **Engagement Stars & Targeting**: Asynchronous 1-5 star hygiene rating based on subscriber open/click activity ratios, advanced multi-filters (activity log metrics, location), and segmented targeting constraints.
-16. **Hot Backup snap-restore System**: High-portability backups zip packages database files and branding assets. Handles transparent restores.
-17. **Click Map Visualizer**: Sandy iframe overlays showing click statistics directly on top of matching newsletter links.
-18. **Visual Marketing Automations (Flow Builder)**: Advanced visual automation builder with delay intervals, multi-logical filter rule chains, and IF/ELSE branched pathways.
-19. **Campaign A/B/C/D Split Testing**: Split sample test distributions with click/open rate comparisons and auto-dispatch of winning variants.
-20. **Custom Fields Schema Controls**: Visibility, ordering, and required validation schema customization per subscriber list.
-21. **Subscription Preference Center**: Toggled multi-list check preferences on unsubscription links.
-22. **Custom Confirmation Landing HTML**: Customize HTML confirmation screens for successful opt-ins and unsubscribes.
-23. **Live MTA Diagnostics & Speeds**: Periodic rolling thread counters, outbox stats, and failed MX logs.
-24. **System Storage stats**: Host admin dashboard for SQLite file footprint, asset size, and tenant metrics.
-25. **One-Off Direct Mail Composer**: Instantly compose and send single-user transactional emails.
+## 📖 Detailed Documentation (GitHub Wiki)
+
+All configuration guides, API endpoints, and features documentation have been moved to the [**GitHub Wiki**](https://github.com/TylerHats/PolyPress/wiki):
+
+*   [**Installation & Setup**](https://github.com/TylerHats/PolyPress/wiki/Installation-and-Setup) — Detailed system requirements, automated setup, Docker / Portainer deployments, and onboarding.
+*   [**Architecture & Security**](https://github.com/TylerHats/PolyPress/wiki/Architecture-and-Security) — Workspace multitenancy, OIDC single sign-on mapping rules, database configurations, and auto-backups.
+*   [**Outbound Transports & MTA**](https://github.com/TylerHats/PolyPress/wiki/Outbound-Transports-and-MTA) — Direct MTA (Direct Send), global fallback SMTP relays, DKIM generation, and rate limits.
+*   [**Bounce & Complaint Handling**](https://github.com/TylerHats/PolyPress/wiki/Bounce-and-Complaint-Handling) — Automatic bounce mailbox IMAP scanners and incoming webhook relays.
+*   [**Contacts Import & Preference Center**](https://github.com/TylerHats/PolyPress/wiki/Contacts-Import-and-Preference-Center) — Delimiter-selectable CSV imports, fields schema control, subscription preference centers, and list hygiene.
+*   [**Visual Email Designer**](https://github.com/TylerHats/PolyPress/wiki/Visual-Email-Designer) — Layout components, nested conditional blocks, split testing, and diagnostics.
+*   [**Marketing Automations**](https://github.com/TylerHats/PolyPress/wiki/Marketing-Automations) — Visual flow building, filters, delay steps, and IF/ELSE branching pathways.
+*   [**Developer REST API & Webhooks**](https://github.com/TylerHats/PolyPress/wiki/Developer-REST-API-and-Webhooks) — Integrations, transactional direct mail dispatches, and webhook payload verifications.
 
 ---
 
-## Architecture Diagram
+## 🛠️ High-Level System Architecture
 
 ```mermaid
 graph TD
@@ -51,244 +38,36 @@ graph TD
 
 ---
 
-## System Requirements
+## ⚡ Quick Start
 
-Before running the installer, make sure your hosting server or local machine meets these minimal requirements:
+### 1. Requirements
+*   **OS**: Linux (Ubuntu/Debian recommended).
+*   **Python**: Version 3.8 or higher.
+*   **Docker** (Optional for container deployments).
 
-### 1. Hardware
-PolyPress is lightweight, using zero-configuration SQLite storage. It runs comfortably on low-resource machines:
-- **Processor**: 1 CPU core is plenty.
-- **Memory (RAM)**: 512 MB minimum (1 GB recommended).
-- **Disk Space**: Less than 100 MB for base files, plus a small amount of storage for subscriber databases.
-
-### 2. Software Prerequisites
-PolyPress is built for Linux. To prepare your system:
-- **Python**: Version `3.8` or higher.
-- **Dependencies Helper**: On Debian/Ubuntu systems, install python utilities by running:
-  ```bash
-  sudo apt update
-  sudo apt install python3-pip python3-venv -y
-  ```
-
-### 3. Network Ports
-- **Dashboard Access (Port 8000)**: Used to connect to the GUI console locally.
-- **Let's Encrypt SSL (Port 80)**: *Optional.* If you plan to use the built-in **GUI Let's Encrypt Creator**, your server must be publicly reachable on port `80` (HTTP) so Let's Encrypt can perform challenge validations.
-- **Outbound Mail MTA (Port 25)**: *Optional.* If you use **Direct Send Mode** (built-in MTA), your hosting provider must allow outbound connections on Port `25`. *Note: Most cloud providers (like DigitalOcean, AWS) and home ISPs block port 25 to prevent spam. If blocked, simply configure an external SMTP Relay (like SendGrid, Resend, or SES) on port 587 or 465.*
-
----
-
-## Installation & Setup
-
-### 1. Automated Installation
-We provide an easy `install.sh` bootstrap script that checks for requirements, prepares a Python virtual environment, and installs all dependencies automatically:
-
+### 2. Automated Bootstrap Installation
 ```bash
 ./install.sh
 ```
 
-### 2. Run the Server
-Activate the virtual environment and start the FastAPI backend:
+To run manually:
 ```bash
 source venv/bin/activate
 cd backend
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### 3. Docker Deployment (Recommended)
-You can deploy PolyPress using Docker and Docker Compose. This packages the application and its dependencies (including `git` for update tracking) in a clean container. The default `docker-compose.yml` file is located in the root of this repository.
-
-Make sure you have [Docker and Docker Compose](https://docs.docker.com/engine/install/) installed, then run:
-
+### 3. Docker Compose Deployment
 ```bash
 docker compose up -d
 ```
 
-This will automatically build/pull the image, forward port `8000`, and set up persistent data mapping directories (`./data`, `./backups`, `./certs`, `./branding`) on your host machine.
-
-### 4. Deploying via Portainer
-If you manage your server using Portainer:
-1. Navigate to **Stacks** -> **Add stack**.
-2. Name the stack (e.g. `polypress`).
-3. Paste the contents of the `docker-compose.yml` file into the web editor.
-4. Click **Deploy the stack**.
-
-> [!IMPORTANT]
-> **Portainer Volume Paths**: When using relative bind mounts (like `./data` or `./backups`) in Portainer, Docker resolves them relative to Portainer's internal stack database directory (typically `/var/lib/portainer/data/compose/<stack-id>/data`).
-> To make your database, branding assets, and backup ZIP files easy to access on your host server, it is highly recommended to change the relative paths in your Portainer stack configuration to absolute paths (for example: `/home/ubuntu/polypress/data:/app/data` or `/etc/PolyPress/branding:/app/branding`). Ensure the host folders exist on the server before deploying to prevent potential permission issues.
-
-### 5. First Open Setup Wizard
-When you open http://localhost:8000 in your browser for the first time, PolyPress will guide you through an interactive setup wizard to configure:
-- **Branding Name**: The custom name of your PolyPress installation.
-- **Super Admin Credentials**: The email and secure password for your host administrator account.
-- **Email Transports (Outbound)**: Setup direct MTA sending with DKIM or configure an SMTP relay.
-- **Bounce Inbox (Inbound)**: Configure the IMAP mail handler details to auto-process bounces.
-
-Once complete, your credentials are saved, database schemas are fully established, and you are automatically logged in!
+Open http://localhost:8000 in your browser to go through the First-Open setup wizard.
 
 ---
 
-## Configuration & Usage
-
-### Global Admin & Developer Console (Super Admin Only)
-1. Login as `admin@polypress.local` and click **Global Admin** in the sidebar.
-2. Enable OIDC login and configure credentials for provider issuer URI, Client ID, Client Secret, and claim mappings.
-3. Configure the **Allowed Domains** whitelist and **Auto-Create Tenant** options.
-4. **Developer Console & Global APIs**:
-   - **Global SMTP Relay Fallback**: Configure host-wide SMTP credentials. If a tenant has not configured their own SMTP server, the system automatically routes transactional outbox mail via this global fallback.
-   - **Automatic Backup Scheduler**: Define automatic backup frequency intervals (in hours) and a maximum retention zip files count to preserve local snapshots.
-   - **Backup API pull/push**: Set up secure pull tokens or define external POST hooks for automatic backup delivery.
-5. **Tenant Thread Allocations**: Super Admins can configure the `Max Concurrent Sending Threads` limit for each tenant profile during creation or edits.
-
-### Sending Settings (Tenant Admin)
-Navigate to **Sending Settings** to configure your outbound strategy:
-- **External SMTP Relay**: Enter SMTP host, port, username, password, and SSL/TLS preferences.
-- **Direct Send (Internal MTA)**: Enter your sending domain (e.g. `yourcompany.com`). Generate a DKIM key pair, copy the host name (`polypress._domainkey.yourcompany.com`) and TXT record value (includes the base64 public key), and add it to your domain's DNS registry.
-- **Bounce Handling Settings**:
-  - **IMAP Inbox Scan**: Enter the IMAP host, username, password, port, and SSL toggles for the mailbox receiving return-path emails.
-  - **External Webhooks**: Select your provider to route bounces and spam complaints back to PolyPress instantly.
-
-### Contacts & CSV Import
-1. Create a subscriber list under **Subscriber Lists**.
-2. Select **Fields Schema** to add list-specific custom attributes and order sequences.
-3. Click **CSV Import** to upload a file:
-   - Select your preferred delimiter (Comma `,`, Semicolon `;`, or Vertical Bar `|`).
-   - Map CSV columns to target fields.
-   - Select any subscriber status to apply to imported rows (Active, Unsubscribed, Pending, Bounced, or Complained).
-4. Obtain the embeddable signup form snippet by clicking **Embed Form** to direct users to the preference center.
-
-### Visual Newsletter Designer & Conditional Blocks
-1. Choose from Heading, Paragraph, Button, Image, Divider, and Spacer elements.
-2. **Nested Conditional Blocks**: Put any visual element (such as a Button, Image, or Heading) inside a conditional display block. The inner block inherits all custom configurations and style parameters, and compiles correctly inside the conditional template rules wrapper.
-
-### Visual Marketing Automations (Flow Builder)
-1. Navigate to **Automations** and click **Create Flow**.
-2. Design custom marketing sequences visually on the canvas starting from the list-join entry trigger.
-3. Choose one or multiple target mailing lists (or select "Any Mailing List") to trigger subscriber enrolments.
-4. Add **Delay Steps** (wait minutes/hours/days), **Email Actions** (queuing templates), and **Filter Conditions** (checking custom fields or activity).
-5. Enable **IF/ELSE pathways** to branch sequences into parallel columns with separate rejoining controls.
-
-### Campaign A/B/C/D Split Testing
-1. In the campaign editor, check **Enable A/B/C/D Split Testing**.
-2. Configure your test sample size ratio (e.g., `0.20` sends tests to 20% of your list) and target hours.
-3. Click **Configure Variants** to customize alternative layouts/subjects.
-4. When launched, the sending queue runs variant tests, compares metrics after target hours, and sends the winning variant to the remaining 80% automatically.
-
----
-
-## Verification & Testing
-
-Verify mail transport, open/click counts, and bounce workers using mock configs.
-For questions or issues, consult the logs generated in the standard server output (or view service logs with `journalctl -u polypress -f` if running as a systemd service).
-
----
-
-## Developer REST API & Webhooks Guide
-
-PolyPress exposes a developer API for programmatic subscriber synchronization and signed HMAC webhooks for event subscriptions.
-
-### 1. Developer REST API
-
-All developer API requests must include the API key in the `X-PolyPress-Key` HTTP header.
-
-#### Add / Update Subscriber
-Synchronize contacts to specific mailing lists.
-
-- **Endpoint**: `POST /api/developer/v1/subscribers`
-- **Headers**:
-  - `X-PolyPress-Key: pp_live_...`
-  - `Content-Type: application/json`
-- **Request Body**:
-  ```json
-  {
-    "list_id": 1,
-    "email": "subscriber@domain.com",
-    "name": "Jane Doe",
-    "custom_data": {
-      "city": "Boston",
-      "company": "ACME Corp"
-    },
-    "source_tag": "API Integration"
-  }
-  ```
-- **Response (200 OK)**:
-  ```json
-  {
-    "id": 42,
-    "status": "active",
-    "detail": "Subscriber added successfully via Developer API."
-  }
-  ```
-
-#### Send Transactional Email
-Dispatch a single email immediately via direct MTA with optional SMTP relay fallback.
-
-- **Endpoint**: `POST /api/developer/v1/send`
-- **Headers**:
-  - `X-PolyPress-Key: pp_live_...`
-  - `Content-Type: application/json`
-- **Request Body**:
-  ```json
-  {
-    "to_email": "recipient@domain.com",
-    "subject": "Direct Notification",
-    "body_html": "<p>Hello, this is an instant notification sent directly via PolyPress.</p>",
-    "smtp_fallback": true
-  }
-  ```
-- **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "recipient": "recipient@domain.com",
-    "detail": "Sent successfully"
-  }
-  ```
-
----
-
-### 2. HMAC-SHA256 Webhook Signatures
-
-When configuring webhook subscriptions, PolyPress sends a `POST` request to the target destination URL with the following headers:
-- `Content-Type: application/json`
-- `X-PolyPress-Signature: <hex_signature>`
-- `User-Agent: PolyPress-Webhook-Dispatcher/1.0`
-
-The signature is computed using the HMAC-SHA256 algorithm with your webhook endpoint's specific secret as the key, run over the raw JSON payload.
-
-#### Supported Webhook Events
-- `subscriber.subscribe`: Triggered when a new subscriber joins.
-- `subscriber.bounce`: Triggered on hard bounces.
-- `email.sent`: Dispatched when an outbound mail is successfully sent.
-- `email.deferred`: Dispatched on transient delivery deferrals.
-
-#### Signature Verification Example (Node.js/Express)
-```javascript
-const crypto = require('crypto');
-
-app.post('/webhook-receiver', (req, res) => {
-    const signature = req.headers['x-polypress-signature'];
-    const secret = 'your_webhook_secret';
-    const computed = crypto
-        .createHmac('sha256', secret)
-        .update(JSON.stringify(req.body))
-        .digest('hex');
-
-    if (signature !== computed) {
-        return res.status(401).send('Signature mismatch');
-    }
-    
-    // Process webhook event
-    console.log('Verified Event:', req.body.event);
-    res.sendStatus(200);
-});
-```
-
----
-
-## Clean Uninstallation
-
-To cleanly stop the background service, delete python dependencies, and optionally wipe database tables and local TLS certificates, run:
+## 🧹 Clean Uninstallation
+To cleanly stop background services, delete Python virtual environment packages, and optionally purge data folders, run:
 ```bash
 ./uninstall.sh
 ```
-This leaves your system completely clean. 
