@@ -47,10 +47,13 @@
                                 <h3 style="font-size: 18px;" x-text="'Contacts inside: ' + listSelectedName"></h3>
                                 <p style="font-size: 13px; color: var(--text-secondary);" x-text="'Total: ' + subscribersCount"></p>
                             </div>
-                            <div style="display: flex; gap: 10px;">
+                            <div style="display: flex; gap: 10px; align-items: center;">
                                 <input type="text" x-model="subscribersSearch" @input.debounce.300ms="fetchSubscribers()" placeholder="Search contacts..." style="max-width: 250px;">
-                                <button x-show="user.role !== 'tenant_user'" @click="openAddSubscriberModal()" class="btn btn-primary btn-sm">
-                                    <i data-lucide="user-plus"></i> Add Contact
+                                <button x-show="user.role !== 'tenant_user'" @click="runListHygieneCheck()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="shield-check" style="width: 16px; height: 16px;"></i> Clean List
+                                </button>
+                                <button x-show="user.role !== 'tenant_user'" @click="openAddSubscriberModal()" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                    <i data-lucide="user-plus" style="width: 16px; height: 16px;"></i> Add Contact
                                 </button>
                             </div>
                         </div>
@@ -143,6 +146,9 @@
                                             </template>
                                             <td x-show="user.role !== 'tenant_user'">
                                                 <div style="display: flex; gap: 6px;">
+                                                    <button @click="openDirectMailModal(s)" class="btn btn-secondary btn-sm" style="padding: 4px 8px; background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); color: #60a5fa;" title="Send Direct Email">
+                                                        <i data-lucide="mail" style="width: 12px; height: 12px;"></i>
+                                                    </button>
                                                     <button @click="openSubscriberActivityModal(s)" class="btn btn-secondary btn-sm" style="padding: 4px 8px;" title="Activity Log">
                                                         <i data-lucide="activity" style="width: 12px; height: 12px;"></i>
                                                     </button>
@@ -171,6 +177,45 @@
                             <div style="display: flex; gap: 8px;">
                                 <button @click="subscribersPage > 1 ? (subscribersPage--, fetchSubscribers()) : null" class="btn btn-secondary btn-sm" :disabled="subscribersPage === 1">Prev</button>
                                 <button @click="subscribersPage * 50 < subscribersCount ? (subscribersPage++, fetchSubscribers()) : null" class="btn btn-secondary btn-sm" :disabled="subscribersPage * 50 >= subscribersCount">Next</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Direct Email Compose Modal -->
+                    <div class="modal" :class="directMailModalOpen ? 'active' : ''" style="display: none; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 15, 25, 0.85); backdrop-filter: blur(8px); z-index: 2000;">
+                        <div class="card" style="max-width: 600px; width: 95%; background: #1e293b; border: 1px solid var(--border-glass); border-radius: 12px; padding: 25px; box-shadow: var(--shadow-glass); text-align: left;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <h2 style="font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px; color: #fff;">
+                                    <i data-lucide="send" style="color: var(--color-accent); width: 18px; height: 18px;"></i>
+                                    Send Direct Email
+                                </h2>
+                                <button @click="directMailModalOpen = false" style="background: none; border: none; color: var(--text-muted); cursor: pointer;">
+                                    <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+                                </button>
+                            </div>
+                            
+                            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 15px; background: rgba(255,255,255,0.02); padding: 10px; border-radius: 6px; border: 1px solid var(--border-glass);">
+                                Recipient: <strong style="color: #fff;" x-text="directMailRecipient.email"></strong>
+                                <span x-show="directMailRecipient.name" x-text="' (' + directMailRecipient.name + ')'"></span>
+                            </div>
+                            
+                            <div class="field" style="margin-bottom: 15px;">
+                                <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 6px;">Subject</label>
+                                <input type="text" x-model="directMailForm.subject" placeholder="Enter subject line..." style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff; border-radius: 6px; padding: 10px; width: 100%; box-sizing: border-box;">
+                            </div>
+                            
+                            <div class="field" style="margin-bottom: 15px;">
+                                <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">HTML Content Body</label>
+                                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">Supported placeholders: <code>{name}</code>, <code>{email}</code>, <code>{tenant_name}</code>. Tenant email footer will be automatically appended.</div>
+                                <textarea x-model="directMailForm.body_html" rows="10" placeholder="e.g. &lt;p&gt;Hello {name},&lt;/p&gt;" style="font-family: monospace; font-size: 13px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff; border-radius: 6px; padding: 10px; width: 100%; resize: vertical; box-sizing: border-box;"></textarea>
+                            </div>
+                            
+                            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 15px;">
+                                <button @click="directMailModalOpen = false" class="btn btn-secondary btn-sm" style="margin: 0; padding: 6px 15px; font-size: 12px;">Cancel</button>
+                                <button @click="sendDirectMail()" class="btn btn-primary btn-sm" style="margin: 0; padding: 6px 15px; font-size: 12px; display: flex; align-items: center; gap: 6px;" :disabled="sendingDirectMail">
+                                    <span x-show="!sendingDirectMail">Send Email</span>
+                                    <span x-show="sendingDirectMail">Sending...</span>
+                                </button>
                             </div>
                         </div>
                     </div>

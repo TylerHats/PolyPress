@@ -652,7 +652,7 @@ input[type="checkbox"]:checked + .toggle-switch::after {
 
 .editor-canvas-container {
     background: #1e293b;
-    padding: 30px;
+    padding: 20px;
     overflow-y: auto;
     display: flex;
     justify-content: center;
@@ -1013,4 +1013,77 @@ input[type="checkbox"]:checked + .toggle-switch::after {
     border-bottom: 2px solid var(--color-primary);
     color: #fff;
     box-shadow: 0 -4px 12px rgba(255, 255, 255, 0.02);
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 1500;
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 10px 0 30px rgba(0,0,0,0.5);
+    }
+    
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+    
+    .main-wrapper {
+        width: 100% !important;
+        margin-left: 0 !important;
+        padding: 15px !important;
+    }
+    
+    .sidebar-overlay-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 1400;
+        display: none;
+    }
+    
+    .sidebar-overlay-backdrop.active {
+        display: block;
+    }
+    
+    .stat-card-grid, .card-grid {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .reports-controls-row {
+        grid-template-columns: 1fr !important;
+        gap: 15px !important;
+    }
+    
+    .editor-workspace {
+        flex-direction: column !important;
+        height: auto !important;
+    }
+    
+    .editor-properties {
+        width: 100% !important;
+        border-left: none !important;
+        border-top: 1px solid var(--border-glass) !important;
+        margin-top: 20px !important;
+    }
+    
+    .mobile-hamburger {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid var(--border-glass);
+        border-radius: 6px;
+        color: #fff;
+        cursor: pointer;
+    }
 }

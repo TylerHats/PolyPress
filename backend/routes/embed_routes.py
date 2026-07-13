@@ -592,6 +592,14 @@ def confirm_optin(token: str, request: Request, db: Session = Depends(get_db)):
         "list_id": subscriber.list_id
     })
     
+    tenant = db.query(Tenant).filter(Tenant.id == subscriber.tenant_id).first()
+    if tenant and tenant.subscription_confirmed_html:
+        custom_html = tenant.subscription_confirmed_html
+        custom_html = custom_html.replace("{email}", subscriber.email or "")
+        custom_html = custom_html.replace("{name}", subscriber.name or "")
+        custom_html = custom_html.replace("{tenant_name}", tenant.name or "")
+        return HTMLResponse(content=custom_html)
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -643,23 +651,53 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     if not subscriber or not campaign:
         return HTMLResponse("<h2>Invalid request</h2>", status_code=400)
         
+    from sqlalchemy import func
+    lists = db.query(SubscriberList).filter(SubscriberList.tenant_id == subscriber.tenant_id).all()
+    subs = db.query(Subscriber).filter(
+        Subscriber.tenant_id == subscriber.tenant_id,
+        func.lower(Subscriber.email) == subscriber.email.lower()
+    ).all()
+    
+    subscribed_list_ids = {s.list_id for s in subs if s.status == "active"}
+    
+    list_items_html = ""
+    for l in lists:
+        is_checked = "checked" if l.id in subscribed_list_ids else ""
+        list_items_html += f"""
+        <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 12px; text-align: left;">
+            <input type="checkbox" name="lists" value="{l.id}" {is_checked} style="width: 18px; height: 18px; margin-top: 2px; cursor: pointer;">
+            <div>
+                <div style="font-weight: 600; font-size: 14px; color: #fff;">{l.name}</div>
+                <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">{l.description or "Mailing list"}</div>
+            </div>
+        </div>
+        """
+        
     post_url = f"/api/embed/unsubscribe/{subscriber_id}/{campaign_id}"
     
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Unsubscribe</title>
+        <title>Manage Subscription</title>
         {HTML_STYLE}
     </head>
     <body>
-        <div class="card">
-            <h2>Unsubscribe Confirmation</h2>
-            <p style="text-align: center; font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
-                Are you sure you want to unsubscribe <strong>{subscriber.email}</strong> from this newsletter?
+        <div class="card" style="max-width: 480px; width: 100%; box-sizing: border-box; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 30px;">
+            <h2 style="margin-bottom: 10px; font-size: 22px; color: #fff; text-align: center;">Subscription Preferences Center</h2>
+            <p style="text-align: center; font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 25px;">
+                Manage your subscriptions for <strong>{subscriber.email}</strong>. Check the lists you want to subscribe to, or unsubscribe from everything.
             </p>
-            <form action="{post_url}" method="POST">
-                <button type="submit" class="btn" style="background-color: #dc2626;">Yes, Unsubscribe</button>
+            <form action="{post_url}" method="POST" style="display: flex; flex-direction: column; gap: 15px;">
+                <input type="hidden" name="action" id="preference_action" value="update_preferences">
+                <div>
+                    {list_items_html}
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
+                    <button type="submit" class="btn" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); margin: 0; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);">Save Preferences</button>
+                    <button type="submit" onclick="document.getElementById('preference_action').value='unsubscribe_all';" class="btn" style="background: #dc2626; margin: 0; box-shadow: 0 4px 10px rgba(220, 38, 38, 0.2);">Unsubscribe from All</button>
+                </div>
             </form>
         </div>
     </body>
@@ -668,8 +706,10 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     return HTMLResponse(content=html)
 
 @router.post("/unsubscribe/{subscriber_id}/{campaign_id}", response_class=HTMLResponse)
-def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db: Session = Depends(get_db)):
+async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db: Session = Depends(get_db)):
     if subscriber_id == 0 and campaign_id == 0:
+        form_data = await request.form()
+        action = form_data.get("action", "unsubscribe_all")
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -679,9 +719,9 @@ def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db:
         </head>
         <body>
             <div class="card" style="text-align: center;">
-                <h2 style="color: #10b981;">✓ Unsubscribed</h2>
+                <h2 style="color: #10b981;">✓ Success</h2>
                 <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
-                    Test unsubscribe request processed successfully (no subscriber was modified).
+                    Test mock action '{action}' processed successfully.
                 </p>
             </div>
         </body>
@@ -695,46 +735,118 @@ def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db:
     if not subscriber or not campaign:
         return HTMLResponse("<h2>Invalid request</h2>", status_code=400)
         
-    if subscriber.status != "unsubscribed":
-        subscriber.status = "unsubscribed"
+    form_data = await request.form()
+    action = form_data.get("action", "unsubscribe_all")
+    tenant = db.query(Tenant).filter(Tenant.id == subscriber.tenant_id).first()
+    
+    from sqlalchemy import func
+    
+    if action == "unsubscribe_all":
+        subs = db.query(Subscriber).filter(
+            Subscriber.tenant_id == subscriber.tenant_id,
+            func.lower(Subscriber.email) == subscriber.email.lower()
+        ).all()
+        for s in subs:
+            if s.status != "unsubscribed":
+                s.status = "unsubscribed"
+                db.commit()
+                
+                from location_helper import log_subscriber_activity
+                log_subscriber_activity(
+                    db=db,
+                    tenant_id=s.tenant_id,
+                    subscriber_id=s.id,
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent", "")
+                )
+                
+                from webhook_dispatcher import trigger_webhook
+                trigger_webhook(s.tenant_id, "subscriber.unsubscribe", {
+                    "id": s.id,
+                    "email": s.email,
+                    "name": s.name,
+                    "status": s.status,
+                    "list_id": s.list_id,
+                    "campaign_id": campaign_id
+                })
         db.commit()
-
-        from location_helper import log_subscriber_activity
-        log_subscriber_activity(
-            db=db,
-            tenant_id=subscriber.tenant_id,
-            subscriber_id=subscriber.id,
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent", "")
-        )
         
-        from webhook_dispatcher import trigger_webhook
-        trigger_webhook(subscriber.tenant_id, "subscriber.unsubscribe", {
-            "id": subscriber.id,
-            "email": subscriber.email,
-            "name": subscriber.name,
-            "status": subscriber.status,
-            "list_id": subscriber.list_id,
-            "campaign_id": campaign_id
-        })
+        if tenant and tenant.unsubscribed_html:
+            custom_html = tenant.unsubscribed_html
+            custom_html = custom_html.replace("{email}", subscriber.email or "")
+            custom_html = custom_html.replace("{name}", subscriber.name or "")
+            custom_html = custom_html.replace("{tenant_name}", tenant.name or "")
+            return HTMLResponse(content=custom_html)
+            
+        success_title = "✓ Unsubscribed"
+        success_desc = "You have been successfully unsubscribed from all mailing lists."
         
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Unsubscribed</title>
-        {HTML_STYLE}
-    </head>
-    <body>
-        <div class="card" style="text-align: center;">
-            <h2 style="color: #10b981;">✓ Unsubscribed</h2>
-            <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
-                You have been successfully unsubscribed. You will no longer receive emails from this newsletter.
-            </p>
-        </div>
-    </body>
-    </html>
-    """
+    else:
+        # Update preferences
+        selected_list_ids = [int(lid) for lid in form_data.getlist("lists")]
+        tenant_lists = db.query(SubscriberList).filter(SubscriberList.tenant_id == subscriber.tenant_id).all()
+        
+        for list_obj in tenant_lists:
+            sub_entry = db.query(Subscriber).filter(
+                Subscriber.tenant_id == subscriber.tenant_id,
+                Subscriber.list_id == list_obj.id,
+                func.lower(Subscriber.email) == subscriber.email.lower()
+            ).first()
+            
+            should_be_subscribed = list_obj.id in selected_list_ids
+            
+            if should_be_subscribed:
+                if not sub_entry:
+                    new_sub = Subscriber(
+                        tenant_id=subscriber.tenant_id,
+                        list_id=list_obj.id,
+                        email=subscriber.email,
+                        name=subscriber.name,
+                        status="active",
+                        custom_data={},
+                        source_tag="Preferences Screen"
+                    )
+                    db.add(new_sub)
+                    db.commit()
+                elif sub_entry.status != "active":
+                    sub_entry.status = "active"
+                    db.commit()
+                    
+                    from location_helper import log_subscriber_activity
+                    log_subscriber_activity(
+                        db=db,
+                        tenant_id=subscriber.tenant_id,
+                        subscriber_id=sub_entry.id,
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent", "")
+                    )
+            else:
+                if sub_entry and sub_entry.status != "unsubscribed":
+                    sub_entry.status = "unsubscribed"
+                    db.commit()
+                    
+                    from location_helper import log_subscriber_activity
+                    log_subscriber_activity(
+                        db=db,
+                        tenant_id=subscriber.tenant_id,
+                        subscriber_id=sub_entry.id,
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent", "")
+                    )
+                    
+                    from webhook_dispatcher import trigger_webhook
+                    trigger_webhook(subscriber.tenant_id, "subscriber.unsubscribe", {
+                        "id": sub_entry.id,
+                        "email": sub_entry.email,
+                        "name": sub_entry.name,
+                        "status": sub_entry.status,
+                        "list_id": sub_entry.list_id,
+                        "campaign_id": campaign_id
+                    })
+        db.commit()
+        
+        success_title = "✓ Preferences Saved"
+        success_desc = "Your subscription preferences have been updated successfully."
     return HTMLResponse(content=html)
 
 def extract_ses_metadata(msg_data: dict):

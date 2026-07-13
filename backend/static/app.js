@@ -127,6 +127,17 @@
                     <tr>
                         <td height="${block.height || '20px'}" style="font-size: 1px; line-height: 1px;">&nbsp;</td>
                     </tr>`;
+                } else if (block.type === 'conditional') {
+                    rowsHtml += `
+                    {% if ${block.condition} %}
+                    <tr>
+                        <td align="${block.align || 'left'}" style="padding: ${block.padding || '10px 0'};">
+                            <div style="font-family: sans-serif; font-size: ${block.size || '15px'}; color: ${block.color || '#6366f1'}; line-height: 1.6;">
+                                ${block.text.replace(/\n/g, '<br>')}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}`;
                 }
             }
             
@@ -267,7 +278,7 @@
 
                 // Form payloads
                 loginForm: { email: '', password: '' },
-                campaignForm: { name: '', subject: '', list_id: '', list_ids: [] },
+                campaignForm: { name: '', subject: '', description: '', list_id: '', list_ids: [] },
                 listForm: { name: '', description: '' },
                 tenantForm: { id: null, name: '', generate_dkim: true },
                 subscriberForm: { id: null, email: '', name: '', status: 'active', tags: '', custom_data: {} },
@@ -286,9 +297,10 @@
                 
                 // Session details
                 loadingSession: true,
+                mobileSidebarOpen: false,
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
-                tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500, bounce_provider: 'imap', bounce_webhook_token: '' },
-                globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '', sending_ip_override: '' },
+                tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500, bounce_provider: 'imap', bounce_webhook_token: '', subscription_confirmed_html: '', unsubscribed_html: '' },
+                globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '', sending_ip_override: '', oidc_role_claim: 'role', oidc_tenant_claim: 'tenant', oidc_super_admin_value: 'super_admin', oidc_tenant_admin_value: 'tenant_admin', oidc_tenant_user_value: 'tenant_user', backup_interval_hours: 0, backup_retention_count: 10 },
                 updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
                 schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
                 schemaBypassForm: { email: '', password: '' },
@@ -318,7 +330,14 @@
                 lists: [],
                 tenants: [],
                 backups: [],
+                systemStats: { db_size: 0, history_db_size: 0, assets_size: 0, assets_count: 0, tenant_stats: [] },
+                deliveryDiagnostics: { active_threads: 0, max_sending_threads: 10, speed_limit_per_hour: 0, pending: 0, sending: 0, sent: 0, failed: 0, deferred: 0, sent_last_hour: 0, sent_last_24h: 0, recent_failures: [] },
+                diagnosticsIntervalId: null,
                 automationsList: [],
+                directMailModalOpen: false,
+                directMailRecipient: { id: null, email: '', name: '' },
+                directMailForm: { subject: '', body_html: '' },
+                sendingDirectMail: false,
                 activeFlowTarget: { name: '', description: '', flow_data: { trigger: { list_id: '' }, nodes: [] } },
                 automationForm: { name: '', description: '', list_id: '' },
                 selectedAutomationNodeId: null,
@@ -342,6 +361,8 @@
                     targetPreview: false,
                     dnsDetails: false,
                     insertLink: false,
+                    sendTest: false,
+                    listHygiene: false,
                     statusExplainer: false,
                     loopbackTest: false,
                     createAutomation: false,
@@ -350,6 +371,9 @@
                     subscriberActivity: false
                 },
                 selectedSubscriberEmail: '',
+                testSendEmail: '',
+                hygieneChecking: false,
+                hygieneResults: null,
                 subscriberActivities: [],
                 linkForm: { text: '', url: 'https://' },
                 lastFocusedInput: { id: '', selectionStart: 0, selectionEnd: 0 },
@@ -382,15 +406,22 @@
                 embedCodeString: '',
                 embedIframeSrc: '',
                 
+                // Password recovery state
+                showForgotPasswordView: false,
+                forgotPasswordEmail: '',
+                showResetPasswordView: false,
+                resetPasswordToken: '',
+                resetPasswordForm: { password: '', confirmPassword: '' },
+
                 // CSV upload state
                 csvListTarget: { name: '', custom_fields: [] },
                 csvFile: null,
                 csvHeaders: [],
-                csvMapping: { email: '', name: '', custom_fields: {} },
+                csvMapping: { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '' }, custom_fields: {} },
                 csvImportStep: 1,
                 
                 // Visual block editor state
-                editingCampaign: { id: null, name: '', subject: '', target_rules: { tag: '', engagement: [], signup_after: '', signup_before: '' } },
+                editingCampaign: { id: null, name: '', subject: '', target_rules: { tag: '', engagement: [], signup_after: '', signup_before: '', last_opened_days_under: '', last_opened_days_over: '', opens_count_over: '', opens_count_under: '', location_country: '' } },
                 targetingCollapsed: true,
                 editorBlocks: [],
                 selectedBlockIndex: null,
@@ -517,6 +548,30 @@
                         } catch(e) {
                             this.setupCompleted = true;
                         }
+
+                        // Check for reset-password hash on startup
+                        if (window.location.hash.startsWith('#/reset-password')) {
+                            const hashParts = window.location.hash.split('?');
+                            if (hashParts.length > 1) {
+                                const hashParams = new URLSearchParams(hashParts[1]);
+                                this.resetPasswordToken = hashParams.get('token');
+                                if (this.resetPasswordToken) {
+                                    this.showResetPasswordView = true;
+                                }
+                            }
+                        }
+                        window.addEventListener('hashchange', () => {
+                            if (window.location.hash.startsWith('#/reset-password')) {
+                                const hashParts = window.location.hash.split('?');
+                                if (hashParts.length > 1) {
+                                    const hashParams = new URLSearchParams(hashParts[1]);
+                                    this.resetPasswordToken = hashParams.get('token');
+                                    if (this.resetPasswordToken) {
+                                        this.showResetPasswordView = true;
+                                    }
+                                }
+                            }
+                        });
 
                         this.token = localStorage.getItem('polypress_token');
                         await this.loadGlobalConfig();
@@ -719,6 +774,52 @@
                         this.showToast('2FA Verification successful!');
                     } catch(e) {
                         this.showToast(e.message, 'error');
+                    }
+                },
+
+                async handleForgotPasswordSubmit() {
+                    try {
+                        const res = await fetch('/api/auth/forgot-password', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: this.forgotPasswordEmail })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.showToast(data.detail || 'Reset link sent successfully!');
+                            this.showForgotPasswordView = false;
+                        } else {
+                            this.showToast(data.detail || 'Failed to request reset', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('Network error requested forgot password', 'error');
+                    }
+                },
+
+                async handleResetPasswordSubmit() {
+                    if (this.resetPasswordForm.password !== this.resetPasswordForm.confirmPassword) {
+                        this.showToast('Passwords do not match!', 'error');
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/auth/reset-password', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: this.resetPasswordToken, password: this.resetPasswordForm.password })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.showToast(data.detail || 'Password reset successfully!');
+                            this.showResetPasswordView = false;
+                            this.resetPasswordForm.password = '';
+                            this.resetPasswordForm.confirmPassword = '';
+                            this.resetPasswordToken = '';
+                            window.location.hash = '';
+                        } else {
+                            this.showToast(data.detail || 'Failed to reset password', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('Network error resetting password', 'error');
                     }
                 },
 
@@ -1935,6 +2036,70 @@
                     } catch(e) {}
                 },
 
+                openDirectMailModal(sub) {
+                    this.directMailRecipient = { id: sub.id, email: sub.email, name: sub.name };
+                    this.directMailForm = { subject: '', body_html: '' };
+                    this.directMailModalOpen = true;
+                    this.refreshIcons();
+                },
+
+                async sendDirectMail() {
+                    if (!this.directMailForm.subject.trim() || !this.directMailForm.body_html.trim()) {
+                        this.showToast('Please fill out all fields', 'error');
+                        return;
+                    }
+                    this.sendingDirectMail = true;
+                    try {
+                        const res = await fetch(`/api/lists/${this.listSelected.id}/subscribers/${this.directMailRecipient.id}/send-direct-email`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders(),
+                            body: JSON.stringify(this.directMailForm)
+                        });
+                        if (res.ok) {
+                            this.showToast('Direct email dispatched successfully');
+                            this.directMailModalOpen = false;
+                        } else {
+                            const errData = await res.json();
+                            throw new Error(errData.detail || 'Failed to send direct email');
+                        }
+                    } catch(e) {
+                        this.showToast(e.message, 'error');
+                    } finally {
+                        this.sendingDirectMail = false;
+                    }
+                },
+
+                async fetchSystemStats() {
+                    if (this.user.role !== 'super_admin') return;
+                    try {
+                        const res = await fetch('/api/admin/backups/system-stats', {
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.systemStats = await res.json();
+                        }
+                    } catch(e) {}
+                },
+
+                async fetchDeliveryDiagnostics() {
+                    try {
+                        const res = await fetch('/api/tenants/my/delivery-diagnostics', {
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.deliveryDiagnostics = await res.json();
+                        }
+                    } catch(e) {}
+                },
+
+                formatBytes(bytes) {
+                    if (!bytes) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                },
+
                 async createBackup() {
                     try {
                         const res = await fetch('/api/admin/backups/create', {
@@ -2231,6 +2396,11 @@
                 },
                 
                 switchTab(tab) {
+                    this.mobileSidebarOpen = false;
+                    if (this.diagnosticsIntervalId) {
+                        clearInterval(this.diagnosticsIntervalId);
+                        this.diagnosticsIntervalId = null;
+                    }
                     if (tab !== 'editor') {
                         this.isEditingOptIn = false;
                         this.isEditingFooter = false;
@@ -2292,12 +2462,22 @@
                         this.fetchOutboxQueue();
                         this.fetchDeveloperConsole();
                         this.runDnsDiagnostics();
+                        this.fetchDeliveryDiagnostics();
+                        this.diagnosticsIntervalId = setInterval(() => {
+                            if (this.activeTab === 'settings') {
+                                this.fetchDeliveryDiagnostics();
+                            } else {
+                                clearInterval(this.diagnosticsIntervalId);
+                                this.diagnosticsIntervalId = null;
+                            }
+                        }, 5000);
                     } else if (tab === 'admin') {
                         this.fetchTenants();
                         this.fetchGlobalSettings();
                         this.fetchSslStatus();
                         this.fetchBackups();
                         this.fetchUpdateStatus();
+                        this.fetchSystemStats();
                     } else if (tab === 'users') {
                         this.fetchUsers();
                     } else if (tab === 'reports') {
@@ -2719,7 +2899,7 @@
                 
                 // Create Campaign Actions
                 openCreateCampaignModal() {
-                    this.campaignForm = { name: '', subject: '', list_id: '', list_ids: [] };
+                    this.campaignForm = { name: '', subject: '', description: '', list_id: '', list_ids: [] };
                     this.modals.createCampaign = true;
                     this.refreshIcons();
                 },
@@ -2729,6 +2909,7 @@
                         id: campaign.id,
                         name: campaign.name,
                         subject: campaign.subject,
+                        description: campaign.description || '',
                         list_id: campaign.list_id,
                         list_ids: campaign.list_ids ? [...campaign.list_ids] : (campaign.list_id ? [campaign.list_id] : [])
                     };
@@ -3032,7 +3213,7 @@
                     this.csvListTarget = list;
                     this.csvFile = null;
                     this.csvHeaders = [];
-                    this.csvMapping = { email: '', name: '', custom_fields: {} };
+                    this.csvMapping = { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '' }, custom_fields: {} };
                     this.csvImportStep = 1;
                     this.modals.csvImport = true;
                     this.refreshIcons();
@@ -3072,6 +3253,9 @@
                             if (lower === 'name' || lower === 'fullname' || lower === 'full name' || lower === 'contact name') {
                                 this.csvMapping.name = h;
                             }
+                            if (lower === 'status' || lower === 'state' || lower === 'active') {
+                                this.csvMapping.status = h;
+                            }
                             
                             // custom attributes
                             if (this.csvListTarget.custom_fields) {
@@ -3097,9 +3281,32 @@
                     
                     this.csvImportStep = 3;
                     
+                    const mappingPayload = {
+                        email: this.csvMapping.email,
+                        name: this.csvMapping.name,
+                        status: this.csvMapping.status || '',
+                        status_mappings: {},
+                        custom_fields: this.csvMapping.custom_fields
+                    };
+
+                    if (this.csvMapping.status) {
+                        const activeVal = this.csvMapping.status_mappings.active || "";
+                        const unsubscribedVal = this.csvMapping.status_mappings.unsubscribed || "";
+                        if (activeVal) {
+                            activeVal.split(',').forEach(v => {
+                                if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'active';
+                            });
+                        }
+                        if (unsubscribedVal) {
+                            unsubscribedVal.split(',').forEach(v => {
+                                if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'unsubscribed';
+                            });
+                        }
+                    }
+
                     const formData = new FormData();
                     formData.append('file', this.csvFile);
-                    formData.append('mapping', JSON.stringify(this.csvMapping));
+                    formData.append('mapping', JSON.stringify(mappingPayload));
                     
                     try {
                         const res = await fetch(`/api/lists/${this.csvListTarget.id}/import`, {
@@ -3127,7 +3334,7 @@
                     this.editingCampaign = campaign;
                     this.editingCampaign.is_automation_template = (campaign.status === 'automation');
                     if (!this.editingCampaign.target_rules) {
-                        this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '' };
+                        this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '', last_opened_days_under: '', last_opened_days_over: '', opens_count_over: '', opens_count_under: '', location_country: '' };
                     } else {
                         if (typeof this.editingCampaign.target_rules.engagement === 'string') {
                             const prev = this.editingCampaign.target_rules.engagement;
@@ -3359,6 +3566,8 @@
                             left: { type: 'paragraph', text: 'Left Content', align: 'left', color: '#334155', size: '15px' },
                             right: { type: 'paragraph', text: 'Right Content', align: 'left', color: '#334155', size: '15px' }
                         };
+                    } else if (type === 'conditional') {
+                        block = { type, condition: "tag contains 'VIP'", text: 'This text is only visible if the condition matches.', align: 'left', color: '#6366f1', size: '15px', padding: '10px 0px' };
                     }
                     
                     this.editorBlocks.push(block);
@@ -3416,7 +3625,7 @@
                     this.switchTab('campaigns');
                 },
 
-                async saveCampaignDraft() {
+                async saveCampaignDraft(silent = false) {
                     const currentId = this.activeEditorVariantId || 'A';
                     let currentHtml = '';
                     if (this.editingCampaign.is_custom_html) {
@@ -3461,7 +3670,7 @@
                             })
                         });
                         if (res.ok) {
-                            this.showToast('Campaign draft saved successfully');
+                            if (!silent) this.showToast('Campaign draft saved successfully');
                             await this.fetchCampaigns();
                         }
                     } catch(e) {}
@@ -3470,6 +3679,88 @@
                 openLaunchModal() {
                     this.modals.confirmLaunch = true;
                     this.refreshIcons();
+                },
+
+                openSendTestModal() {
+                    this.testSendEmail = this.user ? this.user.email : '';
+                    this.modals.sendTest = true;
+                    this.refreshIcons();
+                },
+
+                async submitSendTestCampaign() {
+                    if (!this.testSendEmail || !this.testSendEmail.includes('@')) {
+                        this.showToast('Please enter a valid test email address', 'error');
+                        return;
+                    }
+                    await this.saveCampaignDraft(true);
+                    try {
+                        const res = await fetch(`/api/campaigns/${this.editingCampaign.id}/send-test`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${this.token}`
+                            },
+                            body: JSON.stringify({ email: this.testSendEmail })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.showToast(data.detail || 'Test email dispatched successfully!');
+                            this.modals.sendTest = false;
+                        } else {
+                            this.showToast(data.detail || 'Failed to send test email', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('Network error sending test email', 'error');
+                    }
+                },
+                
+                async runListHygieneCheck() {
+                    if (!this.listSelected) return;
+                    this.hygieneChecking = true;
+                    this.hygieneResults = null;
+                    this.modals.listHygiene = true;
+                    this.refreshIcons();
+                    try {
+                        const res = await fetch(`/api/lists/${this.listSelected}/test-subscribers`, {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (!res.ok) throw new Error('Hygiene check failed');
+                        const data = await res.json();
+                        this.hygieneResults = data;
+                    } catch (e) {
+                        this.showToast(e.message, 'error');
+                        this.modals.listHygiene = false;
+                    } finally {
+                        this.hygieneChecking = false;
+                    }
+                },
+                
+                async unsubscribeHygieneInvalid() {
+                    if (!this.listSelected || !this.hygieneResults) return;
+                    const invalidSubscribers = this.hygieneResults.results.filter(s => !s.domain_valid && s.status !== 'unsubscribed');
+                    const invalidIds = invalidSubscribers.map(s => s.id);
+                    if (invalidIds.length === 0) {
+                        this.showToast('No active invalid subscribers to unsubscribe');
+                        return;
+                    }
+                    try {
+                        const res = await fetch(`/api/lists/${this.listSelected}/bulk-unsubscribe`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${this.token}`
+                            },
+                            body: JSON.stringify({ subscriber_ids: invalidIds })
+                        });
+                        if (!res.ok) throw new Error('Bulk unsubscribe failed');
+                        const data = await res.json();
+                        this.showToast(data.detail || 'Subscribers unsubscribed successfully!');
+                        this.modals.listHygiene = false;
+                        await this.fetchSubscribers();
+                    } catch (e) {
+                        this.showToast(e.message, 'error');
+                    }
                 },
                 
                 async submitLaunchCampaign() {
@@ -4123,7 +4414,7 @@
 
                 toggleTargetEngagement(star) {
                     if (!this.editingCampaign.target_rules) {
-                        this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '' };
+                        this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '', last_opened_days_under: '', last_opened_days_over: '', opens_count_over: '', opens_count_under: '', location_country: '' };
                     }
                     if (typeof this.editingCampaign.target_rules.engagement === 'string') {
                         const prev = this.editingCampaign.target_rules.engagement;

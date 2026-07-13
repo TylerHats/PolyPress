@@ -21,6 +21,37 @@ def evaluate_condition_single(subscriber: Subscriber, field: str, operator: str,
         sub_value = subscriber.name or ""
     elif field == "status":
         sub_value = subscriber.status or ""
+    elif field == "last_open_days":
+        if not subscriber.last_open_at:
+            days = 99999
+        else:
+            days = (datetime.utcnow() - subscriber.last_open_at).days
+        try:
+            target_days = int(value)
+            if operator == "less_than":
+                return days < target_days
+            elif operator == "greater_than":
+                return days > target_days
+            elif operator == "equals":
+                return days == target_days
+            return False
+        except ValueError:
+            return False
+    elif field == "opens_count":
+        cnt = subscriber.opens_count or 0
+        try:
+            target_cnt = int(value)
+            if operator == "less_than":
+                return cnt < target_cnt
+            elif operator == "greater_than":
+                return cnt > target_cnt
+            elif operator == "equals":
+                return cnt == target_cnt
+            return False
+        except ValueError:
+            return False
+    elif field == "location":
+        sub_value = subscriber.ip_location or ""
     elif field.startswith("tag"):
         tags = [t.strip().lower() for t in (subscriber.tags or "").split(",") if t.strip()]
         if operator == "contains":

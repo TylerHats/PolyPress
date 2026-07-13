@@ -71,69 +71,100 @@ def push_backup_to_external(zip_path: str, url: str, auth_header: str = None):
     except Exception as e:
         print(f"Failed to push backup to external URL: {e}")
 
-@router.post("/create")
-def create_backup(background_tasks: BackgroundTasks, current_user: User = Depends(auth.require_super_admin), db: Session = Depends(get_db)):
+def perform_system_backup(db: Session, background_tasks: BackgroundTasks = None) -> str:
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    zip_filename = f"polypress_backup_{timestamp}.zip"
+    zip_path = os.path.join(BACKUP_DIR, zip_filename)
+    
+    # Force SQLite to write all WAL frames back to the main database file first
     try:
-        os.makedirs(BACKUP_DIR, exist_ok=True)
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        zip_filename = f"polypress_backup_{timestamp}.zip"
-        zip_path = os.path.join(BACKUP_DIR, zip_filename)
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+    except Exception as e:
+        print(f"Warning: Failed to checkpoint main DB WAL: {e}")
         
-        # Force SQLite to write all WAL frames back to the main database file first
+    # 1. Copy active SQLite DB using online backup copy
+    temp_db = os.path.join(BACKUP_DIR, "temp_db_backup.db")
+    if os.path.exists(temp_db):
+        os.remove(temp_db)
+        
+    run_sqlite_backup(DB_PATH, temp_db)
+    
+    # History DB Checkpoint and Copy
+    temp_history_db = os.path.join(BACKUP_DIR, "temp_history_backup.db")
+    if os.path.exists(temp_history_db):
+        os.remove(temp_history_db)
+        
+    history_exists = os.path.exists(HISTORY_DB_PATH)
+    if history_exists:
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(HISTORY_DB_PATH) as conn:
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
         except Exception as e:
-            print(f"Warning: Failed to checkpoint main DB WAL: {e}")
-            
-        # 1. Copy active SQLite DB using online backup copy
-        temp_db = os.path.join(BACKUP_DIR, "temp_db_backup.db")
-        if os.path.exists(temp_db):
-            os.remove(temp_db)
-            
-        run_sqlite_backup(DB_PATH, temp_db)
-        
-        # History DB Checkpoint and Copy
-        temp_history_db = os.path.join(BACKUP_DIR, "temp_history_backup.db")
-        if os.path.exists(temp_history_db):
-            os.remove(temp_history_db)
-            
-        history_exists = os.path.exists(HISTORY_DB_PATH)
+            print(f"Warning: Failed to checkpoint history DB WAL: {e}")
+        run_sqlite_backup(HISTORY_DB_PATH, temp_history_db)
+    
+    # 2. Package database and branding files
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.write(temp_db, "polypress.db")
         if history_exists:
-            try:
-                with sqlite3.connect(HISTORY_DB_PATH) as conn:
-                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-            except Exception as e:
-                print(f"Warning: Failed to checkpoint history DB WAL: {e}")
-            run_sqlite_backup(HISTORY_DB_PATH, temp_history_db)
+            zipf.write(temp_history_db, "polypress_history.db")
+        if os.path.exists(BRANDING_DIR):
+            for root, dirs, files in os.walk(BRANDING_DIR):
+                for file in files:
+                    full_p = os.path.join(root, file)
+                    rel_p = os.path.relpath(full_p, os.path.dirname(BRANDING_DIR))
+                    zipf.write(full_p, rel_p)
+                    
+    if os.path.exists(temp_db):
+        os.remove(temp_db)
+    if os.path.exists(temp_history_db):
+        os.remove(temp_history_db)
         
-        # 2. Package database and branding files
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            zipf.write(temp_db, "polypress.db")
-            if history_exists:
-                zipf.write(temp_history_db, "polypress_history.db")
-            if os.path.exists(BRANDING_DIR):
-                for root, dirs, files in os.walk(BRANDING_DIR):
-                    for file in files:
-                        full_p = os.path.join(root, file)
-                        rel_p = os.path.relpath(full_p, os.path.dirname(BRANDING_DIR))
-                        zipf.write(full_p, rel_p)
-                        
-        if os.path.exists(temp_db):
-            os.remove(temp_db)
-        if os.path.exists(temp_history_db):
-            os.remove(temp_history_db)
-            
-        # Trigger external backup push if configured
-        settings = db.query(GlobalSettings).first()
-        if settings and settings.external_backup_url:
+    # Trigger external backup push if configured
+    settings = db.query(GlobalSettings).first()
+    if settings and settings.external_backup_url:
+        if background_tasks:
             background_tasks.add_task(
                 push_backup_to_external, 
                 zip_path, 
                 settings.external_backup_url, 
                 settings.external_backup_auth_header
             )
-            
+        else:
+            try:
+                push_backup_to_external(zip_path, settings.external_backup_url, settings.external_backup_auth_header)
+            except Exception as push_err:
+                print(f"Background external backup push failed: {push_err}")
+                
+    # Purge older backups if retention limit reached
+    retention_count = 10
+    if settings and settings.backup_retention_count is not None:
+        retention_count = int(settings.backup_retention_count)
+        
+    if retention_count > 0:
+        backups = glob.glob(os.path.join(BACKUP_DIR, "polypress_backup_*.zip"))
+        backups.sort() # Sorts alphabetically (chronologically by timestamp)
+        if len(backups) > retention_count:
+            to_remove = backups[:-retention_count]
+            for b_file in to_remove:
+                try:
+                    os.remove(b_file)
+                except Exception as b_err:
+                    print(f"Warning: Failed to purge old backup file {b_file}: {b_err}")
+                    
+    # Update last backup timestamp
+    if settings:
+        settings.last_backup_at = datetime.utcnow()
+        db.commit()
+        
+    return zip_filename
+
+@router.post("/create")
+def create_backup(background_tasks: BackgroundTasks, current_user: User = Depends(auth.require_super_admin), db: Session = Depends(get_db)):
+    try:
+        zip_filename = perform_system_backup(db, background_tasks)
         return {"detail": "Backup created successfully", "backups": get_backups_list()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create backup: {e}")
@@ -286,3 +317,48 @@ def delete_backup(filename: str, current_user: User = Depends(auth.require_super
         os.remove(real_path)
         
     return {"detail": "Backup file deleted", "backups": get_backups_list()}
+
+@router.get("/system-stats")
+def get_system_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_super_admin)
+):
+    db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    history_db_size = os.path.getsize(HISTORY_DB_PATH) if os.path.exists(HISTORY_DB_PATH) else 0
+    
+    assets_size = 0
+    assets_count = 0
+    if os.path.exists(BRANDING_DIR):
+        for root, dirs, files in os.walk(BRANDING_DIR):
+            for file in files:
+                filepath = os.path.join(root, file)
+                try:
+                    assets_size += os.path.getsize(filepath)
+                    assets_count += 1
+                except Exception:
+                    pass
+                    
+    from database import Tenant, Subscriber, SubscriberList, Campaign, User
+    tenants = db.query(Tenant).all()
+    tenant_stats = []
+    for t in tenants:
+        sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == t.id).count()
+        list_count = db.query(SubscriberList).filter(SubscriberList.tenant_id == t.id).count()
+        campaign_count = db.query(Campaign).filter(Campaign.tenant_id == t.id).count()
+        user_count = db.query(User).filter(User.tenant_id == t.id).count()
+        tenant_stats.append({
+            "id": t.id,
+            "name": t.name,
+            "subscribers": sub_count,
+            "lists": list_count,
+            "campaigns": campaign_count,
+            "users": user_count
+        })
+        
+    return {
+        "db_size": db_size,
+        "history_db_size": history_db_size,
+        "assets_size": assets_size,
+        "assets_count": assets_count,
+        "tenant_stats": tenant_stats
+    }

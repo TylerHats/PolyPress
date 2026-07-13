@@ -150,7 +150,7 @@ def require_tenant_write_access(current_user: User = Depends(get_current_user)):
         )
     return current_user
 
-def process_oidc_user(db: Session, email: str, name: str) -> User:
+def process_oidc_user(db: Session, email: str, name: str, userinfo: dict = None) -> User:
     """
     Process user logging in via OIDC. 
     Verifies domain rules and roles, auto-creates tenant or maps to existing tenant.
@@ -177,32 +177,119 @@ def process_oidc_user(db: Session, email: str, name: str) -> User:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="This account is configured for local credentials authentication only."
             )
+        # Sync role and allowed_tenants on subsequent login
+        if userinfo:
+            role_claim = settings.oidc_role_claim or "role"
+            claim_val = userinfo.get(role_claim)
+            claim_vals = []
+            if isinstance(claim_val, list):
+                claim_vals = [str(v).strip().lower() for v in claim_val]
+            elif claim_val:
+                claim_vals = [str(claim_val).strip().lower()]
+                
+            sa_val = (settings.oidc_super_admin_value or "super_admin").strip().lower()
+            ta_val = (settings.oidc_tenant_admin_value or "tenant_admin").strip().lower()
+            tu_val = (settings.oidc_tenant_user_value or "tenant_user").strip().lower()
+            
+            if sa_val in claim_vals:
+                user.role = "super_admin"
+            elif ta_val in claim_vals:
+                user.role = "tenant_admin"
+            elif tu_val in claim_vals:
+                user.role = "tenant_user"
+                
+            tenant_claim = settings.oidc_tenant_claim or "tenant"
+            tenant_val = userinfo.get(tenant_claim)
+            if tenant_val:
+                tenant_vals = tenant_val if isinstance(tenant_val, list) else [tenant_val]
+                sync_allowed = []
+                primary_t = None
+                for t_val in tenant_vals:
+                    t_val_str = str(t_val).strip()
+                    t_obj = None
+                    if t_val_str.isdigit():
+                        t_obj = db.query(Tenant).filter(Tenant.id == int(t_val_str)).first()
+                    else:
+                        t_obj = db.query(Tenant).filter(Tenant.name.ilike(t_val_str)).first()
+                    if t_obj:
+                        if not primary_t:
+                            primary_t = t_obj
+                        if t_obj.id not in sync_allowed:
+                            sync_allowed.append(t_obj.id)
+                if primary_t:
+                    user.tenant_id = primary_t.id
+                if sync_allowed:
+                    user.allowed_tenants = sync_allowed
+        db.commit()
         return user
         
-    # Check if we should auto-create a tenant for this domain
-    tenant_name = domain.capitalize()
+    # Check if we should map tenant using claim or auto-create a tenant for this domain
+    tenant = None
+    allowed_tenants = []
     
-    # Try to find a matching tenant or create one
-    tenant = db.query(Tenant).filter(Tenant.name == tenant_name).first()
-    if not tenant and settings.auto_create_tenants:
-        tenant = Tenant(name=tenant_name)
-        db.add(tenant)
-        db.commit()
-        db.refresh(tenant)
+    if userinfo:
+        tenant_claim = settings.oidc_tenant_claim or "tenant"
+        tenant_val = userinfo.get(tenant_claim)
+        if tenant_val:
+            tenant_vals = tenant_val if isinstance(tenant_val, list) else [tenant_val]
+            for t_val in tenant_vals:
+                t_val_str = str(t_val).strip()
+                t_obj = None
+                if t_val_str.isdigit():
+                    t_obj = db.query(Tenant).filter(Tenant.id == int(t_val_str)).first()
+                else:
+                    t_obj = db.query(Tenant).filter(Tenant.name.ilike(t_val_str)).first()
+                if t_obj:
+                    if not tenant:
+                        tenant = t_obj
+                    if t_obj.id not in allowed_tenants:
+                        allowed_tenants.append(t_obj.id)
+                        
+    if not tenant:
+        tenant_name = domain.capitalize()
+        tenant = db.query(Tenant).filter(Tenant.name == tenant_name).first()
+        if not tenant and settings.auto_create_tenants:
+            tenant = Tenant(name=tenant_name)
+            db.add(tenant)
+            db.commit()
+            db.refresh(tenant)
+            
+    if tenant and tenant.id not in allowed_tenants:
+        allowed_tenants.append(tenant.id)
         
     # Determine role: If there are absolutely no users in the DB, make them super admin.
-    # Otherwise, they are default pending approval.
+    # Otherwise, check mapped claim values.
     num_users = db.query(User).count()
     if num_users == 0:
         role = "super_admin"
     else:
         role = "pending"
-        
+        if userinfo:
+            role_claim = settings.oidc_role_claim or "role"
+            claim_val = userinfo.get(role_claim)
+            claim_vals = []
+            if isinstance(claim_val, list):
+                claim_vals = [str(v).strip().lower() for v in claim_val]
+            elif claim_val:
+                claim_vals = [str(claim_val).strip().lower()]
+                
+            sa_val = (settings.oidc_super_admin_value or "super_admin").strip().lower()
+            ta_val = (settings.oidc_tenant_admin_value or "tenant_admin").strip().lower()
+            tu_val = (settings.oidc_tenant_user_value or "tenant_user").strip().lower()
+            
+            if sa_val in claim_vals:
+                role = "super_admin"
+            elif ta_val in claim_vals:
+                role = "tenant_admin"
+            elif tu_val in claim_vals:
+                role = "tenant_user"
+         
     new_user = User(
         email=email,
         name=name,
         role=role,
         tenant_id=tenant.id if tenant else None,
+        allowed_tenants=allowed_tenants,
         is_active=True,
         auth_type="oidc"
     )

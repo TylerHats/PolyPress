@@ -297,7 +297,7 @@ def oidc_callback(code: str = Query(...), state: str = None, db: Session = Depen
         if not email:
             return RedirectResponse(url="/#/login?error=no_email_claim")
             
-        user = auth.process_oidc_user(db, email, name)
+        user = auth.process_oidc_user(db, email, name, userinfo)
         session_token = auth.create_access_token({"sub": user.email})
         return RedirectResponse(url=f"/#/login?token={session_token}")
         
@@ -396,4 +396,86 @@ def reset_branding_logo(
         db.commit()
         
     return {"status": "success", "logo_url": "/branding/logo.png"}
+
+@router.post("/forgot-password")
+def forgot_password(payload: dict, db: Session = Depends(get_db)):
+    import secrets
+    from datetime import datetime, timedelta
+    
+    email = payload.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+        
+    user = db.query(User).filter(User.email == email, User.auth_type == "local").first()
+    if not user:
+        # Prevent user enumeration
+        return {"detail": "If the email is registered for a local account, a reset link will be sent shortly."}
+        
+    token = secrets.token_urlsafe(32)
+    user.password_reset_token = token
+    user.password_reset_expires_at = datetime.utcnow() + timedelta(hours=1)
+    db.commit()
+    
+    settings = db.query(GlobalSettings).first()
+    base_url = settings.public_url if (settings and settings.public_url) else ""
+    if not base_url:
+        base_url = "http://localhost:8000"
+    base_url = base_url.rstrip("/")
+    
+    reset_url = f"{base_url}/#/reset-password?token={token}"
+    
+    tenant = None
+    if user.tenant_id:
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant:
+        tenant = db.query(Tenant).filter((Tenant.smtp_host != None) | (Tenant.direct_send == True)).first()
+    if not tenant:
+        tenant = db.query(Tenant).first()
+        
+    if not tenant:
+        # If no tenant exists to send, we can't send
+        return {"detail": "If the email is registered for a local account, a reset link will be sent shortly."}
+        
+    subject = f"Reset Your {settings.app_name if settings else 'PolyPress'} Password"
+    body_html = f"""
+    <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #0f172a; color: #f8fafc;">
+        <h2 style="color: #6366f1; margin-top: 0;">Password Recovery Request</h2>
+        <p>You requested a password reset for your local account on PolyPress.</p>
+        <p>Please click the button below to choose a new password. This link is active for 1 hour.</p>
+        <div style="text-align: center; margin: 25px 0;">
+            <a href="{reset_url}" style="background-color: #6366f1; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block;">Reset Password</a>
+        </div>
+        <p style="font-size: 12px; color: #64748b;">If you did not request this, you can safely ignore this email. Your password will remain unchanged.</p>
+    </div>
+    """
+    
+    from sending_worker import send_transactional_email
+    send_transactional_email(to_email=user.email, subject=subject, body_html=body_html, tenant=tenant)
+    
+    return {"detail": "If the email is registered for a local account, a reset link will be sent shortly."}
+
+@router.post("/reset-password")
+def reset_password(payload: dict, db: Session = Depends(get_db)):
+    from datetime import datetime
+    
+    token = payload.get("token")
+    new_password = payload.get("password")
+    
+    if not token or not new_password:
+        raise HTTPException(status_code=400, detail="Token and password are required")
+        
+    user = db.query(User).filter(
+        User.password_reset_token == token,
+        User.password_reset_expires_at > datetime.utcnow()
+    ).first()
+    
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        
+    user.password_hash = auth.get_password_hash(new_password)
+    user.password_reset_token = None
+    user.password_reset_expires_at = None
+    db.commit()
+    
+    return {"detail": "Password reset successfully. You can now login with your new credentials."}
 

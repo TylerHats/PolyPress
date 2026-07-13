@@ -217,6 +217,46 @@ def remove_subscriber(list_id: int, sub_id: int, db: Session = Depends(get_db), 
     db.commit()
     return {"detail": "Subscriber removed"}
 
+def detect_delimiter(sample_text: str) -> str:
+    if not sample_text:
+        return ","
+    first_line = sample_text.split('\n')[0]
+    counts = {
+        ",": first_line.count(","),
+        ";": first_line.count(";"),
+        "\t": first_line.count("\t")
+    }
+    best_delim = ","
+    max_count = 0
+    for delim, count in counts.items():
+        if count > max_count:
+            max_count = count
+            best_delim = delim
+    return best_delim
+
+def parse_status_value(raw_val: str, status_mappings: dict = None) -> str:
+    if not raw_val:
+        return "active"
+    val_lower = raw_val.strip().lower()
+    
+    # Check custom mappings
+    if status_mappings:
+        for k, v in status_mappings.items():
+            if k.strip().lower() == val_lower:
+                v_clean = v.strip().lower()
+                if v_clean in ["active", "unsubscribed", "bounced", "complained"]:
+                    return v_clean
+                    
+    # Default fallback mappings
+    if val_lower in ["active", "opt-in", "optin", "yes", "subscribe", "subscribed", "true", "1"]:
+        return "active"
+    if val_lower in ["unsubscribed", "opt-out", "optout", "no", "unsubscribe", "false", "0", "complained", "bounced"]:
+        if val_lower in ["complained", "bounced"]:
+            return val_lower
+        return "unsubscribed"
+        
+    return "active"
+
 # CSV PARSING & IMPORT
 
 @router.post("/{list_id}/parse-headers")
@@ -233,7 +273,8 @@ async def parse_csv_headers(list_id: int, file: UploadFile = File(...), db: Sess
         
     contents = await file.read()
     decoded = contents.decode('utf-8', errors='ignore')
-    reader = csv.reader(io.StringIO(decoded))
+    delim = detect_delimiter(decoded)
+    reader = csv.reader(io.StringIO(decoded), delimiter=delim)
     
     try:
         headers = next(reader)
@@ -267,6 +308,8 @@ async def import_csv_subscribers(
         
     email_col = mapping_dict.get("email")
     name_col = mapping_dict.get("name")
+    status_col = mapping_dict.get("status")
+    status_mappings = mapping_dict.get("status_mappings", {})
     custom_map = mapping_dict.get("custom_fields", {})
     
     if not email_col:
@@ -274,7 +317,8 @@ async def import_csv_subscribers(
         
     contents = await file.read()
     decoded = contents.decode('utf-8', errors='ignore')
-    reader = csv.DictReader(io.StringIO(decoded))
+    delim = detect_delimiter(decoded)
+    reader = csv.DictReader(io.StringIO(decoded), delimiter=delim)
     
     imported_count = 0
     skipped_count = 0
@@ -309,14 +353,19 @@ async def import_csv_subscribers(
             if csv_col in row_clean:
                 custom_data[db_key] = row_clean[csv_col]
                 
+        # Parse status dynamically
+        status_val = "active"
+        if status_col and status_col in row_clean:
+            status_val = parse_status_value(row_clean[status_col], status_mappings)
+            
         if email_key in existing_subs:
             sub = existing_subs[email_key]
             old_status = sub.status
             if name_val:
                 sub.name = name_val
-            sub.status = "active" # Reset status to active on re-import
+            sub.status = status_val
             sub.custom_data.update(custom_data)
-            if old_status != "active":
+            if old_status != "active" and status_val == "active":
                 new_actives.append(sub)
         else:
             sub = Subscriber(
@@ -324,13 +373,14 @@ async def import_csv_subscribers(
                 list_id=list_id,
                 email=email_val.strip(),
                 name=name_val,
-                status="active",
+                status=status_val,
                 custom_data=custom_data,
                 source_tag="CSV Import"
             )
             db.add(sub)
             existing_subs[email_key] = sub
-            new_actives.append(sub)
+            if status_val == "active":
+                new_actives.append(sub)
             
         imported_count += 1
         # Flush every 100 rows
@@ -377,3 +427,169 @@ def get_subscriber_activity(
         .all()
         
     return activities
+
+@router.post("/{list_id}/test-subscribers")
+def test_subscribers_hygiene(
+    list_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_write_access)
+):
+    import dns.resolver
+    import concurrent.futures
+    
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
+        
+    if not sub_list:
+        raise HTTPException(status_code=404, detail="List not found")
+        
+    subscribers = db.query(Subscriber).filter(Subscriber.list_id == list_id).all()
+    if not subscribers:
+        return {"total_checked": 0, "invalid_count": 0, "results": []}
+        
+    domains = set()
+    for s in subscribers:
+        if "@" in s.email:
+            domains.add(s.email.split("@")[-1].strip().lower())
+            
+    domain_status = {}
+    
+    def resolve_domain(domain):
+        try:
+            try:
+                answers = dns.resolver.resolve(domain, 'MX')
+                if answers:
+                    return domain, True
+            except Exception:
+                pass
+            try:
+                answers = dns.resolver.resolve(domain, 'A')
+                if answers:
+                    return domain, True
+            except Exception:
+                pass
+            return domain, False
+        except Exception:
+            return domain, False
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(resolve_domain, d): d for d in domains}
+        for fut in concurrent.futures.as_completed(futures):
+            d, is_valid = fut.result()
+            domain_status[d] = is_valid
+            
+    results = []
+    invalid_count = 0
+    for s in subscribers:
+        domain = s.email.split("@")[-1].strip().lower() if "@" in s.email else ""
+        is_valid = domain_status.get(domain, False) if domain else False
+        if not is_valid:
+            invalid_count += 1
+        results.append({
+            "id": s.id,
+            "email": s.email,
+            "name": s.name,
+            "status": s.status,
+            "domain_valid": is_valid
+        })
+        
+    return {
+        "total_checked": len(subscribers),
+        "invalid_count": invalid_count,
+        "results": results
+    }
+
+@router.post("/{list_id}/bulk-unsubscribe")
+def bulk_unsubscribe_subscribers(
+    list_id: int,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_write_access)
+):
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
+        
+    if not sub_list:
+        raise HTTPException(status_code=404, detail="List not found")
+        
+    sub_ids = payload.get("subscriber_ids", [])
+    if not sub_ids:
+        return {"detail": "No subscribers specified."}
+        
+    db.query(Subscriber).filter(
+        Subscriber.id.in_(sub_ids),
+        Subscriber.list_id == list_id
+    ).update({"status": "unsubscribed"}, synchronize_session=False)
+    
+    db.commit()
+    return {"detail": f"Successfully unsubscribed {len(sub_ids)} contacts."}
+
+@router.post("/{list_id}/subscribers/{subscriber_id}/send-direct-email")
+def send_direct_email_to_subscriber(
+    list_id: int,
+    subscriber_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_write_access)
+):
+    if current_user.role == "super_admin":
+        sub = db.query(Subscriber).filter(Subscriber.id == subscriber_id, Subscriber.list_id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub = db.query(Subscriber).filter(
+            Subscriber.id == subscriber_id,
+            Subscriber.list_id == list_id,
+            Subscriber.tenant_id == current_user.tenant_id
+        ).first()
+        
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscriber not found on this list")
+        
+    from database import Tenant
+    tenant = db.query(Tenant).filter(Tenant.id == sub.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    subject = payload.get("subject", "").strip()
+    body_html = payload.get("body_html", "").strip()
+    
+    if not subject or not body_html:
+        raise HTTPException(status_code=400, detail="Subject and body_html are required fields")
+        
+    body_html = body_html.replace("{name}", sub.name or "")
+    body_html = body_html.replace("{email}", sub.email)
+    body_html = body_html.replace("{tenant_name}", tenant.name or "")
+    
+    if tenant.email_footer_html:
+        body_html += f"<br/><br/>{tenant.email_footer_html}"
+        
+    from sending_worker import send_transactional_email
+    success = send_transactional_email(
+        to_email=sub.email,
+        subject=subject,
+        body_html=body_html,
+        tenant=tenant
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to dispatch direct email. Please check your outbound settings.")
+        
+    from location_helper import log_subscriber_activity
+    log_subscriber_activity(
+        db=db,
+        tenant_id=sub.tenant_id,
+        subscriber_id=sub.id,
+        ip_address=None,
+        user_agent=f"Direct Email Sent: {subject}"
+    )
+    
+    return {"detail": f"Direct email sent successfully to {sub.email}."}

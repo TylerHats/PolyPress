@@ -153,7 +153,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -186,6 +186,18 @@ class GlobalSettings(Base):
     external_backup_url = Column(String, nullable=True)
     external_backup_auth_header = Column(String, nullable=True)
     schema_version = Column(Integer, default=CURRENT_SCHEMA_VERSION)
+    
+    # Dynamic OIDC claim mappings
+    oidc_role_claim = Column(String, default="role")
+    oidc_tenant_claim = Column(String, default="tenant")
+    oidc_super_admin_value = Column(String, default="super_admin")
+    oidc_tenant_admin_value = Column(String, default="tenant_admin")
+    oidc_tenant_user_value = Column(String, default="tenant_user")
+    
+    # Auto-backup scheduler
+    backup_interval_hours = Column(Integer, default=0)
+    backup_retention_count = Column(Integer, default=10)
+    last_backup_at = Column(DateTime, nullable=True)
     
     # History logs settings
     history_retention_days = Column(Integer, default=30)
@@ -245,6 +257,10 @@ class Tenant(Base):
     email_footer_is_custom_html = Column(Boolean, default=False)
     email_footer_custom_html = Column(Text, nullable=True)
     
+    # Custom opt-in & unsub success HTML templates
+    subscription_confirmed_html = Column(Text, nullable=True)
+    unsubscribed_html = Column(Text, nullable=True)
+    
     # History logs settings
     history_retention_days = Column(Integer, default=30)
     history_record_frequency_hours = Column(Integer, default=24)
@@ -270,6 +286,8 @@ class User(Base):
     totp_enabled = Column(Boolean, default=False)
     allowed_tenants = Column(JSON, default=list)
     auth_type = Column(String, default="local") # local, oidc
+    password_reset_token = Column(String, nullable=True)
+    password_reset_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     tenant = relationship("Tenant", back_populates="users")
@@ -322,6 +340,10 @@ class Subscriber(Base):
     
     ip_location = Column(String, nullable=True)
     
+    # Live opened tracking
+    last_open_at = Column(DateTime, nullable=True)
+    opens_count = Column(Integer, default=0)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -353,6 +375,7 @@ class Campaign(Base):
     name = Column(String, index=True)
     subject = Column(String)
     preheader = Column(String, nullable=True)
+    description = Column(String, nullable=True)
     # Visual Builder blocks representation (JSON)
     # Format: [{"type": "header", "content": "Welcome"}, ...]
     body_blocks = Column(JSON, default=list)

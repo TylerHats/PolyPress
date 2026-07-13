@@ -50,6 +50,10 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 # Increment campaign unique opens
                 campaign.open_count = Campaign.open_count + 1
                 
+            # Update subscriber's last open time and total opens count
+            subscriber.last_open_at = datetime.utcnow()
+            subscriber.opens_count = (subscriber.opens_count or 0) + 1
+            
             db.commit()
 
             from location_helper import log_subscriber_activity
@@ -117,19 +121,8 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
             )
             db.add(log)
             
-            # Check for unique click (on this specific URL)
-            existing_click = db.query(TrackingLog).filter(
-                TrackingLog.campaign_id == campaign_id,
-                TrackingLog.subscriber_id == subscriber_id,
-                TrackingLog.event_type == "click",
-                TrackingLog.link_url == url,
-                TrackingLog.id != log.id # ignore self
-            ).first()
-            
-            # Increment total campaign click count if it is a unique link click by this subscriber
-            if not existing_click:
-                campaign.click_count = Campaign.click_count + 1
-                
+            # Always increment click count for total clicks tracking
+            campaign.click_count = Campaign.click_count + 1
             db.commit()
 
             from location_helper import log_subscriber_activity

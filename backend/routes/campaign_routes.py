@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, B
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
-from datetime import datetime
+from datetime import datetime, timedelta
 import zoneinfo
 import re
 import urllib.parse
@@ -11,6 +11,67 @@ from database import get_db, Campaign, SubscriberList, Subscriber, QueueItem, Us
 import auth
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
+
+def apply_targeting_rules_to_query(query, rules: dict):
+    if not rules:
+        return query
+        
+    target_tag = rules.get("tag")
+    if target_tag:
+        tags_list = [t.strip() for t in target_tag.split(",") if t.strip()]
+        if tags_list:
+            tag_filters = [Subscriber.tags.like(f'%"{t}"%') for t in tags_list]
+            query = query.filter(or_(*tag_filters))
+        
+    target_engagements = rules.get("engagement")
+    if target_engagements:
+        if isinstance(target_engagements, list):
+            scores = [int(e) for e in target_engagements if str(e).isdigit()]
+            if scores:
+                query = query.filter(Subscriber.engagement_score.in_(scores))
+        elif str(target_engagements).isdigit():
+            query = query.filter(Subscriber.engagement_score == int(target_engagements))
+        
+    signup_after = rules.get("signup_after")
+    if signup_after and str(signup_after).strip():
+        try:
+            dt = datetime.fromisoformat(str(signup_after).replace("Z", ""))
+            query = query.filter(Subscriber.created_at >= dt)
+        except Exception:
+            pass
+            
+    signup_before = rules.get("signup_before")
+    if signup_before and str(signup_before).strip():
+        try:
+            dt = datetime.fromisoformat(str(signup_before).replace("Z", ""))
+            query = query.filter(Subscriber.created_at <= dt)
+        except Exception:
+            pass
+
+    # New targeting criteria
+    last_opened_days_under = rules.get("last_opened_days_under")
+    if last_opened_days_under and str(last_opened_days_under).isdigit():
+        limit_dt = datetime.utcnow() - timedelta(days=int(last_opened_days_under))
+        query = query.filter(Subscriber.last_open_at >= limit_dt)
+
+    last_opened_days_over = rules.get("last_opened_days_over")
+    if last_opened_days_over and str(last_opened_days_over).isdigit():
+        limit_dt = datetime.utcnow() - timedelta(days=int(last_opened_days_over))
+        query = query.filter(or_(Subscriber.last_open_at == None, Subscriber.last_open_at < limit_dt))
+
+    opens_count_over = rules.get("opens_count_over")
+    if opens_count_over and str(opens_count_over).isdigit():
+        query = query.filter(Subscriber.opens_count >= int(opens_count_over))
+
+    opens_count_under = rules.get("opens_count_under")
+    if opens_count_under and str(opens_count_under).isdigit():
+        query = query.filter(Subscriber.opens_count < int(opens_count_under))
+
+    location_country = rules.get("location_country")
+    if location_country and str(location_country).strip():
+        query = query.filter(Subscriber.ip_location.ilike(f"%{str(location_country).strip()}%"))
+
+    return query
 
 def render_email_template(body_html: str, subscriber: Subscriber, tracking_domain: str, campaign_id: int, subscriber_id: int) -> str:
     rendered = body_html or ""
@@ -26,8 +87,98 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
         for k, v in subscriber.custom_data.items():
             rendered = rendered.replace(f"{{{{{k}}}}}", str(v or ""))
             
+    # Evaluate conditional logic blocks: {% if condition %} ... {% endif %}
+    def evaluate_inline_condition(match):
+        cond_expr = match.group(1).strip()
+        inner_content = match.group(2)
+        
+        # Get subscriber tags
+        sub_tags = [t.strip().lower() for t in (subscriber.tags or "").split(",") if t.strip()]
+        
+        # 1. tag contains / not contains
+        tag_match = re.match(r'^tag\s+contains\s+["\']([^"\']+)["\']$', cond_expr, re.IGNORECASE)
+        tag_not_match = re.match(r'^tag\s+not\s+contains\s+["\']([^"\']+)["\']$', cond_expr, re.IGNORECASE)
+        
+        if tag_match:
+            val = tag_match.group(1).strip().lower()
+            if val in sub_tags:
+                return inner_content
+            return ""
+        elif tag_not_match:
+            val = tag_not_match.group(1).strip().lower()
+            if val not in sub_tags:
+                return inner_content
+            return ""
+            
+        # 2. field equals / not equals
+        field_match = re.match(r'^([a-zA-Z0-9_-]+)\s*==\s*["\']([^"\']*)["\']$', cond_expr)
+        field_ne_match = re.match(r'^([a-zA-Z0-9_-]+)\s*!=\s*["\']([^"\']*)["\']$', cond_expr)
+        
+        if field_match:
+            field = field_match.group(1).strip()
+            target_val = field_match.group(2).strip().lower()
+            
+            sub_val = ""
+            if field == "email":
+                sub_val = subscriber.email
+            elif field == "name":
+                sub_val = subscriber.name
+            elif subscriber.custom_data and field in subscriber.custom_data:
+                sub_val = subscriber.custom_data[field]
+                
+            sub_val = str(sub_val or "").strip().lower()
+            if sub_val == target_val:
+                return inner_content
+            return ""
+            
+        if field_ne_match:
+            field = field_ne_match.group(1).strip()
+            target_val = field_ne_match.group(2).strip().lower()
+            
+            sub_val = ""
+            if field == "email":
+                sub_val = subscriber.email
+            elif field == "name":
+                sub_val = subscriber.name
+            elif subscriber.custom_data and field in subscriber.custom_data:
+                sub_val = subscriber.custom_data[field]
+                
+            sub_val = str(sub_val or "").strip().lower()
+            if sub_val != target_val:
+                return inner_content
+            return ""
+            
+        # 3. location contains / not contains
+        loc_match = re.match(r'^location\s+contains\s+["\']([^"\']+)["\']$', cond_expr, re.IGNORECASE)
+        if loc_match:
+            val = loc_match.group(1).strip().lower()
+            sub_loc = str(subscriber.ip_location or "").strip().lower()
+            if val in sub_loc:
+                return inner_content
+            return ""
+            
+        # 4. Default fallback: check if field exists and is truthy
+        if cond_expr:
+            sub_val = ""
+            if cond_expr == "email":
+                sub_val = subscriber.email
+            elif cond_expr == "name":
+                sub_val = subscriber.name
+            elif subscriber.custom_data and cond_expr in subscriber.custom_data:
+                sub_val = subscriber.custom_data[cond_expr]
+            if bool(sub_val):
+                return inner_content
+            return ""
+            
+        return ""
+        
+    for _ in range(3):
+        rendered = re.sub(r'\{%\s*if\s+(.*?)\s*%\}(.*?)\{%\s*endif\s*%\}', evaluate_inline_condition, rendered, flags=re.DOTALL | re.IGNORECASE)
+        
     # Strip any unresolved double curly brackets to avoid raw markup leaks
     rendered = re.sub(r'\{\{[a-zA-Z0-9_-]+\}\}', '', rendered)
+    # Strip any unresolved conditional tags
+    rendered = re.sub(r'\{%.*?%\}', '', rendered)
     
     # Inject open tracking pixel
     open_pixel = f'<img src="{tracking_domain}/api/track/open/{campaign_id}/{subscriber_id}.gif" width="1" height="1" style="display:none;" />'
@@ -89,6 +240,7 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
         list_id=list_ids[0] if list_ids else None,
         list_ids=list_ids,
         name=payload.get("name", "Untitled Campaign"),
+        description=payload.get("description", ""),
         subject=payload.get("subject", "No Subject"),
         preheader=payload.get("preheader", ""),
         body_blocks=payload.get("body_blocks", []),
@@ -126,6 +278,7 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
         campaign.status = new_status
 
     campaign.name = payload.get("name", campaign.name)
+    campaign.description = payload.get("description", campaign.description)
     campaign.subject = payload.get("subject", campaign.subject)
     campaign.preheader = payload.get("preheader", campaign.preheader)
     campaign.body_blocks = payload.get("body_blocks", campaign.body_blocks)
@@ -233,40 +386,7 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
         Subscriber.status.in_(["active", "deferred"])
     )
     
-    rules = campaign.target_rules or {}
-    if rules:
-        target_tag = rules.get("tag")
-        if target_tag:
-            tags_list = [t.strip() for t in target_tag.split(",") if t.strip()]
-            if tags_list:
-                tag_filters = [Subscriber.tags.like(f'%"{t}"%') for t in tags_list]
-                query = query.filter(or_(*tag_filters))
-            
-        target_engagements = rules.get("engagement")
-        if target_engagements:
-            if isinstance(target_engagements, list):
-                scores = [int(e) for e in target_engagements if str(e).isdigit()]
-                if scores:
-                    query = query.filter(Subscriber.engagement_score.in_(scores))
-            elif str(target_engagements).isdigit():
-                query = query.filter(Subscriber.engagement_score == int(target_engagements))
-            
-        signup_after = rules.get("signup_after")
-        if signup_after and str(signup_after).strip():
-            try:
-                dt = datetime.fromisoformat(str(signup_after).replace("Z", ""))
-                query = query.filter(Subscriber.created_at >= dt)
-            except Exception:
-                pass
-                
-        signup_before = rules.get("signup_before")
-        if signup_before and str(signup_before).strip():
-            try:
-                dt = datetime.fromisoformat(str(signup_before).replace("Z", ""))
-                query = query.filter(Subscriber.created_at <= dt)
-            except Exception:
-                pass
-                
+    query = apply_targeting_rules_to_query(query, campaign.target_rules)
     subscribers = query.all()
     # De-duplicate by email address
     unique_subs = {}
@@ -396,39 +516,7 @@ def preview_target_subscribers(
         Subscriber.status.in_(["active", "deferred"])
     )
     
-    rules = payload.get("target_rules", {})
-    if rules:
-        target_tag = rules.get("tag")
-        if target_tag:
-            tags_list = [t.strip() for t in target_tag.split(",") if t.strip()]
-            if tags_list:
-                tag_filters = [Subscriber.tags.like(f'%"{t}"%') for t in tags_list]
-                query = query.filter(or_(*tag_filters))
-                
-        target_engagements = rules.get("engagement")
-        if target_engagements:
-            if isinstance(target_engagements, list):
-                scores = [int(e) for e in target_engagements if str(e).isdigit()]
-                if scores:
-                    query = query.filter(Subscriber.engagement_score.in_(scores))
-            elif str(target_engagements).isdigit():
-                query = query.filter(Subscriber.engagement_score == int(target_engagements))
-                
-        signup_after = rules.get("signup_after")
-        if signup_after and str(signup_after).strip():
-            try:
-                dt = datetime.fromisoformat(str(signup_after).replace("Z", ""))
-                query = query.filter(Subscriber.created_at >= dt)
-            except Exception:
-                pass
-                
-        signup_before = rules.get("signup_before")
-        if signup_before and str(signup_before).strip():
-            try:
-                dt = datetime.fromisoformat(str(signup_before).replace("Z", ""))
-                query = query.filter(Subscriber.created_at <= dt)
-            except Exception:
-                pass
+    query = apply_targeting_rules_to_query(query, payload.get("target_rules", {}))
                 
     if search:
         query = query.filter(
@@ -705,4 +793,66 @@ def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), curr
         "click_map": formatted_map,
         "body_html": campaign.body_html
     }
+
+@router.post("/{campaign_id}/send-test")
+def send_test_email(
+    campaign_id: int,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_write_access)
+):
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+        
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    to_email = payload.get("email")
+    if not to_email or "@" not in to_email:
+        raise HTTPException(status_code=400, detail="Valid test email address is required")
+        
+    tenant = db.query(Tenant).filter(Tenant.id == campaign.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    # Render campaign using a mock subscriber
+    dummy_subscriber = Subscriber(
+        email=to_email,
+        name="Test Recipient",
+        status="active",
+        custom_data={}
+    )
+    
+    tracking_domain = ""
+    settings = db.query(GlobalSettings).first()
+    if settings:
+        tracking_domain = settings.tracking_domain or ""
+        
+    try:
+        body_html = render_email_template(
+            body_html=campaign.body_html or "",
+            subscriber=dummy_subscriber,
+            tracking_domain=tracking_domain,
+            campaign_id=campaign.id,
+            subscriber_id=0
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to render campaign template: {e}")
+        
+    from sending_worker import send_transactional_email
+    success = send_transactional_email(
+        to_email=to_email,
+        subject=f"[TEST] {campaign.subject or 'Draft Campaign'}",
+        body_html=body_html,
+        tenant=tenant
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to dispatch test email. Check SMTP or MTA settings/logs.")
+        
+    return {"detail": "Test email sent successfully"}
 

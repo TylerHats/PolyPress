@@ -110,7 +110,37 @@ def check_for_updates_internal(channel: str):
         latest_commit_sha = run_git_command(["rev-parse", "--short", latest_tag]) or ""
         
     latest_semver = parse_semver(latest_tag)
-    update_available = latest_semver > current_semver
+    
+    # Check if local HEAD is equal to or ahead of the remote release tag/commit
+    is_ahead_or_equal = False
+    if latest_tag:
+        try:
+            res = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", latest_tag, "HEAD"],
+                cwd=BASE_DIR,
+                capture_output=True
+            )
+            if res.returncode == 0:
+                is_ahead_or_equal = True
+        except Exception:
+            pass
+            
+    if not is_ahead_or_equal and latest_commit_sha:
+        try:
+            res = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", latest_commit_sha, "HEAD"],
+                cwd=BASE_DIR,
+                capture_output=True
+            )
+            if res.returncode == 0:
+                is_ahead_or_equal = True
+        except Exception:
+            pass
+            
+    if is_ahead_or_equal:
+        update_available = False
+    else:
+        update_available = latest_semver > current_semver
     
     return update_available, latest_tag, latest_commit_sha
 
@@ -159,7 +189,7 @@ async def auto_update_worker_loop():
             settings = db.query(GlobalSettings).first()
             if settings and settings.auto_update:
                 logger.info("Auto-update check in progress...")
-                update_available, target_ver = check_for_updates_internal(settings.update_channel)
+                update_available, target_ver, _ = check_for_updates_internal(settings.update_channel)
                 if update_available:
                     logger.info(f"Auto-update: installing new version {target_ver}")
                     success = run_update_process(settings.update_channel, target_ver)

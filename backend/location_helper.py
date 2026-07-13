@@ -51,6 +51,23 @@ def parse_user_agent(ua: str) -> tuple[str, str]:
     
     ua_lower = ua.lower()
     
+    # Intercept security proxies / image prefetchers first
+    is_proxy = False
+    if "googleimageproxy" in ua_lower or "via ggpht.com" in ua_lower:
+        is_proxy = True
+    elif "outlook-express" in ua_lower or "outlook.office" in ua_lower:
+        if "via" in ua_lower or "caching" in ua_lower:
+            is_proxy = True
+    elif "apple-mailshare" in ua_lower or "apple-pubsub" in ua_lower:
+        is_proxy = True
+    elif "yahoo" in ua_lower and ("via" in ua_lower or "proxy" in ua_lower):
+        is_proxy = True
+    elif "bot" in ua_lower or "crawler" in ua_lower or "spider" in ua_lower or "prefetch" in ua_lower:
+        is_proxy = True
+        
+    if is_proxy:
+        return "Cloud Proxy", "Proxy / Image Prefetcher"
+    
     # Platform Detection
     platform = "Unknown Platform"
     if "android" in ua_lower:

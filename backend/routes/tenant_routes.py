@@ -148,6 +148,17 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     settings.external_backup_url = payload.get("external_backup_url", settings.external_backup_url)
     settings.external_backup_auth_header = payload.get("external_backup_auth_header", settings.external_backup_auth_header)
     
+    # Custom OIDC Claim Mappings
+    settings.oidc_role_claim = payload.get("oidc_role_claim", settings.oidc_role_claim)
+    settings.oidc_tenant_claim = payload.get("oidc_tenant_claim", settings.oidc_tenant_claim)
+    settings.oidc_super_admin_value = payload.get("oidc_super_admin_value", settings.oidc_super_admin_value)
+    settings.oidc_tenant_admin_value = payload.get("oidc_tenant_admin_value", settings.oidc_tenant_admin_value)
+    settings.oidc_tenant_user_value = payload.get("oidc_tenant_user_value", settings.oidc_tenant_user_value)
+    
+    # Auto Backup configuration
+    settings.backup_interval_hours = int(payload.get("backup_interval_hours", settings.backup_interval_hours or 0))
+    settings.backup_retention_count = int(payload.get("backup_retention_count", settings.backup_retention_count or 10))
+    
     db.commit()
     db.refresh(settings)
     return settings
@@ -210,7 +221,9 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         "email_footer_html": tenant.email_footer_html,
         "email_footer_is_custom_html": tenant.email_footer_is_custom_html,
         "email_footer_custom_html": tenant.email_footer_custom_html,
-        "sending_ip_override": tenant.sending_ip_override
+        "sending_ip_override": tenant.sending_ip_override,
+        "subscription_confirmed_html": tenant.subscription_confirmed_html,
+        "unsubscribed_html": tenant.unsubscribed_html
     }
 
 @router.put("/my")
@@ -276,6 +289,10 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
         tenant.email_footer_is_custom_html = payload["email_footer_is_custom_html"]
     if "email_footer_custom_html" in payload:
         tenant.email_footer_custom_html = payload["email_footer_custom_html"]
+    if "subscription_confirmed_html" in payload:
+        tenant.subscription_confirmed_html = payload["subscription_confirmed_html"]
+    if "unsubscribed_html" in payload:
+        tenant.unsubscribed_html = payload["unsubscribed_html"]
         
     db.commit()
     db.refresh(tenant)
@@ -924,10 +941,17 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             records = res["records"]
             err = res["error"]
             success = False
+            
+            # Match against mail_server_identity if direct send, else dkim domain
+            if tenant.direct_send:
+                expected_domain = (db_settings.mail_server_identity or "polypress.local").strip().lower()
+            else:
+                expected_domain = domain.lower()
+                
             if err is None and records:
                 for r in records:
                     r_clean = r.rstrip('.').lower()
-                    if domain.lower() in r_clean or r_clean.endswith(domain.lower()):
+                    if expected_domain in r_clean or r_clean.endswith(expected_domain):
                         success = True
             return {
                 "records": records,
@@ -1176,3 +1200,71 @@ def reset_all(db: Session = Depends(get_db), current_user: User = Depends(auth.r
                 pass
                 
     return {"status": "success", "detail": "Program has been fully reset. Returning to onboarding."}
+
+@router.get("/my/delivery-diagnostics")
+def get_delivery_diagnostics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.get_current_user)
+):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    tenant_id = current_user.tenant_id
+    
+    from datetime import datetime, timedelta
+    from database import QueueItem, Tenant
+    from sending_worker import get_active_threads_for_tenant
+    
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+        
+    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    one_day_ago = datetime.utcnow() - timedelta(hours=24)
+    
+    active_threads = get_active_threads_for_tenant(tenant_id)
+    pending_count = db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id, QueueItem.status == "pending").count()
+    sending_count = db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id, QueueItem.status == "sending").count()
+    sent_count = db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id, QueueItem.status == "sent").count()
+    failed_count = db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id, QueueItem.status == "failed").count()
+    deferred_count = db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id, QueueItem.status == "deferred").count()
+    
+    sent_last_hour = db.query(QueueItem).filter(
+        QueueItem.tenant_id == tenant_id,
+        QueueItem.status == "sent",
+        QueueItem.updated_at >= one_hour_ago
+    ).count()
+    
+    sent_last_24h = db.query(QueueItem).filter(
+        QueueItem.tenant_id == tenant_id,
+        QueueItem.status == "sent",
+        QueueItem.updated_at >= one_day_ago
+    ).count()
+    
+    recent_failures = db.query(QueueItem).filter(
+        QueueItem.tenant_id == tenant_id,
+        QueueItem.status == "failed"
+    ).order_by(QueueItem.updated_at.desc()).limit(10).all()
+    
+    failures_list = [{
+        "email": f.email,
+        "subject": f.subject,
+        "error_message": f.error_message,
+        "last_mx_response": f.last_mx_response,
+        "error_code": f.error_code,
+        "updated_at": f.updated_at.isoformat() if f.updated_at else None
+    } for f in recent_failures]
+    
+    return {
+        "active_threads": active_threads,
+        "max_sending_threads": tenant.max_sending_threads,
+        "speed_limit_per_hour": tenant.speed_emails_per_hour,
+        "pending": pending_count,
+        "sending": sending_count,
+        "sent": sent_count,
+        "failed": failed_count,
+        "deferred": deferred_count,
+        "sent_last_hour": sent_last_hour,
+        "sent_last_24h": sent_last_24h,
+        "recent_failures": failures_list
+    }

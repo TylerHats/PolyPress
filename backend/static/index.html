@@ -169,7 +169,7 @@
             <p class="login-subtitle">Email newsletter management</p>
             
             <!-- Standard Login Form -->
-            <form x-show="!totpRequired && (!globalSettings.oidc_enabled || globalSettings.local_login_enabled)" @submit.prevent="handleLogin()">
+            <form x-show="!totpRequired && !showForgotPasswordView && !showResetPasswordView && (!globalSettings.oidc_enabled || globalSettings.local_login_enabled)" @submit.prevent="handleLogin()">
                 <div class="form-grid" style="grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
                     <div class="field" style="text-align: left;">
                         <label>Email Address</label>
@@ -180,7 +180,44 @@
                         <input type="password" x-model="loginForm.password" required placeholder="••••••••">
                     </div>
                 </div>
+                <div style="text-align: right; margin-top: -8px; margin-bottom: 20px;">
+                    <a href="javascript:void(0)" @click="showForgotPasswordView = true; forgotPasswordEmail = loginForm.email" style="font-size: 12px; color: var(--color-accent); text-decoration: none;">Forgot password?</a>
+                </div>
                 <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+            </form>
+
+            <!-- Forgot Password Request Form -->
+            <form x-show="showForgotPasswordView && !showResetPasswordView" style="display: none;" @submit.prevent="handleForgotPasswordSubmit()">
+                <h3 style="font-size: 15px; color: #fff; margin-bottom: 10px; text-align: left;">Reset Password</h3>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.4; text-align: left;">
+                    Enter your email address and we'll send you a password recovery link.
+                </p>
+                <div class="field" style="text-align: left; margin-bottom: 20px;">
+                    <label>Email Address</label>
+                    <input type="email" x-model="forgotPasswordEmail" required placeholder="admin@polypress.local" style="width: 100%;">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Send Recovery Link</button>
+                <button type="button" @click="showForgotPasswordView = false" class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 10px;">Back to Login</button>
+            </form>
+
+            <!-- Reset Password Form -->
+            <form x-show="showResetPasswordView" style="display: none;" @submit.prevent="handleResetPasswordSubmit()">
+                <h3 style="font-size: 15px; color: #fff; margin-bottom: 10px; text-align: left;">Choose New Password</h3>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.4; text-align: left;">
+                    Enter your new account password below.
+                </p>
+                <div class="form-grid" style="grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
+                    <div class="field" style="text-align: left;">
+                        <label>New Password</label>
+                        <input type="password" x-model="resetPasswordForm.password" required placeholder="••••••••" style="width: 100%;">
+                    </div>
+                    <div class="field" style="text-align: left;">
+                        <label>Confirm Password</label>
+                        <input type="password" x-model="resetPasswordForm.confirmPassword" required placeholder="••••••••" style="width: 100%;">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Save Password & Sign In</button>
+                <button type="button" @click="showResetPasswordView = false; window.location.hash = ''" class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 10px;">Cancel</button>
             </form>
             
             <!-- TOTP Verification Form -->
@@ -196,7 +233,7 @@
                 <button type="button" @click="totpRequired = false" class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 10px;">Back to Login</button>
             </form>
             
-            <div x-show="globalSettings.oidc_enabled && !totpRequired" style="display: none;">
+            <div x-show="globalSettings.oidc_enabled && !totpRequired && !showForgotPasswordView && !showResetPasswordView" style="display: none;">
                 <div class="login-separator" x-show="globalSettings.local_login_enabled">or</div>
                 <button @click="triggerOidcLogin()" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
                     <i data-lucide="shield-check"></i>
@@ -209,8 +246,11 @@
     <!-- App Shell (Main Screen) -->
     <div x-show="authenticated" class="app-container" style="display: none;">
         
+        <!-- Sidebar Backdrop Overlay -->
+        <div class="sidebar-overlay-backdrop" :class="mobileSidebarOpen ? 'active' : ''" @click="mobileSidebarOpen = false"></div>
+
         <!-- Sidebar Navigation -->
-        <aside class="sidebar">
+        <aside class="sidebar" :class="mobileSidebarOpen ? 'mobile-open' : ''">
             <div class="brand">
                 <img :src="(globalSettings.app_logo || '/branding/logo.png') + '?v=' + logoVersion" alt="PolyPress Logo" class="brand-logo" onerror="this.style.display='none'">
                 <span class="brand-name" x-text="globalSettings.app_name || 'PolyPress'"></span>
@@ -301,15 +341,19 @@
             <!-- Header bar -->
             <header class="top-nav">
                 <div style="display: flex; align-items: center; gap: 15px;">
+                    <!-- Mobile Hamburger Button -->
+                    <button class="mobile-hamburger" @click="mobileSidebarOpen = true" style="display: none;">
+                        <i data-lucide="menu" style="width: 18px; height: 18px;"></i>
+                    </button>
                     <div class="top-nav-title" x-text="hostAdminMode ? 'Host Administration' : (tenant.name || 'Tenant Workspace')"></div>
                     
                     <!-- Tenant Context Dropdown Selector (for Super Admins and multi-tenant context users) -->
                     <div x-show="(user.role === 'super_admin' && !hostAdminMode) || (user.allowed_tenants && user.allowed_tenants.length > 1)" style="display: flex; align-items: center; gap: 10px;">
                         <span style="font-size: 13px; color: var(--text-secondary);">Switch Tenant Context:</span>
-                        <select x-model="activeTenantId" @change="changeActiveTenantContext()" style="padding: 4px 10px; font-size: 13px; width: 200px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; color: #fff;">
-                            <option value="">Select Tenant Context...</option>
+                        <select x-model="activeTenantId" @change="changeActiveTenantContext()" style="padding: 4px 10px; font-size: 13px; min-width: 160px; max-width: 250px; width: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; color: #fff; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
+                            <option value="" style="background: #0f172a;">Select Tenant Context...</option>
                             <template x-for="t in tenants" :key="t.id">
-                                <option :value="t.id" x-text="t.name" :selected="activeTenantId == t.id"></option>
+                                <option :value="t.id" x-text="t.name.length > 25 ? t.name.substring(0, 22) + '...' : t.name" :selected="activeTenantId == t.id" style="background: #0f172a;"></option>
                             </template>
                         </select>
                     </div>
@@ -359,6 +403,10 @@
                     <div class="field">
                         <label>Campaign Name (Internal)</label>
                         <input type="text" x-model="campaignForm.name" placeholder="e.g. July 2026 Updates">
+                    </div>
+                    <div class="field">
+                        <label>Campaign Description (Internal)</label>
+                        <input type="text" x-model="campaignForm.description" placeholder="e.g. Monthly update newsletter to active subscribers">
                     </div>
                     <div class="field">
                         <label>Email Subject Line</label>
@@ -694,6 +742,31 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                                 </template>
                             </select>
                         </div>
+                        
+                        <!-- Status Mapping -->
+                        <div class="mapping-row">
+                            <div style="font-weight:600; font-size:14px; color: #fff;">Subscriber Status</div>
+                            <div class="mapping-arrow">→</div>
+                            <select x-model="csvMapping.status">
+                                <option value="">-- Choose Column (Optional, defaults to active) --</option>
+                                <template x-for="h in csvHeaders" :key="h">
+                                    <option :value="h" x-text="h"></option>
+                                </template>
+                            </select>
+                        </div>
+                        
+                        <!-- Status Value Map Inputs -->
+                        <div x-show="csvMapping.status" style="margin-top: 5px; margin-bottom: 12px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 6px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border-glass);">
+                            <div style="font-size: 11px; font-weight: bold; text-transform: uppercase; color: var(--color-accent);">Map Status Values (Comma Separated)</div>
+                            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px; align-items: center;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">CSV values for Active:</div>
+                                <input type="text" x-model="csvMapping.status_mappings.active" placeholder="e.g. Yes, Subscribed, 1" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 28px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px; align-items: center;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">CSV values for Unsubscribed:</div>
+                                <input type="text" x-model="csvMapping.status_mappings.unsubscribed" placeholder="e.g. No, Unsubscribed, 0" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 28px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                        </div>
 
                         <!-- Custom fields maps -->
                         <template x-for="f in csvListTarget.custom_fields" :key="f.key">
@@ -791,6 +864,30 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                                 <label style="font-size:11px;">Signed Up Before</label>
                                 <input type="date" x-model="editingCampaign.target_rules.signup_before" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
                             </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                            <div class="field">
+                                <label style="font-size:11px;">Last Opened Within (Days)</label>
+                                <input type="number" x-model.number="editingCampaign.target_rules.last_opened_days_under" placeholder="e.g. 30" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                            <div class="field">
+                                <label style="font-size:11px;">Last Opened More Than (Days)</label>
+                                <input type="number" x-model.number="editingCampaign.target_rules.last_opened_days_over" placeholder="e.g. 30" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                            <div class="field">
+                                <label style="font-size:11px;">Min Opens Count</label>
+                                <input type="number" x-model.number="editingCampaign.target_rules.opens_count_over" placeholder="e.g. 5" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                            <div class="field">
+                                <label style="font-size:11px;">Max Opens Count</label>
+                                <input type="number" x-model.number="editingCampaign.target_rules.opens_count_under" placeholder="e.g. 10" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label style="font-size:11px;">Target Geolocation Country / Location</label>
+                            <input type="text" x-model="editingCampaign.target_rules.location_country" placeholder="e.g. Canada" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); color: #fff; width: 100%;">
                         </div>
                     </div>
                 </div>
@@ -1353,7 +1450,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
             <div class="modal-body" style="padding-top: 10px;">
                 <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;"
                    x-text="dnsDetailRecord && dnsDetailRecord.type === 'ptr'
-                     ? 'Checks that the reverse lookup (PTR) of the sending IP (' + (tenant.sending_ip_override || detectedPublicIp || 'Unknown IP') + ') resolves to a hostname containing or ending with your sending domain (' + tenant.dkim_domain + ').'
+                     ? 'Checks that the reverse lookup (PTR) of the sending IP (' + (tenant.sending_ip_override || detectedPublicIp || 'Unknown IP') + ') resolves to a hostname containing or ending with ' + (tenant.direct_send ? 'the mail server identity (' + (globalSettings.mail_server_identity || 'polypress.local') + ')' : 'your sending domain (' + tenant.dkim_domain + ')') + '.'
                      : (dnsDetailRecord && dnsDetailRecord.type === 'blacklist'
                        ? 'Checks if your sending IP (' + (tenant.sending_ip_override || detectedPublicIp || 'Unknown IP') + ') is listed on major public Real-time Blackhole Lists (zen.spamhaus.org, bl.spamcop.net, dnsbl.sorbs.net).'
                        : 'Below are the resolved values queried live from all four test DNS nameservers:')">
@@ -1417,6 +1514,92 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                     <button @click="modals.insertLink = false" class="btn btn-secondary btn-sm">Cancel</button>
                     <button @click="submitInsertLink()" class="btn btn-primary btn-sm">Insert Link</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Test Campaign Modal -->
+    <div x-show="modals.sendTest" class="modal-overlay" style="display: none;" @keydown.escape.window="modals.sendTest = false">
+        <div class="modal-content" style="max-width: 420px; padding: 25px;">
+            <div class="modal-header" style="margin-bottom: 20px;">
+                <h3 class="modal-title">Send Test Email</h3>
+                <button @click="modals.sendTest = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.4;">
+                    Enter the email address where you'd like to receive a fully rendered test copy of this draft campaign:
+                </p>
+                <div class="field">
+                    <label>Test Recipient Email</label>
+                    <input type="email" x-model="testSendEmail" placeholder="e.g. test@yourdomain.com" style="width: 100%;">
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                    <button @click="modals.sendTest = false" class="btn btn-secondary btn-sm">Cancel</button>
+                    <button @click="submitSendTestCampaign()" class="btn btn-primary btn-sm">Send Test</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- List Hygiene Checker Modal -->
+    <div x-show="modals.listHygiene" class="modal-overlay" style="display: none;" @keydown.escape.window="modals.listHygiene = false">
+        <div class="modal-content" style="max-width: 500px; padding: 25px;">
+            <div class="modal-header" style="margin-bottom: 20px;">
+                <h3 class="modal-title">List Hygiene Resolver</h3>
+                <button @click="modals.listHygiene = false" class="close-btn"><i data-lucide="x"></i></button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- If Loading -->
+                <div x-show="hygieneChecking" style="text-align: center; padding: 30px 0;">
+                    <i data-lucide="loader" class="animate-spin" style="width: 48px; height: 48px; margin: 0 auto 15px; display:block; color: var(--color-primary);"></i>
+                    <p style="font-size: 14px; color: var(--text-secondary);">Querying MX & A records for subscriber domains...</p>
+                </div>
+                
+                <!-- Results -->
+                <div x-show="!hygieneChecking && hygieneResults">
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 13px; color: var(--text-secondary);">Total Checked:</span>
+                            <span style="font-weight: bold; color: #fff;" x-text="hygieneResults ? hygieneResults.total_checked : 0"></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 13px; color: var(--text-secondary);">Invalid Domains:</span>
+                            <span style="font-weight: bold;" :class="hygieneResults && hygieneResults.invalid_count > 0 ? 'color-danger' : 'color-success'" x-text="hygieneResults ? hygieneResults.invalid_count : 0"></span>
+                        </div>
+                    </div>
+                    
+                    <!-- Invalid subscribers list -->
+                    <div x-show="hygieneResults && hygieneResults.invalid_count > 0" style="margin-top: 15px;">
+                        <h4 style="font-size: 13px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 10px; font-weight: bold;">Subscribers with Dead/Invalid Domains</h4>
+                        <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-glass); border-radius: 6px; padding: 8px; background: rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 8px;">
+                            <template x-for="s in hygieneResults ? hygieneResults.results.filter(r => !r.domain_valid) : []" :key="s.id">
+                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                                    <div>
+                                        <div style="font-weight: 600; color: #fff;" x-text="s.name || 'Anonymous'"></div>
+                                        <div style="color: var(--text-muted); font-size: 11px;" x-text="s.email"></div>
+                                    </div>
+                                    <span class="badge" :class="s.status === 'unsubscribed' ? 'badge-muted' : 'badge-danger'" x-text="s.status"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    
+                    <!-- Clean notification -->
+                    <div x-show="hygieneResults && hygieneResults.invalid_count === 0" style="text-align: center; padding: 20px 0;">
+                        <i data-lucide="check-circle" style="width: 48px; height: 48px; margin: 0 auto 10px; color: var(--color-success); display:block;"></i>
+                        <p style="font-size: 14px; color: var(--text-secondary);">All domains have valid MX or A records. Your list is clean!</p>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                        <button @click="modals.listHygiene = false" class="btn btn-secondary btn-sm">Close</button>
+                        <button x-show="hygieneResults && hygieneResults.invalid_count > 0 && hygieneResults.results.some(r => !r.domain_valid && r.status !== 'unsubscribed')" 
+                                @click="unsubscribeHygieneInvalid()" 
+                                class="btn btn-danger btn-sm">
+                            Unsubscribe Dead Contacts
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

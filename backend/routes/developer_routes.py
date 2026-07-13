@@ -257,3 +257,134 @@ def developer_add_subscriber(payload: dict, request: Request, background_tasks: 
         "status": sub.status,
         "detail": "Subscriber added successfully via Developer API. Verification sent if required."
     }
+
+@router.post("/v1/send")
+def developer_direct_send(
+    payload: dict,
+    request: Request,
+    x_polypress_key: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    tenant = get_tenant_by_api_key(db, x_polypress_key)
+    
+    to_email = payload.get("to_email")
+    subject = payload.get("subject")
+    body_html = payload.get("body_html")
+    smtp_fallback = payload.get("smtp_fallback", False)
+    
+    if not to_email or not subject or not body_html:
+        raise HTTPException(status_code=400, detail="to_email, subject, and body_html are required fields")
+        
+    # Resolve or create special tracking list
+    list_name = "API Direct Sends"
+    sub_list = db.query(SubscriberList).filter(SubscriberList.name == list_name, SubscriberList.tenant_id == tenant.id).first()
+    if not sub_list:
+        sub_list = SubscriberList(
+            tenant_id=tenant.id,
+            name=list_name,
+            description="Default subscriber tracking list for Direct Send API"
+        )
+        db.add(sub_list)
+        db.commit()
+        db.refresh(sub_list)
+        
+    # Resolve or create subscriber
+    subscriber = db.query(Subscriber).filter(Subscriber.email == to_email, Subscriber.tenant_id == tenant.id).first()
+    if not subscriber:
+        subscriber = Subscriber(
+            tenant_id=tenant.id,
+            list_id=sub_list.id,
+            email=to_email,
+            name=to_email.split("@")[0],
+            status="active",
+            source_tag="Direct Send API"
+        )
+        db.add(subscriber)
+        db.commit()
+        db.refresh(subscriber)
+        
+    # Create campaign log record
+    campaign = Campaign(
+        tenant_id=tenant.id,
+        list_id=sub_list.id,
+        list_ids=[sub_list.id],
+        name=f"API Send: {subject[:50]}",
+        subject=subject,
+        body_html=body_html,
+        is_custom_html=True,
+        custom_html=body_html,
+        status="sent",
+        total_recipients=1,
+        sent_count=1,
+        sent_at=datetime.utcnow()
+    )
+    db.add(campaign)
+    db.commit()
+    db.refresh(campaign)
+    
+    # Compile trackers and replace templates
+    from database import GlobalSettings
+    settings = db.query(GlobalSettings).first()
+    base_url = settings.public_url if (settings and settings.public_url) else f"{request.base_url.scheme}://{request.base_url.netloc}"
+    if base_url:
+        base_url = base_url.rstrip("/")
+        
+    from routes.campaign_routes import render_email_template
+    final_html = render_email_template(
+        body_html=body_html,
+        subscriber=subscriber,
+        tracking_domain=base_url,
+        campaign_id=campaign.id,
+        subscriber_id=subscriber.id
+    )
+    
+    # We send using the sending worker helper functions
+    from sending_worker import send_direct_mta, send_external_smtp
+    
+    success = False
+    error_msg = "Unknown error"
+    
+    if tenant.direct_send:
+        class MockItem:
+            def __init__(self, to, subj, html, c_id, s_id):
+                self.id = 0
+                self.campaign_id = c_id
+                self.subscriber_id = s_id
+                self.email = to
+                self.subject = subj
+                self.body_html = html
+        item = MockItem(to_email, subject, final_html, campaign.id, subscriber.id)
+        success, is_transient, code, msg = send_direct_mta(item, tenant)
+        if not success:
+            error_msg = f"Direct send failed: {msg}"
+            
+    if not success and (not tenant.direct_send or smtp_fallback):
+        if tenant.smtp_host:
+            class MockItem:
+                def __init__(self, to, subj, html, c_id, s_id):
+                    self.id = 0
+                    self.campaign_id = c_id
+                    self.subscriber_id = s_id
+                    self.email = to
+                    self.subject = subj
+                    self.body_html = html
+            item = MockItem(to_email, subject, final_html, campaign.id, subscriber.id)
+            success, is_transient, code, msg = send_external_smtp(item, tenant)
+            if not success:
+                error_msg = f"SMTP fallback failed: {msg}"
+        else:
+            if tenant.direct_send:
+                error_msg += " (No SMTP fallback server configured)"
+            else:
+                error_msg = "No SMTP server configured"
+                
+    if success:
+        campaign.sent_count = 1
+        campaign.failed_count = 0
+        db.commit()
+        return {"status": "success", "detail": "Email dispatched successfully", "campaign_id": campaign.id}
+    else:
+        campaign.sent_count = 0
+        campaign.failed_count = 1
+        db.commit()
+        raise HTTPException(status_code=502, detail=f"Failed to dispatch email: {error_msg}")

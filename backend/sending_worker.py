@@ -320,14 +320,27 @@ class TenantRateLimiter:
             return True
         return False
 
+import threading
+active_threads_lock = threading.Lock()
+active_threads = {}
+
+def get_active_threads_for_tenant(tenant_id: int) -> int:
+    with active_threads_lock:
+        return active_threads.get(tenant_id, 0)
+
 # Global Thread Pool Executor for concurrent sends
 executor = ThreadPoolExecutor(max_workers=50)
 rate_limiters = {}
 
 def deliver_item_task(item_id: int):
     db = SessionLocal()
+    tenant_id = None
     try:
         item = db.query(QueueItem).filter(QueueItem.id == item_id).first()
+        if item:
+            tenant_id = item.tenant_id
+            with active_threads_lock:
+                active_threads[tenant_id] = active_threads.get(tenant_id, 0) + 1
         if not item:
             return
             
@@ -443,6 +456,9 @@ def deliver_item_task(item_id: int):
     except Exception as e:
         logger.exception(f"Error in deliver_item_task for QueueItem {item_id}: {e}")
     finally:
+        if tenant_id is not None:
+            with active_threads_lock:
+                active_threads[tenant_id] = max(0, active_threads.get(tenant_id, 0) - 1)
         db.close()
 
 async def process_queue():
@@ -687,6 +703,18 @@ async def process_queue():
                             sub.bounce_reason = "Email queue delivery timeout of 3 days."
                             sub.bounce_source_email = "System Outbox Queue Monitor"
                     db.commit()
+            
+            # Evaluate automatic background backups
+            try:
+                settings = db.query(GlobalSettings).first()
+                if settings and settings.backup_interval_hours and settings.backup_interval_hours > 0:
+                    last_backup = settings.last_backup_at
+                    if not last_backup or (datetime.utcnow() - last_backup).total_seconds() >= settings.backup_interval_hours * 3600:
+                        logger.info("Automatic backup schedule triggered.")
+                        from routes.backup_routes import perform_system_backup
+                        perform_system_backup(db)
+            except Exception as backup_err:
+                logger.error(f"Error executing automatic scheduled backup: {backup_err}")
             
             # 2. Fetch active sending candidate batch (up to 50 items)
             items = db.query(QueueItem).join(Campaign).filter(

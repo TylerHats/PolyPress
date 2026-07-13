@@ -27,7 +27,10 @@
                                 <tbody>
                                     <template x-for="c in campaigns" :key="c.id">
                                         <tr>
-                                            <td style="font-weight: 600;" x-text="c.name"></td>
+                                             <td style="font-weight: 600;">
+                                                 <div x-text="c.name"></div>
+                                                 <div x-show="c.description" style="font-size: 11px; color: var(--text-secondary); font-weight: normal; margin-top: 2px;" x-text="c.description"></div>
+                                             </td>
                                             <td x-text="c.subject"></td>
                                             <td style="text-align: center;">
                                                  <span class="badge" :class="getCampaignBadgeClass(c.status)" x-text="c.status" @click.stop="openStatusExplainer(c.status)" style="cursor: pointer;" title="Click to view status details"></span>
@@ -99,6 +102,9 @@
                             </button>
                             <button x-show="!isEditingOptIn && !isEditingFooter" @click="openPreviewModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
                                 <i data-lucide="eye" style="width: 16px; height: 16px;"></i> Live Preview
+                            </button>
+                            <button x-show="!isEditingOptIn && !isEditingFooter" @click="openSendTestModal()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
+                                <i data-lucide="mail" style="width: 16px; height: 16px;"></i> Send Test
                             </button>
                             <button x-show="!isEditingOptIn && !isEditingFooter && (!editingCampaign || !editingCampaign.is_automation_template)" @click="openLaunchModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; height: 38px;">
                                  <i data-lucide="send" style="width: 16px; height: 16px;"></i> Queue & Send
@@ -184,6 +190,9 @@
                             <div class="block-item" @click="addEditorBlock('columns')">
                                 <i data-lucide="columns"></i> Two-Column Layout
                             </div>
+                            <div class="block-item" @click="addEditorBlock('conditional')">
+                                <i data-lucide="eye-off"></i> Conditional Block
+                            </div>
                             </div>
                             
                             <div x-show="getEditorIsCustomHtml()" style="margin-bottom: 25px;">
@@ -197,7 +206,7 @@
                             <div style="font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
                                 <code>{{name}}</code>
                                 <code>{{email}}</code>
-                                <template x-for="f in getActiveListFields().filter(field => field.key !== 'name' && field.key !== 'email')" :key="f.key">
+                                <template x-for="f in getActiveListFields().filter(field => field.key.toLowerCase() !== 'name' && field.key.toLowerCase() !== 'email')" :key="f.key">
                                     <code x-text="'{{' + f.key + '}}'"></code>
                                 </template>
                                 <code>{{unsubscribe_url}}</code>
@@ -293,6 +302,15 @@
                                             <template x-if="b.type === 'spacer'">
                                                 <div :style="'height:' + b.height"></div>
                                             </template>
+                                            <template x-if="b.type === 'conditional'">
+                                                <div style="border: 1px dashed var(--color-primary); padding: 10px; border-radius: 6px; background: rgba(99, 102, 241, 0.05); position: relative;">
+                                                    <div style="font-size: 10px; font-weight: bold; color: var(--color-primary); margin-bottom: 5px; text-transform: uppercase; pointer-events: none; display: flex; align-items: center; gap: 4px;">
+                                                        <i data-lucide="eye-off" style="width: 12px; height: 12px;"></i>
+                                                        Show IF: <span x-text="b.condition"></span>
+                                                    </div>
+                                                    <div :style="'text-align:' + b.align + '; font-size:' + b.size + '; color:' + b.color + '; padding:' + b.padding + '; white-space: pre-line;'" x-html="(b.text || '').replace(/\n/g, '<br>')"></div>
+                                                </div>
+                                            </template>
                                         </div>
 
                                     </div>
@@ -308,6 +326,18 @@
                             <!-- Campaign settings always visible at the top of properties panel -->
                             <div x-show="!isEditingFooter" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-glass); padding-bottom: 15px;">
                                 <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;" x-text="isEditingOptIn ? 'Double Opt-In Settings' : 'Campaign Settings'">Campaign Settings</h3>
+                                <template x-if="!isEditingOptIn && editingCampaign">
+                                    <div class="field" style="margin-bottom: 10px;">
+                                        <label>Campaign Name</label>
+                                        <input type="text" x-model="editingCampaign.name" placeholder="e.g. July newsletter">
+                                    </div>
+                                </template>
+                                <template x-if="!isEditingOptIn && editingCampaign">
+                                    <div class="field" style="margin-bottom: 10px;">
+                                        <label>Campaign Description</label>
+                                        <textarea x-model="editingCampaign.description" placeholder="e.g. Sent to list members" rows="2" style="font-size: 13px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 6px; color: #fff; width: 100%; padding: 8px; resize: vertical;"></textarea>
+                                    </div>
+                                </template>
                                 <div class="field" style="margin-bottom: 10px;">
                                     <label>Email Subject</label>
                                     <template x-if="!isEditingOptIn && editingCampaign">
@@ -340,7 +370,7 @@
                                             Enable A/B/C/D Split Testing
                                         </label>
                                         
-                                        <div x-show="editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template" style="margin-top: 20px; display: flex; flex-direction: column; gap: 24px;">
+                                        <div x-show="editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template" style="margin-top: 15px; display: flex; flex-direction: column; gap: 15px;">
                                             <div class="field">
                                                 <label>Test Sample Size Ratio (0.01 - 1.0)</label>
                                                 <input type="number" x-model.number="editingCampaign.ab_test_ratio" step="0.05" min="0.05" max="1.0" style="width: 100%;">
@@ -375,7 +405,7 @@
                             <template x-if="selectedBlockIndex !== null">
                                 <div style="display: flex; flex-direction: column; gap: 14px;">
                                     <!-- Dynamic fields depending on active block type -->
-                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph', 'button', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="field">
                                             <label>Text Content</label>
                                             <textarea id="editor-text-input" x-model="editorBlocks[selectedBlockIndex].text" @input="reRenderCanvas()"></textarea>
@@ -394,6 +424,16 @@
                                         </div>
                                     </template>
                                     
+                                    <template x-if="editorBlocks[selectedBlockIndex].type === 'conditional'">
+                                        <div class="field">
+                                            <label>Visibility Condition</label>
+                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].condition" @input="reRenderCanvas()" placeholder="e.g. tag contains 'VIP' or name == 'John'">
+                                            <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">
+                                                Syntax: <code>tag contains 'X'</code>, <code>tag not contains 'X'</code>, <code>location contains 'Canada'</code>, <code>field_name == 'value'</code>, or just <code>field_name</code> (checking if set).
+                                            </span>
+                                        </div>
+                                    </template>
+
                                     <template x-if="editorBlocks[selectedBlockIndex].type === 'button'">
                                         <div class="field">
                                             <label>Redirect URL</label>
@@ -630,7 +670,7 @@
                                         </div>
                                     </template>
 
-                                    <template x-if="['heading', 'paragraph', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph', 'button', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="field">
                                             <label>Alignment</label>
                                             <select x-model="editorBlocks[selectedBlockIndex].align" @change="reRenderCanvas()">
@@ -641,7 +681,7 @@
                                         </div>
                                     </template>
 
-                                    <template x-if="['heading', 'paragraph'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="form-grid">
                                             <div class="field">
                                                 <label>Font Size</label>
@@ -691,7 +731,7 @@
                                         </div>
                                     </template>
 
-                                    <template x-if="['heading', 'paragraph', 'divider', 'button'].includes(editorBlocks[selectedBlockIndex].type)">
+                                    <template x-if="['heading', 'paragraph', 'divider', 'button', 'conditional'].includes(editorBlocks[selectedBlockIndex].type)">
                                         <div class="field">
                                             <label>Padding (margins)</label>
                                             <input type="text" x-model="editorBlocks[selectedBlockIndex].padding" @input="reRenderCanvas()">
