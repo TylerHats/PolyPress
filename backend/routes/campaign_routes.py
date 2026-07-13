@@ -122,7 +122,10 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
             return inner_content
         
         # Get subscriber tags
-        sub_tags = [t.strip().lower() for t in (subscriber.tags or "").split(",") if t.strip()]
+        if isinstance(subscriber.tags, list):
+            sub_tags = [str(t).strip().lower() for t in subscriber.tags if t]
+        else:
+            sub_tags = [t.strip().lower() for t in (subscriber.tags or "").split(",") if t.strip()]
         
         # 1. tag contains / not contains
         tag_match = re.match(r'^tag\s+contains\s+["\']([^"\']+)["\']$', cond_expr, re.IGNORECASE)
