@@ -7,7 +7,7 @@ import zoneinfo
 import re
 import urllib.parse
 import database as db_mod
-from database import get_db, Campaign, SubscriberList, Subscriber, QueueItem, User, TrackingLog, GlobalSettings
+from database import get_db, Campaign, SubscriberList, Subscriber, QueueItem, User, TrackingLog, GlobalSettings, Tenant
 import auth
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
@@ -73,8 +73,33 @@ def apply_targeting_rules_to_query(query, rules: dict):
 
     return query
 
-def render_email_template(body_html: str, subscriber: Subscriber, tracking_domain: str, campaign_id: int, subscriber_id: int) -> str:
+def render_email_template(body_html: str, subscriber: Subscriber, tracking_domain: str, campaign_id: int, subscriber_id: int, preheader: str = "") -> str:
     rendered = body_html or ""
+    
+    # Prepend hidden preheader text if present
+    if preheader:
+        preheader_text = str(preheader).strip()
+        preheader_html = f'<div style="display:none;max-height:0px;max-width:0px;opacity:0;overflow:hidden;font-size:1px;color:#fff;line-height:1px;">{preheader_text}</div>'
+        if "<body>" in rendered:
+            rendered = rendered.replace("<body>", f"<body>{preheader_html}")
+        elif "<body " in rendered:
+            parts = rendered.split(">", 1)
+            if len(parts) > 1 and "<body" in parts[0]:
+                rendered = parts[0] + ">" + preheader_html + parts[1]
+            else:
+                rendered = preheader_html + rendered
+        else:
+            rendered = preheader_html + rendered
+
+    # For preview and test sends (subscriber_id is 0), bypass conditions of blocks marked visible in preview
+    if subscriber_id == 0:
+        rendered = re.sub(
+            r'(<!--\s*start_conditional\s+.*?preview_visible="true".*?-->\s*){%\s*if\s+(.*?)\s*%}',
+            r'\1{% if show_in_preview %}',
+            rendered,
+            flags=re.IGNORECASE
+        )
+
     rendered = rendered.replace("{{email}}", subscriber.email or "")
     rendered = rendered.replace("{{name}}", subscriber.name or "")
     
@@ -91,6 +116,10 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
     def evaluate_inline_condition(match):
         cond_expr = match.group(1).strip()
         inner_content = match.group(2)
+        
+        # Bypassed conditional tags
+        if cond_expr.lower() in ("true", "show_in_preview"):
+            return inner_content
         
         # Get subscriber tags
         sub_tags = [t.strip().lower() for t in (subscriber.tags or "").split(",") if t.strip()]
@@ -428,7 +457,8 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
                 subscriber=sub,
                 tracking_domain=tracking_domain,
                 campaign_id=campaign.id,
-                subscriber_id=sub.id
+                subscriber_id=sub.id,
+                preheader=variant.get("preheader", "")
             )
             
             next_attempt = scheduled_time if scheduled_time else datetime.utcnow()
@@ -453,7 +483,8 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
                 subscriber=sub,
                 tracking_domain=tracking_domain,
                 campaign_id=campaign.id,
-                subscriber_id=sub.id
+                subscriber_id=sub.id,
+                preheader=campaign.preheader or ""
             )
             
             # next_attempt set to future scheduled time or now
@@ -677,11 +708,13 @@ def preview_campaign(
             
     tracking_domain = f"{scheme}://{request.base_url.netloc}".rstrip("/")
     body_html = campaign.body_html
+    preheader = campaign.preheader or ""
     if variant and variant != "A":
         variants = campaign.ab_variants or []
         for v in variants:
             if v.get("id") == variant:
                 body_html = v.get("body_html", "")
+                preheader = v.get("preheader", "")
                 break
 
     rendered = render_email_template(
@@ -689,7 +722,8 @@ def preview_campaign(
         subscriber=mock_sub,
         tracking_domain=tracking_domain,
         campaign_id=campaign.id,
-        subscriber_id=0
+        subscriber_id=0,
+        preheader=preheader
     )
     
     # Inject upgrade-insecure-requests CSP meta tag to prevent mixed content warnings in iframe
@@ -838,7 +872,8 @@ def send_test_email(
             subscriber=dummy_subscriber,
             tracking_domain=tracking_domain,
             campaign_id=campaign.id,
-            subscriber_id=0
+            subscriber_id=0,
+            preheader=campaign.preheader or ""
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to render campaign template: {e}")

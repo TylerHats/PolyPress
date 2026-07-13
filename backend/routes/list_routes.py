@@ -589,16 +589,35 @@ def send_direct_email_to_subscriber(
         
     subject = payload.get("subject", "").strip()
     body_html = payload.get("body_html", "").strip()
+    snippet = payload.get("snippet", "").strip()
     
     if not subject or not body_html:
         raise HTTPException(status_code=400, detail="Subject and body_html are required fields")
         
-    body_html = body_html.replace("{name}", sub.name or "")
-    body_html = body_html.replace("{email}", sub.email)
-    body_html = body_html.replace("{tenant_name}", tenant.name or "")
+    from database import GlobalSettings
+    from routes.campaign_routes import render_email_template
     
-    if tenant.email_footer_html:
-        body_html += f"<br/><br/>{tenant.email_footer_html}"
+    tracking_domain = ""
+    settings = db.query(GlobalSettings).first()
+    if settings:
+        tracking_domain = settings.tracking_domain or ""
+        
+    # Support placeholder replacements matching template variables
+    body_html = body_html.replace("{name}", sub.name or "").replace("{{name}}", sub.name or "")
+    body_html = body_html.replace("{email}", sub.email).replace("{{email}}", sub.email)
+    body_html = body_html.replace("{tenant_name}", tenant.name or "").replace("{{tenant_name}}", tenant.name or "")
+    
+    try:
+        body_html = render_email_template(
+            body_html=body_html,
+            subscriber=sub,
+            tracking_domain=tracking_domain,
+            campaign_id=0,
+            subscriber_id=sub.id,
+            preheader=snippet
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to render direct email template: {e}")
         
     from sending_worker import send_transactional_email
     success, err_msg = send_transactional_email(

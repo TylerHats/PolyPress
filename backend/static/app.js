@@ -147,10 +147,13 @@
                     rowsHtml += compileSingleBlock(block);
                 } else if (block.type === 'conditional') {
                     const innerHtml = compileSingleBlock(block.innerBlock || { type: 'paragraph', text: block.text || 'Conditional text...', color: block.color, align: block.align, size: block.size, padding: block.padding });
+                    const previewVisible = block.preview_visible !== false ? 'true' : 'false';
                     rowsHtml += `
-                    {% if ${block.condition} %}
+                    <!-- start_conditional condition="${block.condition || ''}" preview_visible="${previewVisible}" -->
+                    {% if ${block.condition || 'true'} %}
                     ${innerHtml}
-                    {% endif %}`;
+                    {% endif %}
+                    <!-- end_conditional -->`;
                 }
             }
             
@@ -348,9 +351,11 @@
                 diagnosticsIntervalId: null,
                 automationsList: [],
                 directMailModalOpen: false,
-                directMailRecipient: { id: null, email: '', name: '' },
-                directMailForm: { subject: '', body_html: '' },
+                directMailRecipient: { id: null, email: '', name: '', list_id: null },
+                directMailForm: { subject: '', body_html: '', snippet: '' },
                 sendingDirectMail: false,
+                directMailCustomHtmlMode: false,
+                directMailCustomHtml: '',
                 directMailBlocks: [],
                 selectedDirectMailBlockIndex: null,
                 activeFlowTarget: { name: '', description: '', flow_data: { trigger: { list_id: '' }, nodes: [] } },
@@ -2053,10 +2058,12 @@
                 },
 
                 openDirectMailModal(sub) {
-                    this.directMailRecipient = { id: sub.id, email: sub.email, name: sub.name };
-                    this.directMailForm = { subject: '', body_html: '' };
+                    this.directMailRecipient = { id: sub.id, email: sub.email, name: sub.name, list_id: sub.list_id };
+                    this.directMailForm = { subject: '', body_html: '', snippet: '' };
+                    this.directMailCustomHtmlMode = false;
+                    this.directMailCustomHtml = '';
                     this.directMailBlocks = [
-                        { type: 'paragraph', text: 'Hello ' + (sub.name || 'there') + ',\n\n' }
+                        { type: 'paragraph', text: 'Hello ' + (sub.name || 'there') + ',\n\n', align: 'left', size: '14px', color: '#374151', padding: '10px 0px' }
                     ];
                     this.selectedDirectMailBlockIndex = 0;
                     this.directMailModalOpen = true;
@@ -2064,15 +2071,20 @@
                 },
 
                 async sendDirectMail() {
-                    // Compile blocks to HTML
-                    this.directMailForm.body_html = compileBlocksToHtml(this.directMailBlocks, this.tenant.email_footer_html);
+                    // Compile blocks to HTML or use custom HTML
+                    if (this.directMailCustomHtmlMode) {
+                        this.directMailForm.body_html = this.directMailCustomHtml;
+                    } else {
+                        this.directMailForm.body_html = compileBlocksToHtml(this.directMailBlocks, this.tenant.email_footer_html);
+                    }
+                    
                     if (!this.directMailForm.subject.trim() || !this.directMailForm.body_html.trim()) {
                         this.showToast('Please fill out all fields', 'error');
                         return;
                     }
                     this.sendingDirectMail = true;
                     try {
-                        const res = await fetch(`/api/lists/${this.listSelected.id}/subscribers/${this.directMailRecipient.id}/send-direct-email`, {
+                        const res = await fetch(`/api/lists/${this.directMailRecipient.list_id}/subscribers/${this.directMailRecipient.id}/send-direct-email`, {
                             method: 'POST',
                             headers: this.getAuthHeaders(),
                             body: JSON.stringify(this.directMailForm)
@@ -2097,13 +2109,13 @@
                         block.text = 'New Heading';
                         block.align = 'left';
                         block.size = '24px';
-                        block.color = '#ffffff';
+                        block.color = '#111827';
                         block.padding = '10px 0px';
                     } else if (type === 'paragraph') {
                         block.text = 'Write your content here...';
                         block.align = 'left';
                         block.size = '14px';
-                        block.color = '#cbd5e1';
+                        block.color = '#374151';
                         block.padding = '10px 0px';
                     } else if (type === 'button') {
                         block.text = 'Click Here';
@@ -2120,7 +2132,7 @@
                         block.border_radius = '0px';
                     } else if (type === 'divider') {
                         block.height = '1px';
-                        block.color = '#475569';
+                        block.color = '#e2e8f0';
                         block.padding = '15px 0px';
                     } else if (type === 'spacer') {
                         block.height = '20px';
@@ -2132,12 +2144,12 @@
                             text: 'Conditional content...',
                             align: 'left',
                             size: '14px',
-                            color: '#cbd5e1',
+                            color: '#374151',
                             padding: '10px 0px'
                         };
                     } else if (type === 'columns') {
-                        block.left = { type: 'paragraph', text: 'Left Column content', align: 'left', size: '14px', color: '#cbd5e1', padding: '5px' };
-                        block.right = { type: 'paragraph', text: 'Right Column content', align: 'left', size: '14px', color: '#cbd5e1', padding: '5px' };
+                        block.left = { type: 'paragraph', text: 'Left Column content', align: 'left', size: '14px', color: '#374151', padding: '5px' };
+                        block.right = { type: 'paragraph', text: 'Right Column content', align: 'left', size: '14px', color: '#374151', padding: '5px' };
                         block.ratio = '50-50';
                     }
                     this.directMailBlocks.push(block);
@@ -2176,13 +2188,13 @@
                         inner.text = 'Write conditional content...';
                         inner.align = 'left';
                         inner.size = '14px';
-                        inner.color = '#cbd5e1';
+                        inner.color = '#374151';
                         inner.padding = '10px 0px';
                     } else if (type === 'heading') {
                         inner.text = 'Conditional Heading';
                         inner.align = 'left';
                         inner.size = '24px';
-                        inner.color = '#ffffff';
+                        inner.color = '#111827';
                         inner.padding = '10px 0px';
                     } else if (type === 'button') {
                         inner.text = 'Click Here';
@@ -2198,7 +2210,7 @@
                         inner.border_radius = '0px';
                     } else if (type === 'divider') {
                         inner.height = '1px';
-                        inner.color = '#475569';
+                        inner.color = '#e2e8f0';
                         inner.padding = '15px 0px';
                     } else if (type === 'spacer') {
                         inner.height = '20px';
