@@ -281,4 +281,4 @@ To cleanly stop the background service, delete python dependencies, and optional
 ```bash
 ./uninstall.sh
 ```
-This leaves your system completely clean.
+This leaves your system completely clean. 
