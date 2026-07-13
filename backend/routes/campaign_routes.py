@@ -834,6 +834,7 @@ def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), curr
 @router.post("/{campaign_id}/send-test")
 def send_test_email(
     campaign_id: int,
+    request: Request,
     payload: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.require_tenant_write_access)
@@ -867,8 +868,11 @@ def send_test_email(
         
         tracking_domain = ""
         settings = db.query(GlobalSettings).first()
-        if settings:
-            tracking_domain = settings.tracking_domain or ""
+        if settings and settings.public_url:
+            tracking_domain = settings.public_url.rstrip("/")
+        else:
+            scheme = request.headers.get("x-forwarded-proto") or request.base_url.scheme
+            tracking_domain = f"{scheme}://{request.base_url.netloc}".rstrip("/")
             
         try:
             body_html = render_email_template(
