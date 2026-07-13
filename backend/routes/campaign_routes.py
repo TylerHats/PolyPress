@@ -838,59 +838,68 @@ def send_test_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.require_tenant_write_access)
 ):
-    if current_user.role == "super_admin":
-        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
-    else:
-        if not current_user.tenant_id:
-            raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
-        
-    if not campaign:
-        raise HTTPException(status_code=404, detail="Campaign not found")
-        
-    to_email = payload.get("email")
-    if not to_email or "@" not in to_email:
-        raise HTTPException(status_code=400, detail="Valid test email address is required")
-        
-    tenant = db.query(Tenant).filter(Tenant.id == campaign.tenant_id).first()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant not found")
-        
-    # Render campaign using a mock subscriber
-    dummy_subscriber = Subscriber(
-        email=to_email,
-        name="Test Recipient",
-        status="active",
-        custom_data={}
-    )
-    
-    tracking_domain = ""
-    settings = db.query(GlobalSettings).first()
-    if settings:
-        tracking_domain = settings.tracking_domain or ""
-        
     try:
-        body_html = render_email_template(
-            body_html=campaign.body_html or "",
-            subscriber=dummy_subscriber,
-            tracking_domain=tracking_domain,
-            campaign_id=campaign.id,
-            subscriber_id=0,
-            preheader=campaign.preheader or ""
+        if current_user.role == "super_admin":
+            campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+        else:
+            if not current_user.tenant_id:
+                raise HTTPException(status_code=400, detail="User not associated with a tenant")
+            campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+            
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+            
+        to_email = payload.get("email")
+        if not to_email or "@" not in to_email:
+            raise HTTPException(status_code=400, detail="Valid test email address is required")
+            
+        tenant = db.query(Tenant).filter(Tenant.id == campaign.tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+            
+        # Render campaign using a mock subscriber
+        dummy_subscriber = Subscriber(
+            email=to_email,
+            name="Test Recipient",
+            status="active",
+            custom_data={}
         )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to render campaign template: {e}")
         
-    from sending_worker import send_transactional_email
-    success, err_msg = send_transactional_email(
-        to_email=to_email,
-        subject=f"[TEST] {campaign.subject or 'Draft Campaign'}",
-        body_html=body_html,
-        tenant=tenant
-    )
-    
-    if not success:
-        raise HTTPException(status_code=400, detail=f"Failed to dispatch test email: {err_msg}")
+        tracking_domain = ""
+        settings = db.query(GlobalSettings).first()
+        if settings:
+            tracking_domain = settings.tracking_domain or ""
+            
+        try:
+            body_html = render_email_template(
+                body_html=campaign.body_html or "",
+                subscriber=dummy_subscriber,
+                tracking_domain=tracking_domain,
+                campaign_id=campaign.id,
+                subscriber_id=0,
+                preheader=campaign.preheader or ""
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to render campaign template: {e}")
+            
+        from sending_worker import send_transactional_email
+        success, err_msg = send_transactional_email(
+            to_email=to_email,
+            subject=f"[TEST] {campaign.subject or 'Draft Campaign'}",
+            body_html=body_html,
+            tenant=tenant
+        )
         
-    return {"detail": "Test email sent successfully"}
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Failed to dispatch test email: {err_msg}")
+            
+        return {"detail": "Test email sent successfully"}
+    except HTTPException:
+        raise
+    except Exception as err:
+        import traceback
+        tb = traceback.format_exc()
+        import logging
+        logging.getLogger("polypress").error(f"Test send 500 error: {tb}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {err}\n{tb}")
 
