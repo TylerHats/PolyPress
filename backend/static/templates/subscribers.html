@@ -100,6 +100,7 @@
                                         <th>Status</th>
                                         <th>Location</th>
                                         <th>Origin</th>
+                                        <th>Sign Up Date</th>
                                         <th>Tags</th>
                                         <!-- Dynamic custom field headers -->
                                         <template x-for="f in listSelectedFields.filter(field => field.key !== 'name')" :key="f.key">
@@ -130,6 +131,7 @@
                                             </td>
                                             <td x-text="s.ip_location || 'Unknown'"></td>
                                             <td x-text="s.source_tag || '-'"></td>
+                                            <td x-text="s.created_at ? new Date(s.created_at + 'Z').toLocaleDateString() : '-'"></td>
                                             <td>
                                                 <div style="display: flex; flex-wrap: wrap; gap: 4px; max-width: 150px;">
                                                     <template x-for="tag in (s.tags || [])" :key="tag">

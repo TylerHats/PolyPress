@@ -243,9 +243,12 @@ def list_campaigns(db: Session = Depends(get_db), current_user: User = Depends(a
 
 @router.get("/{campaign_id}")
 def get_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     return campaign
@@ -295,10 +298,12 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
 
 @router.put("/{campaign_id}")
 def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -349,9 +354,12 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
 
 @router.delete("/{campaign_id}")
 def delete_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -361,15 +369,17 @@ def delete_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
 
 @router.post("/{campaign_id}/duplicate")
 def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
     new_campaign = Campaign(
-        tenant_id=current_user.tenant_id,
+        tenant_id=campaign.tenant_id,
         list_id=campaign.list_id,
         list_ids=campaign.list_ids,
         name=f"Copy of {campaign.name}",
@@ -386,10 +396,12 @@ def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_
 
 @router.post("/{campaign_id}/launch")
 def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -414,7 +426,7 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
     target_lists = campaign.list_ids or [campaign.list_id] if (campaign.list_ids or campaign.list_id) else []
     query = db.query(Subscriber).filter(
         Subscriber.list_id.in_(target_lists),
-        Subscriber.tenant_id == current_user.tenant_id,
+        Subscriber.tenant_id == campaign.tenant_id,
         Subscriber.status.in_(["active", "deferred"])
     )
     
@@ -532,21 +544,23 @@ def preview_target_subscribers(
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.get_current_user)
 ):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
         
     target_lists = payload.get("list_ids", [])
-    if not target_lists:
-        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
-        if campaign:
-            target_lists = campaign.list_ids or ([campaign.list_id] if campaign.list_id else [])
+    if not target_lists and campaign:
+        target_lists = campaign.list_ids or ([campaign.list_id] if campaign.list_id else [])
             
     if not target_lists:
         return {"total": 0, "page": page, "limit": limit, "subscribers": []}
         
     query = db.query(Subscriber).filter(
         Subscriber.list_id.in_(target_lists),
-        Subscriber.tenant_id == current_user.tenant_id,
+        Subscriber.tenant_id == (campaign.tenant_id if campaign else current_user.tenant_id),
         Subscriber.status.in_(["active", "deferred"])
     )
     
@@ -592,10 +606,12 @@ def preview_target_subscribers(
 
 @router.get("/{campaign_id}/stats")
 def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -742,10 +758,12 @@ def preview_campaign(
 
 @router.post("/{campaign_id}/pause")
 def pause_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -758,10 +776,12 @@ def pause_campaign(campaign_id: int, db: Session = Depends(get_db), current_user
 
 @router.post("/{campaign_id}/resume")
 def resume_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -774,10 +794,12 @@ def resume_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
 
 @router.post("/{campaign_id}/cancel")
 def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -796,10 +818,12 @@ def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
 
 @router.get("/{campaign_id}/click-map")
 def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
-    campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
