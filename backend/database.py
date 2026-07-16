@@ -790,6 +790,20 @@ def init_db():
                 })
                 sl.custom_fields = list(cf)
                 flag_modified(sl, "custom_fields")
+        # Self-healing: Repair any Campaigns and Subscribers that were orphaned with tenant_id = NULL
+        orphaned_campaigns = db.query(Campaign).filter(Campaign.tenant_id == None).all()
+        for c in orphaned_campaigns:
+            if c.list_id:
+                sub_list = db.query(SubscriberList).filter(SubscriberList.id == c.list_id).first()
+                if sub_list:
+                    c.tenant_id = sub_list.tenant_id
+                    
+        orphaned_subscribers = db.query(Subscriber).filter(Subscriber.tenant_id == None).all()
+        for s in orphaned_subscribers:
+            if s.list_id:
+                sub_list = db.query(SubscriberList).filter(SubscriberList.id == s.list_id).first()
+                if sub_list:
+                    s.tenant_id = sub_list.tenant_id
         db.commit()
     finally:
         db.close()
