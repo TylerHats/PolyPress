@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
 from sqlalchemy.orm import Session
 import database as db_mod
@@ -245,17 +246,19 @@ def parse_status_value(raw_val: str, status_mappings: dict = None) -> str:
         for k, v in status_mappings.items():
             if k.strip().lower() == val_lower:
                 v_clean = v.strip().lower()
-                if v_clean in ["active", "unsubscribed", "pending", "bounced", "complained"]:
-                    return v_clean
+                if v_clean in ["active", "unsubscribed", "pending", "bounced", "complained", "spam"]:
+                    return "spam" if v_clean in ("complained", "spam") else v_clean
                     
     # Default fallback mappings
     if val_lower in ["active", "opt-in", "optin", "yes", "subscribe", "subscribed", "true", "1"]:
         return "active"
     if val_lower in ["pending", "confirm", "unconfirmed", "double opt-in", "opt-in-pending"]:
         return "pending"
-    if val_lower in ["unsubscribed", "opt-out", "optout", "no", "unsubscribe", "false", "0", "complained", "bounced"]:
-        if val_lower in ["complained", "bounced"]:
-            return val_lower
+    if val_lower in ["unsubscribed", "opt-out", "optout", "no", "unsubscribe", "false", "0", "complained", "bounced", "spam"]:
+        if val_lower in ["complained", "spam"]:
+            return "spam"
+        if val_lower == "bounced":
+            return "bounced"
         return "unsubscribed"
         
     return "active"
@@ -397,13 +400,14 @@ async def import_csv_subscribers(
                 new_actives.append(sub)
         else:
             sub = Subscriber(
-                tenant_id=current_user.tenant_id,
+                tenant_id=sub_list.tenant_id,
                 list_id=list_id,
                 email=email_val.strip(),
                 name=name_val,
                 status=status_val,
                 custom_data=custom_data,
-                source_tag="CSV Import"
+                source_tag="CSV Import",
+                created_at=datetime.utcnow()
             )
             db.add(sub)
             existing_subs[email_key] = sub

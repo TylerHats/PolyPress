@@ -430,7 +430,7 @@
                 csvFile: null,
                 csvHeaders: [],
                 csvDelimiter: ',',
-                csvMapping: { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '', pending: '', bounced: '', complained: '' }, custom_fields: {} },
+                csvMapping: { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '', pending: '', bounced: '', spam: '' }, custom_fields: {} },
                 csvImportStep: 1,
                 
                 // Visual block editor state
@@ -3196,7 +3196,7 @@
                     this.csvFile = null;
                     this.csvHeaders = [];
                     this.csvDelimiter = ',';
-                    this.csvMapping = { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '', pending: '', bounced: '', complained: '' }, custom_fields: {} };
+                    this.csvMapping = { email: '', name: '', status: '', status_mappings: { active: '', unsubscribed: '', pending: '', bounced: '', spam: '' }, custom_fields: {} };
                     this.csvImportStep = 1;
                     this.modals.csvImport = true;
                     this.refreshIcons();
@@ -3277,7 +3277,7 @@
                         const unsubscribedVal = this.csvMapping.status_mappings.unsubscribed || "";
                         const pendingVal = this.csvMapping.status_mappings.pending || "";
                         const bouncedVal = this.csvMapping.status_mappings.bounced || "";
-                        const complainedVal = this.csvMapping.status_mappings.complained || "";
+                        const spamVal = this.csvMapping.status_mappings.spam || "";
                         if (activeVal) {
                             activeVal.split(',').forEach(v => {
                                 if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'active';
@@ -3298,9 +3298,9 @@
                                 if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'bounced';
                             });
                         }
-                        if (complainedVal) {
-                            complainedVal.split(',').forEach(v => {
-                                if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'complained';
+                        if (spamVal) {
+                            spamVal.split(',').forEach(v => {
+                                if (v.trim()) mappingPayload.status_mappings[v.trim()] = 'spam';
                             });
                         }
                     }
