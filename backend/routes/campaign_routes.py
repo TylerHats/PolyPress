@@ -255,9 +255,6 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: 
 
 @router.post("")
 def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="User not associated with a tenant")
-        
     list_ids = payload.get("list_ids") or []
     if not list_ids and payload.get("list_id"):
         list_ids = [payload.get("list_id")]
@@ -265,13 +262,22 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
     if not list_ids:
         raise HTTPException(status_code=400, detail="Subscriber list ID(s) required")
         
-    for lid in list_ids:
-        sub_list = db.query(SubscriberList).filter(SubscriberList.id == lid, SubscriberList.tenant_id == current_user.tenant_id).first()
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_ids[0]).first()
         if not sub_list:
-            raise HTTPException(status_code=404, detail=f"Subscriber list ID {lid} not found")
+            raise HTTPException(status_code=404, detail=f"Subscriber list ID {list_ids[0]} not found")
+        campaign_tenant_id = sub_list.tenant_id
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        for lid in list_ids:
+            sub_list = db.query(SubscriberList).filter(SubscriberList.id == lid, SubscriberList.tenant_id == current_user.tenant_id).first()
+            if not sub_list:
+                raise HTTPException(status_code=404, detail=f"Subscriber list ID {lid} not found")
+        campaign_tenant_id = current_user.tenant_id
         
     campaign = Campaign(
-        tenant_id=current_user.tenant_id,
+        tenant_id=campaign_tenant_id,
         list_id=list_ids[0] if list_ids else None,
         list_ids=list_ids,
         name=payload.get("name", "Untitled Campaign"),
@@ -335,14 +341,14 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
         if not list_ids:
             raise HTTPException(status_code=400, detail="At least one subscriber list required")
         for lid in list_ids:
-            sub_list = db.query(SubscriberList).filter(SubscriberList.id == lid, SubscriberList.tenant_id == current_user.tenant_id).first()
+            sub_list = db.query(SubscriberList).filter(SubscriberList.id == lid, SubscriberList.tenant_id == campaign.tenant_id).first()
             if not sub_list:
                 raise HTTPException(status_code=404, detail=f"Subscriber list ID {lid} not found")
         campaign.list_ids = list_ids
         campaign.list_id = list_ids[0]
     elif "list_id" in payload:
         list_id = payload["list_id"]
-        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == campaign.tenant_id).first()
         if not sub_list:
             raise HTTPException(status_code=404, detail="Subscriber list not found")
         campaign.list_id = list_id
