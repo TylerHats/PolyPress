@@ -563,10 +563,18 @@
                         
                         <!-- Recent MTA/SMTP failures -->
                         <div style="border-top: 1px solid var(--border-glass); padding-top: 20px;">
-                            <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--color-warning); display: flex; align-items: center; gap: 6px;">
-                                <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
-                                Recent MTA / SMTP Failures Log
-                            </h3>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <h3 style="font-size: 14px; margin: 0; color: var(--color-warning); display: flex; align-items: center; gap: 6px;">
+                                    <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
+                                    Recent MTA / SMTP Failures Log
+                                </h3>
+                                <button x-show="deliveryDiagnostics.recent_failures && deliveryDiagnostics.recent_failures.length > 0" 
+                                        @click="clearFailedLogs()" 
+                                        class="btn btn-secondary btn-sm" 
+                                        style="font-size: 11px; padding: 3px 8px; display: flex; align-items: center; gap: 5px;">
+                                    <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i> Clear Failure Log
+                                </button>
+                            </div>
                             <div class="table-container">
                                 <table class="data-table" style="font-size: 12px;">
                                     <thead>
@@ -585,7 +593,7 @@
                                                 <td x-text="f.subject"></td>
                                                 <td style="color: var(--color-danger);" x-text="f.last_mx_response || f.error_message || 'Unknown error'"></td>
                                                 <td x-text="f.error_code || '500'"></td>
-                                                <td x-text="new Date(f.updated_at + 'Z').toLocaleTimeString()"></td>
+                                                <td x-text="formatDateTime(f.updated_at)"></td>
                                             </tr>
                                         </template>
                                         <tr x-show="!deliveryDiagnostics.recent_failures || deliveryDiagnostics.recent_failures.length === 0">

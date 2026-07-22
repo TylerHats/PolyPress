@@ -2074,6 +2074,25 @@
                     } catch(e) {}
                 },
 
+                async clearFailedLogs() {
+                    if (!await this.confirmModalPromise("Clear Failure Log", "Are you sure you want to clear the failed email diagnostics log?", { isDanger: true })) return;
+                    try {
+                        const res = await fetch('/api/tenants/my/clear-failed-logs', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            this.showToast('Failed email diagnostics log cleared');
+                            this.fetchDeliveryDiagnostics();
+                        } else {
+                            const data = await res.json();
+                            this.showToast(data.detail || 'Failed to clear log', 'error');
+                        }
+                    } catch(e) {
+                        this.showToast('Error clearing failed log', 'error');
+                    }
+                },
+
                 formatBytes(bytes) {
                     if (!bytes) return '0 B';
                     const k = 1024;
@@ -3982,16 +4001,35 @@
                                     `;
                                     doc.head.appendChild(style);
                                     
+                                    const normalizeUrl = (raw) => {
+                                        if (!raw) return '';
+                                        let u = raw.trim();
+                                        if (u === '#' || u.startsWith('javascript:')) return '';
+                                        try {
+                                            if (u.includes('/api/track/click/') && u.includes('url=')) {
+                                                const parsed = new URL(u, window.location.origin);
+                                                const target = parsed.searchParams.get('url');
+                                                if (target) u = target;
+                                            }
+                                        } catch(e) {}
+                                        try {
+                                            const parsed = new URL(u, window.location.origin);
+                                            return (parsed.hostname + parsed.pathname).toLowerCase().replace(/\/$/, '');
+                                        } catch(e) {
+                                            return u.toLowerCase().replace(/\/$/, '');
+                                        }
+                                    };
+
                                     const links = doc.getElementsByTagName('a');
                                     for (let a of links) {
                                         const url = a.getAttribute('href');
-                                        if (!url) continue;
+                                        const normUrl = normalizeUrl(url);
+                                        if (!normUrl) continue;
                                         
-                                        const normUrl = url.trim().toLowerCase().replace(/\/$/, '');
                                         const stat = this.clickMapStats.find(x => {
                                             if (!x.url) return false;
-                                            const normStatUrl = x.url.trim().toLowerCase().replace(/\/$/, '');
-                                            return normStatUrl === normUrl;
+                                            const normStatUrl = normalizeUrl(x.url);
+                                            return normStatUrl && normStatUrl === normUrl;
                                         });
                                         if (stat) {
                                             const bubble = doc.createElement('span');

@@ -1279,3 +1279,18 @@ def get_delivery_diagnostics(
         "sent_last_24h": sent_last_24h,
         "recent_failures": failures_list
     }
+
+@router.post("/my/clear-failed-logs")
+def clear_failed_logs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_admin)
+):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    db.query(QueueItem).filter(
+        QueueItem.tenant_id == current_user.tenant_id,
+        QueueItem.status == "failed"
+    ).delete()
+    db.commit()
+    return {"detail": "Failed email diagnostics log cleared successfully"}
