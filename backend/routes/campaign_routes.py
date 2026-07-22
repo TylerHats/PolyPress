@@ -253,14 +253,34 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
     
     return rendered
 
+def reconcile_campaign_counts_inline(campaigns, db: Session):
+    need_commit = False
+    for c in campaigns:
+        if c.status in ["sending", "flushing", "completed", "paused"]:
+            sent_count = db.query(QueueItem).filter(QueueItem.campaign_id == c.id, QueueItem.status == "sent").count()
+            failed_count = db.query(QueueItem).filter(QueueItem.campaign_id == c.id, QueueItem.status == "failed").count()
+            if sent_count > (c.sent_count or 0):
+                c.sent_count = sent_count
+                need_commit = True
+            if failed_count > (c.failed_count or 0):
+                c.failed_count = failed_count
+                need_commit = True
+    if need_commit:
+        db.commit()
+
 @router.get("")
 def list_campaigns(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     # Scoped to current tenant
     if not current_user.tenant_id:
         if current_user.role == "super_admin":
-            return db.query(Campaign).order_by(Campaign.created_at.desc()).all()
-        raise HTTPException(status_code=400, detail="User is not associated with a tenant")
-    return db.query(Campaign).filter(Campaign.tenant_id == current_user.tenant_id).order_by(Campaign.created_at.desc()).all()
+            campaigns = db.query(Campaign).order_by(Campaign.created_at.desc()).all()
+        else:
+            raise HTTPException(status_code=400, detail="User is not associated with a tenant")
+    else:
+        campaigns = db.query(Campaign).filter(Campaign.tenant_id == current_user.tenant_id).order_by(Campaign.created_at.desc()).all()
+    
+    reconcile_campaign_counts_inline(campaigns, db)
+    return campaigns
 
 @router.get("/{campaign_id}")
 def get_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
@@ -272,6 +292,8 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: 
         campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    reconcile_campaign_counts_inline([campaign], db)
     return campaign
 
 @router.post("")
@@ -645,8 +667,14 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
         TrackingLog.event_type == "click"
     ).group_by(TrackingLog.link_url).all()
     
-    click_stats = [{"link": c.link_url, "clicks": c.click_count} for c in clicks]
-    
+    click_stats = [{"link": c.link_url, "clicks": c.click_count} for c in clicks if c.link_url]
+    total_clicks = sum(c["clicks"] for c in click_stats)
+
+    # Reconcile counts from QueueItem to ensure exact alignment with outbox states
+    failed_items_count = db.query(QueueItem).filter(QueueItem.campaign_id == campaign_id, QueueItem.status == "failed").count()
+    deferred_items_count = db.query(QueueItem).filter(QueueItem.campaign_id == campaign_id, QueueItem.status == "deferred").count()
+    sent_items_count = db.query(QueueItem).filter(QueueItem.campaign_id == campaign_id, QueueItem.status == "sent").count()
+
     ab_summary = None
     if campaign.ab_testing_enabled:
         variants_list = ["A"]
@@ -689,11 +717,12 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
         "name": campaign.name,
         "subject": campaign.subject,
         "total_recipients": campaign.total_recipients,
-        "sent": campaign.sent_count,
-        "failed": campaign.failed_count,
-        "bounces": campaign.bounce_count,
-        "opens": campaign.open_count,
-        "clicks": campaign.click_count,
+        "sent": sent_items_count or campaign.sent_count or 0,
+        "failed": failed_items_count,
+        "deferred": deferred_items_count,
+        "bounces": campaign.bounce_count or 0,
+        "opens": campaign.open_count or 0,
+        "clicks": total_clicks,
         "click_stats": click_stats,
         "ab_testing_enabled": campaign.ab_testing_enabled,
         "ab_winning_variant": campaign.ab_winning_variant,
@@ -852,11 +881,11 @@ def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), curr
     ).group_by(TrackingLog.link_url).all()
     
     click_map = [{"url": c[0], "clicks": c[1]} for c in clicks if c[0]]
-    total_opens = campaign.open_count or 1
+    total_clicks = sum(item["clicks"] for item in click_map) or 1
     
     formatted_map = []
     for item in click_map:
-        percentage = (item["clicks"] / total_opens) * 100
+        percentage = (item["clicks"] / total_clicks) * 100
         formatted_map.append({
             "url": item["url"],
             "clicks": item["clicks"],

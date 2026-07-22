@@ -3987,7 +3987,12 @@
                                         const url = a.getAttribute('href');
                                         if (!url) continue;
                                         
-                                        const stat = this.clickMapStats.find(x => x.url === url || url.includes(x.url));
+                                        const normUrl = url.trim().toLowerCase().replace(/\/$/, '');
+                                        const stat = this.clickMapStats.find(x => {
+                                            if (!x.url) return false;
+                                            const normStatUrl = x.url.trim().toLowerCase().replace(/\/$/, '');
+                                            return normStatUrl === normUrl;
+                                        });
                                         if (stat) {
                                             const bubble = doc.createElement('span');
                                             bubble.className = 'click-overlay-bubble';

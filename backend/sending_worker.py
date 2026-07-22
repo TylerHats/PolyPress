@@ -391,7 +391,10 @@ def deliver_item_task(item_id: int):
             item.status = "sent"
             item.error_code = 250
             item.last_mx_response = "Sent successfully"
-            campaign.sent_count = (campaign.sent_count or 0) + 1
+            from sqlalchemy import func
+            db.query(Campaign).filter(Campaign.id == campaign.id).update(
+                {Campaign.sent_count: func.coalesce(Campaign.sent_count, 0) + 1}
+            )
         else:
             item.error_code = code
             item.last_mx_response = msg
@@ -403,7 +406,13 @@ def deliver_item_task(item_id: int):
                 item.next_attempt = datetime.utcnow() + timedelta(minutes=retry_mins)
             else:
                 item.status = "failed"
-                campaign.failed_count = (campaign.failed_count or 0) + 1
+                from sqlalchemy import func
+                db.query(Campaign).filter(Campaign.id == campaign.id).update(
+                    {
+                        Campaign.failed_count: func.coalesce(Campaign.failed_count, 0) + 1,
+                        Campaign.bounce_count: func.coalesce(Campaign.bounce_count, 0) + 1
+                    }
+                )
                 
                 subscriber.status = "bounced"
                 subscriber.bounce_reason = f"[{code}] {msg}"
@@ -675,6 +684,14 @@ async def process_queue():
                         QueueItem.campaign_id == camp.id,
                         QueueItem.status == "deferred"
                     ).count()
+                    
+                    # Self-heal sent and failed counter columns against actual QueueItem outbox state
+                    sent_items = db.query(QueueItem).filter(QueueItem.campaign_id == camp.id, QueueItem.status == "sent").count()
+                    failed_items = db.query(QueueItem).filter(QueueItem.campaign_id == camp.id, QueueItem.status == "failed").count()
+                    if sent_items > (camp.sent_count or 0):
+                        camp.sent_count = sent_items
+                    if failed_items > (camp.failed_count or 0):
+                        camp.failed_count = failed_items
                     
                     if pending_or_sending > 0:
                         if camp.status != "sending":

@@ -47,8 +47,11 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
             db.add(log)
             
             if not existing_open:
-                # Increment campaign unique opens
-                campaign.open_count = (campaign.open_count or 0) + 1
+                # Increment campaign unique opens using atomic SQL
+                from sqlalchemy import func
+                db.query(Campaign).filter(Campaign.id == campaign_id).update(
+                    {Campaign.open_count: func.coalesce(Campaign.open_count, 0) + 1}
+                )
                 
             # Update subscriber's last open time and total opens count
             subscriber.last_open_at = datetime.utcnow()
@@ -121,8 +124,11 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
             )
             db.add(log)
             
-            # Always increment click count for total clicks tracking
-            campaign.click_count = (campaign.click_count or 0) + 1
+            # Always increment click count for total clicks tracking using atomic SQL
+            from sqlalchemy import func
+            db.query(Campaign).filter(Campaign.id == campaign_id).update(
+                {Campaign.click_count: func.coalesce(Campaign.click_count, 0) + 1}
+            )
             db.commit()
 
             from location_helper import log_subscriber_activity
