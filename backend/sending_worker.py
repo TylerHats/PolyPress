@@ -444,8 +444,8 @@ def deliver_item_task(item_id: int):
         except Exception as webhook_err:
             logger.error(f"Failed to dispatch webhooks for item {item.id}: {webhook_err}")
             
-        # Reconcile campaign status (bypass for automation campaigns)
-        if campaign.status == "automation":
+        # Reconcile campaign status (bypass for paused, draft, cancelled, or automation campaigns)
+        if campaign.status not in ["sending", "flushing"]:
             return
             
         pending_or_sending = db.query(QueueItem).filter(

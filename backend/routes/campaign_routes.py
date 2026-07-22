@@ -12,6 +12,26 @@ import auth
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
 
+def get_tracking_domain(request: Request, db: Session) -> str:
+    settings = db.query(GlobalSettings).first()
+    if settings and settings.public_url and settings.public_url.strip():
+        return settings.public_url.strip().rstrip("/")
+        
+    import os
+    BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    cert_path = os.path.join(BASE_DIR, "certs", "fullchain.pem")
+    
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").lower()
+    forwarded_ssl = (request.headers.get("x-forwarded-ssl") or "").lower()
+    
+    if forwarded_proto == "https" or forwarded_ssl == "on" or request.base_url.scheme == "https" or os.path.exists(cert_path):
+        scheme = "https"
+    else:
+        scheme = request.base_url.scheme
+        
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.base_url.netloc
+    return f"{scheme}://{host}".rstrip("/")
+
 def apply_targeting_rules_to_query(query, rules: dict):
     if not rules:
         return query
@@ -104,7 +124,8 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
     rendered = rendered.replace("{{name}}", subscriber.name or "")
     
     # Inject unsubscribe URL
-    unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/{subscriber.id}/{campaign_id}"
+    sub_id = subscriber_id if subscriber_id != 0 else (subscriber.id if (subscriber and subscriber.id) else 0)
+    unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/{sub_id}/{campaign_id}"
     rendered = rendered.replace("{{unsubscribe_url}}", unsubscribe_url)
     
     # Custom attributes replacement
@@ -448,10 +469,7 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
     if not subscribers:
         raise HTTPException(status_code=400, detail="Cannot send campaign to an empty list")
         
-    settings = db.query(GlobalSettings).first()
-    tracking_domain = settings.public_url if (settings and settings.public_url) else f"{request.base_url.scheme}://{request.base_url.netloc}"
-    if tracking_domain:
-        tracking_domain = tracking_domain.rstrip("/")
+    tracking_domain = get_tracking_domain(request, db)
     
     # Clear any previous queue items if re-scheduling/updating
     db.query(QueueItem).filter(QueueItem.campaign_id == campaign.id).delete()
@@ -722,16 +740,7 @@ def preview_campaign(
         custom_data={"city": "Metropolis", "company": "Daily Planet"}
     )
     
-    scheme = request.headers.get("x-forwarded-proto")
-    if not scheme:
-        from database import GlobalSettings
-        settings = db.query(GlobalSettings).first()
-        if settings and settings.public_url and settings.public_url.startswith("https"):
-            scheme = "https"
-        else:
-            scheme = request.base_url.scheme
-            
-    tracking_domain = f"{scheme}://{request.base_url.netloc}".rstrip("/")
+    tracking_domain = get_tracking_domain(request, db)
     body_html = campaign.body_html
     preheader = campaign.preheader or ""
     if variant and variant != "A":
@@ -896,13 +905,7 @@ def send_test_email(
             custom_data={}
         )
         
-        tracking_domain = ""
-        settings = db.query(GlobalSettings).first()
-        if settings and settings.public_url:
-            tracking_domain = settings.public_url.rstrip("/")
-        else:
-            scheme = request.headers.get("x-forwarded-proto") or request.base_url.scheme
-            tracking_domain = f"{scheme}://{request.base_url.netloc}".rstrip("/")
+        tracking_domain = get_tracking_domain(request, db)
             
         try:
             body_html = render_email_template(

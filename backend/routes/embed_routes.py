@@ -622,7 +622,7 @@ def confirm_optin(token: str, request: Request, db: Session = Depends(get_db)):
 
 @router.get("/unsubscribe/{subscriber_id}/{campaign_id}", response_class=HTMLResponse)
 def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = Depends(get_db)):
-    if subscriber_id == 0 and campaign_id == 0:
+    if subscriber_id == 0:
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -636,7 +636,7 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
                 <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
                     This is a mock unsubscribe page for system testing. If you were a real subscriber, clicking below would immediately remove you from our list.
                 </p>
-                <form action="/api/embed/unsubscribe/0/0" method="POST">
+                <form action="/api/embed/unsubscribe/0/{campaign_id}" method="POST">
                     <button type="submit" class="btn" style="background-color: #dc2626;">Yes, Unsubscribe (Test)</button>
                 </form>
             </div>
@@ -649,7 +649,24 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     
     if not subscriber or not campaign:
-        return HTMLResponse("<h2>Invalid request</h2>", status_code=400)
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Invalid Link</title>
+            {HTML_STYLE}
+        </head>
+        <body>
+            <div class="card" style="text-align: center;">
+                <h2 style="color: #ef4444;">Invalid Request</h2>
+                <p style="font-size: 14px; color: #94a3b8; line-height: 1.5;">
+                    The subscription management link is invalid or no longer active.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html, status_code=400)
         
     tenant_id = campaign.tenant_id
     
@@ -716,7 +733,7 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
 
 @router.post("/unsubscribe/{subscriber_id}/{campaign_id}", response_class=HTMLResponse)
 async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db: Session = Depends(get_db)):
-    if subscriber_id == 0 and campaign_id == 0:
+    if subscriber_id == 0:
         form_data = await request.form()
         action = form_data.get("action", "unsubscribe_all")
         html = f"""
@@ -742,7 +759,24 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     
     if not subscriber or not campaign:
-        return HTMLResponse("<h2>Invalid request</h2>", status_code=400)
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Invalid Link</title>
+            {HTML_STYLE}
+        </head>
+        <body>
+            <div class="card" style="text-align: center;">
+                <h2 style="color: #ef4444;">Invalid Request</h2>
+                <p style="font-size: 14px; color: #94a3b8; line-height: 1.5;">
+                    The subscription management link is invalid or no longer active.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html, status_code=400)
         
     form_data = await request.form()
     action = form_data.get("action", "unsubscribe_all")
