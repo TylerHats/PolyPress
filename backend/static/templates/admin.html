@@ -133,7 +133,7 @@
                                          </div>
                                          <div class="field">
                                              <label>Client Secret</label>
-                                             <input type="password" x-model="globalSettings.oidc_client_secret" placeholder="••••••••">
+                                             <input type="password" name="global_oidc_secret_field" autocomplete="new-password" x-model="globalSettings.oidc_client_secret" placeholder="••••••••">
                                          </div>
                                          <div class="field">
                                              <label>Redirect URI</label>
@@ -331,10 +331,10 @@
                                             <label>Domain Name</label>
                                             <input type="text" x-model="sslForm.domain" placeholder="e.g. newsletter.domain.com">
                                         </div>
-                                        <div class="field">
-                                            <label>Contact Email Address</label>
-                                            <input type="email" x-model="sslForm.email" placeholder="e.g. admin@domain.com">
-                                        </div>
+                                         <div class="field">
+                                             <label>Contact Email Address</label>
+                                             <input type="text" name="acme_ssl_contact_email_field" autocomplete="off" x-model="sslForm.email" placeholder="e.g. admin@domain.com">
+                                         </div>
                                         <div class="toggle-field" style="margin-top: 10px;">
                                             <input type="checkbox" x-model="sslForm.use_staging" style="display:none;">
                                             <div class="toggle-switch" @click="sslForm.use_staging = !sslForm.use_staging"></div>
@@ -610,12 +610,12 @@
                                         </div>
                                         <div class="field" style="margin-bottom:0;">
                                             <label style="font-size:11px;">SMTP Username</label>
-                                            <input type="text" x-model="globalSettings.smtp_username" placeholder="postmaster@yourdomain.com">
+                                             <input type="text" name="global_smtp_user_field" autocomplete="off" x-model="globalSettings.smtp_username" placeholder="postmaster@yourdomain.com">
                                         </div>
                                     </div>
                                     <div class="field" style="margin-bottom:0;">
                                         <label>SMTP Password</label>
-                                        <input type="password" x-model="globalSettings.smtp_password" placeholder="••••••••">
+                                         <input type="password" name="global_smtp_pass_field" autocomplete="new-password" x-model="globalSettings.smtp_password" placeholder="••••••••">
                                     </div>
                                     <div style="display: flex; gap: 20px; margin-top: 5px;">
                                         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #fff; font-size:12px;">

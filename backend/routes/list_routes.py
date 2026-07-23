@@ -564,4 +564,103 @@ def bulk_unsubscribe_subscribers(
     db.commit()
     return {"detail": f"Successfully unsubscribed {len(sub_ids)} contacts."}
 
+@router.post("/{list_id}/bulk-action")
+def bulk_action_subscribers(
+    list_id: int,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_write_access)
+):
+    action = payload.get("action") # delete, status, add_tag, remove_tag
+    if not action:
+        raise HTTPException(status_code=400, detail="Action specified is required")
+        
+    select_all_matching = bool(payload.get("select_all_matching", False))
+    sub_ids = payload.get("subscriber_ids", [])
+    
+    if current_user.role == "super_admin":
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
+    else:
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id, SubscriberList.tenant_id == current_user.tenant_id).first()
+        
+    if not sub_list:
+        raise HTTPException(status_code=404, detail="List not found")
+        
+    query = db.query(Subscriber).filter(Subscriber.list_id == list_id)
+    if current_user.role != "super_admin":
+        query = query.filter(Subscriber.tenant_id == current_user.tenant_id)
+        
+    if select_all_matching:
+        search = payload.get("search", "")
+        status_filter = payload.get("status", "")
+        engagement = payload.get("engagement")
+        tag_filter = payload.get("tag", "")
+        
+        if search:
+            query = query.filter((Subscriber.email.ilike(f"%{search}%")) | (Subscriber.name.ilike(f"%{search}%")))
+        if status_filter:
+            query = query.filter(Subscriber.status == status_filter)
+        if engagement is not None and str(engagement).isdigit():
+            query = query.filter(Subscriber.engagement_score == int(engagement))
+        if tag_filter:
+            query = query.filter(Subscriber.tags.like(f'%"{tag_filter}"%'))
+    else:
+        if not sub_ids:
+            return {"detail": "No subscribers specified for bulk action."}
+        query = query.filter(Subscriber.id.in_(sub_ids))
+        
+    subscribers_to_update = query.all()
+    count = len(subscribers_to_update)
+    
+    if count == 0:
+        return {"detail": "No matching subscribers found for bulk action."}
+        
+    if action == "delete":
+        for s in subscribers_to_update:
+            db.delete(s)
+        db.commit()
+        return {"detail": f"Successfully deleted {count} contacts."}
+        
+    elif action == "status":
+        new_status = payload.get("new_status")
+        if not new_status or new_status not in ["active", "unsubscribed", "bounced", "pending", "spam", "deferred", "failed"]:
+            raise HTTPException(status_code=400, detail="Invalid target status")
+        for s in subscribers_to_update:
+            s.status = new_status
+        db.commit()
+        return {"detail": f"Successfully updated status to '{new_status}' for {count} contacts."}
+        
+    elif action == "add_tag":
+        tag_name = payload.get("tag_name", "").strip()
+        if not tag_name:
+            raise HTTPException(status_code=400, detail="Tag name required")
+        for s in subscribers_to_update:
+            tags = list(s.tags or [])
+            if tag_name not in tags:
+                tags.append(tag_name)
+                s.tags = tags
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(s, "tags")
+        db.commit()
+        return {"detail": f"Successfully added tag '{tag_name}' to {count} contacts."}
+        
+    elif action == "remove_tag":
+        tag_name = payload.get("tag_name", "").strip()
+        if not tag_name:
+            raise HTTPException(status_code=400, detail="Tag name required")
+        for s in subscribers_to_update:
+            tags = list(s.tags or [])
+            if tag_name in tags:
+                tags.remove(tag_name)
+                s.tags = tags
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(s, "tags")
+        db.commit()
+        return {"detail": f"Successfully removed tag '{tag_name}' from {count} contacts."}
+        
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported bulk action")
+
 

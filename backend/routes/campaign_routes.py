@@ -969,3 +969,59 @@ def send_test_email(
         logging.getLogger("polypress").error(f"Test send 500 error: {tb}")
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {err}\n{tb}")
 
+@router.post("/bulk-action")
+def bulk_action_campaigns(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_write_access)
+):
+    action = payload.get("action") # delete, cancel
+    if not action:
+        raise HTTPException(status_code=400, detail="Action is required")
+        
+    select_all_matching = bool(payload.get("select_all_matching", False))
+    campaign_ids = payload.get("campaign_ids", [])
+    
+    query = db.query(Campaign)
+    if current_user.role != "super_admin":
+        if not current_user.tenant_id:
+            raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        query = query.filter(Campaign.tenant_id == current_user.tenant_id)
+        
+    if not select_all_matching:
+        if not campaign_ids:
+            return {"detail": "No campaigns specified."}
+        query = query.filter(Campaign.id.in_(campaign_ids))
+        
+    campaigns = query.all()
+    count = len(campaigns)
+    
+    if count == 0:
+        return {"detail": "No matching campaigns found."}
+        
+    if action == "delete":
+        deleted = 0
+        for c in campaigns:
+            if c.status in ["sending", "queued"]:
+                continue
+            db.delete(c)
+            deleted += 1
+        db.commit()
+        return {"detail": f"Successfully deleted {deleted} campaigns."}
+        
+    elif action == "cancel":
+        cancelled = 0
+        for c in campaigns:
+            if c.status in ["sending", "paused", "queued", "scheduled"]:
+                c.status = "cancelled"
+                db.query(QueueItem).filter(
+                    QueueItem.campaign_id == c.id,
+                    QueueItem.status.in_(["pending", "sending"])
+                ).delete()
+                cancelled += 1
+        db.commit()
+        return {"detail": f"Successfully cancelled broadcast for {cancelled} campaigns."}
+        
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported campaign bulk action")
+

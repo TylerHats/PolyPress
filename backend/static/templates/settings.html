@@ -39,15 +39,15 @@
                                         </div>
                                     </div>
                                     <div class="form-grid">
-                                        <div class="field">
-                                            <label>SMTP Username</label>
-                                            <input type="text" x-model="tenant.smtp_username">
-                                        </div>
-                                        <div class="field">
-                                            <label>SMTP Password</label>
-                                            <input type="password" x-model="tenant.smtp_password" placeholder="••••••••">
-                                        </div>
-                                    </div>
+                                         <div class="field">
+                                             <label>SMTP Username</label>
+                                             <input type="text" name="tenant_smtp_user_field" autocomplete="off" x-model="tenant.smtp_username">
+                                         </div>
+                                         <div class="field">
+                                             <label>SMTP Password</label>
+                                             <input type="password" name="tenant_smtp_pass_field" autocomplete="new-password" x-model="tenant.smtp_password" placeholder="••••••••">
+                                         </div>
+                                     </div>
                                     <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
                                         <div class="toggle-field">
                                             <input type="checkbox" x-model="tenant.smtp_use_ssl" style="display:none;">
@@ -230,15 +230,15 @@
                                         </div>
                                     </div>
                                     <div class="form-grid">
-                                        <div class="field">
-                                            <label>IMAP Username</label>
-                                            <input type="text" x-model="tenant.imap_username">
-                                        </div>
-                                        <div class="field">
-                                            <label>IMAP Password</label>
-                                            <input type="password" x-model="tenant.imap_password" placeholder="••••••••">
-                                        </div>
-                                    </div>
+                                         <div class="field">
+                                             <label>IMAP Username</label>
+                                             <input type="text" name="tenant_imap_user_field" autocomplete="off" x-model="tenant.imap_username">
+                                         </div>
+                                         <div class="field">
+                                             <label>IMAP Password</label>
+                                             <input type="password" name="tenant_imap_pass_field" autocomplete="new-password" x-model="tenant.imap_password" placeholder="••••••••">
+                                         </div>
+                                     </div>
                                     <div class="toggle-field">
                                          <input type="checkbox" x-model="tenant.imap_use_ssl" style="display:none;">
                                          <div class="toggle-switch" @click="tenant.imap_use_ssl = !tenant.imap_use_ssl"></div>
@@ -450,9 +450,17 @@
                                     Inspect deferred, sending, or pending outbound emails, see MX response logs, and clear items.
                                 </p>
                             </div>
-                            <button @click="fetchOutboxQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px;">
-                                <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Refresh Queue
-                            </button>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <button @click="fetchOutboxQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px;">
+                                    <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Refresh Queue
+                                </button>
+                                <button x-show="outboxQueue && outboxQueue.length > 0" @click="flushTenantQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px; background: rgba(59, 130, 246, 0.1); border-color: var(--color-primary); color: var(--color-primary);" title="Force immediate retries for all pending/deferred queue items">
+                                    <i data-lucide="zap" style="width: 14px; height: 14px;"></i> Flush Queue
+                                </button>
+                                <button x-show="outboxQueue && outboxQueue.length > 0" @click="openPurgeQueueModal()" class="btn btn-danger btn-sm" style="display: flex; align-items: center; gap: 5px;" title="Clear all outbound queue items">
+                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Purge Entire Queue
+                                </button>
+                            </div>
                         </div>
 
                         <div class="table-container" style="max-height: 400px; overflow-y: auto;">
@@ -718,6 +726,40 @@
                                 </div>
                             </div>
                             
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Purge Queue Confirmation Modal -->
+                <div class="modal-overlay" x-show="modals.purgeQueue" style="display: none;">
+                    <div class="modal-content" @click.away="modals.purgeQueue = false" style="padding: 24px; max-width: 500px;">
+                        <div style="text-align: left;">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                                <i data-lucide="alert-triangle" style="width: 28px; height: 28px; color: var(--color-danger);"></i>
+                                <h3 style="font-size: 18px; margin: 0; color: var(--text-primary);">Purge Outbox Queue</h3>
+                            </div>
+                            <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 20px;">
+                                Are you sure you want to purge all emails currently in the outbox queue? Unsent messages will be removed from the delivery pipeline.
+                            </p>
+                            
+                            <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                                <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" x-model="purgeOptionMarkFailed" style="width: 18px; height: 18px; margin-top: 2px; cursor: pointer;">
+                                    <div>
+                                        <div style="font-weight: 600; font-size: 13px; color: #fff;">Progress subscriber status along deferred/failed pathway</div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; line-height: 1.4;">
+                                            Active contacts will move to <strong>Deferred</strong>. Already deferred contacts will move to <strong>Failed</strong>. Does not alter campaign statistics cards.
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                                <button @click="modals.purgeQueue = false" class="btn btn-secondary btn-sm">Cancel</button>
+                                <button @click="confirmPurgeQueue()" class="btn btn-danger btn-sm" style="display: flex; align-items: center; gap: 6px;">
+                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Purge Queue Now
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

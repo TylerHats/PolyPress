@@ -380,8 +380,10 @@
                     createAutomation: false,
                     automationLogs: false,
                     manageABVariants: false,
-                    subscriberActivity: false
+                    subscriberActivity: false,
+                    purgeQueue: false
                 },
+                purgeOptionMarkFailed: false,
                 selectedSubscriberEmail: '',
                 testSendEmail: '',
                 hygieneChecking: false,
@@ -396,6 +398,12 @@
                 targetPreviewTotal: 0,
                 targetPreviewPage: 1,
                 targetPreviewFilter: { search: '', status: '' },
+                
+                // Bulk Selection State
+                subscribersSelected: [],
+                subscribersSelectAllState: 'none', // 'none', 'page', 'all'
+                campaignsSelected: [],
+                campaignsSelectAllState: 'none', // 'none', 'page', 'all'
                 
                 // Subscriber sub list bindings
                 listSelected: null,
@@ -951,6 +959,239 @@
                             await this.fetchOutboxQueue();
                         }
                     } catch(e) {}
+                },
+                
+                async flushTenantQueue() {
+                    if (!await this.askConfirm('Force immediate retry for all pending and deferred items in the outbox queue?', 'Flush Sending Queue')) return;
+                    try {
+                        const res = await fetch('/api/tenants/my/flush-queue', {
+                            method: 'POST',
+                            headers: this.getAuthHeaders()
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.showToast(data.detail || 'Queue flushed successfully');
+                            await this.fetchOutboxQueue();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to flush queue', true);
+                        }
+                    } catch(e) {
+                        this.showToast('Error flushing queue', true);
+                    }
+                },
+
+                openPurgeQueueModal() {
+                    this.purgeOptionMarkFailed = false;
+                    this.modals.purgeQueue = true;
+                },
+
+                async confirmPurgeQueue() {
+                    this.modals.purgeQueue = false;
+                    try {
+                        const res = await fetch('/api/tenants/my/purge-queue', {
+                            method: 'POST',
+                            headers: { ...this.getAuthHeaders(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mark_failed: this.purgeOptionMarkFailed })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.showToast(data.detail || 'Queue purged');
+                            await this.fetchOutboxQueue();
+                            if (this.listSelected) {
+                                await this.fetchSubscribers();
+                            }
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Failed to purge queue', true);
+                        }
+                    } catch(e) {
+                        this.showToast('Error purging queue', true);
+                    }
+                },
+
+                // Subscriber Bulk Selection & Action Handlers
+                toggleSubscriberSelection(subId) {
+                    if (this.subscribersSelectAllState === 'all') {
+                        this.subscribersSelectAllState = 'none';
+                        this.subscribersSelected = this.subscribers.map(s => s.id).filter(id => id !== subId);
+                        return;
+                    }
+                    const idx = this.subscribersSelected.indexOf(subId);
+                    if (idx > -1) {
+                        this.subscribersSelected.splice(idx, 1);
+                    } else {
+                        this.subscribersSelected.push(subId);
+                    }
+                    if (this.subscribersSelected.length === this.subscribers.length && this.subscribers.length > 0) {
+                        this.subscribersSelectAllState = 'page';
+                    } else {
+                        this.subscribersSelectAllState = 'none';
+                    }
+                },
+
+                toggleSelectAllSubscribers(targetState = null) {
+                    if (targetState === 'all') {
+                        this.subscribersSelectAllState = 'all';
+                        this.subscribersSelected = this.subscribers.map(s => s.id);
+                        return;
+                    }
+                    if (this.subscribersSelectAllState === 'none') {
+                        this.subscribersSelectAllState = 'page';
+                        this.subscribersSelected = this.subscribers.map(s => s.id);
+                    } else if (this.subscribersSelectAllState === 'page' && this.subscribersCount > this.subscribers.length) {
+                        this.subscribersSelectAllState = 'all';
+                    } else {
+                        this.subscribersSelectAllState = 'none';
+                        this.subscribersSelected = [];
+                    }
+                },
+
+                clearSubscriberSelection() {
+                    this.subscribersSelected = [];
+                    this.subscribersSelectAllState = 'none';
+                },
+
+                async executeSubscriberBulkAction(action, extraPayload = {}) {
+                    if (!this.listSelected) return;
+                    if (this.subscribersSelected.length === 0 && this.subscribersSelectAllState !== 'all') {
+                        this.showToast('No subscribers selected', true);
+                        return;
+                    }
+                    
+                    const payload = {
+                        action: action,
+                        select_all_matching: this.subscribersSelectAllState === 'all',
+                        subscriber_ids: this.subscribersSelected,
+                        search: this.subscribersSearch,
+                        status: this.subscribersFilterStatus,
+                        engagement: this.subscribersFilterEngagement,
+                        tag: this.subscribersFilterTag,
+                        ...extraPayload
+                    };
+                    
+                    try {
+                        const res = await fetch(`/api/lists/${this.listSelected}/bulk-action`, {
+                            method: 'POST',
+                            headers: { ...this.getAuthHeaders(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.showToast(data.detail || 'Bulk action completed');
+                            this.clearSubscriberSelection();
+                            await this.fetchSubscribers();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Bulk action failed', true);
+                        }
+                    } catch(e) {
+                        this.showToast('Error performing bulk action', true);
+                    }
+                },
+
+                async bulkDeleteSubscribers() {
+                    const countText = this.subscribersSelectAllState === 'all' ? `all ${this.subscribersCount} matching` : `${this.subscribersSelected.length}`;
+                    if (!await this.askConfirm(`Permanently delete ${countText} subscriber(s)?`, 'Confirm Bulk Delete', true)) return;
+                    await this.executeSubscriberBulkAction('delete');
+                },
+
+                async bulkChangeSubscriberStatus(newStatus) {
+                    if (!newStatus) return;
+                    const countText = this.subscribersSelectAllState === 'all' ? `all ${this.subscribersCount} matching` : `${this.subscribersSelected.length}`;
+                    if (!await this.askConfirm(`Set status to '${newStatus}' for ${countText} subscriber(s)?`, 'Confirm Status Change')) return;
+                    await this.executeSubscriberBulkAction('status', { new_status: newStatus });
+                },
+
+                async bulkAddSubscriberTag() {
+                    const tagName = prompt('Enter tag name to add to selected contacts:');
+                    if (!tagName || !tagName.trim()) return;
+                    await this.executeSubscriberBulkAction('add_tag', { tag_name: tagName.trim() });
+                },
+
+                async bulkRemoveSubscriberTag() {
+                    const tagName = prompt('Enter tag name to remove from selected contacts:');
+                    if (!tagName || !tagName.trim()) return;
+                    await this.executeSubscriberBulkAction('remove_tag', { tag_name: tagName.trim() });
+                },
+
+                // Campaign Bulk Selection & Action Handlers
+                toggleCampaignSelection(campaignId) {
+                    if (this.campaignsSelectAllState === 'all') {
+                        this.campaignsSelectAllState = 'none';
+                        this.campaignsSelected = this.campaigns.map(c => c.id).filter(id => id !== campaignId);
+                        return;
+                    }
+                    const idx = this.campaignsSelected.indexOf(campaignId);
+                    if (idx > -1) {
+                        this.campaignsSelected.splice(idx, 1);
+                    } else {
+                        this.campaignsSelected.push(campaignId);
+                    }
+                    if (this.campaignsSelected.length === this.campaigns.length && this.campaigns.length > 0) {
+                        this.campaignsSelectAllState = 'page';
+                    } else {
+                        this.campaignsSelectAllState = 'none';
+                    }
+                },
+
+                toggleSelectAllCampaigns() {
+                    if (this.campaignsSelectAllState === 'none') {
+                        this.campaignsSelectAllState = 'all';
+                        this.campaignsSelected = this.campaigns.map(c => c.id);
+                    } else {
+                        this.campaignsSelectAllState = 'none';
+                        this.campaignsSelected = [];
+                    }
+                },
+
+                clearCampaignSelection() {
+                    this.campaignsSelected = [];
+                    this.campaignsSelectAllState = 'none';
+                },
+
+                async executeCampaignBulkAction(action) {
+                    if (this.campaignsSelected.length === 0 && this.campaignsSelectAllState !== 'all') {
+                        this.showToast('No campaigns selected', true);
+                        return;
+                    }
+                    
+                    const payload = {
+                        action: action,
+                        select_all_matching: this.campaignsSelectAllState === 'all',
+                        campaign_ids: this.campaignsSelected
+                    };
+                    
+                    try {
+                        const res = await fetch('/api/campaigns/bulk-action', {
+                            method: 'POST',
+                            headers: { ...this.getAuthHeaders(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.showToast(data.detail || 'Campaign bulk action completed');
+                            this.clearCampaignSelection();
+                            await this.fetchCampaigns();
+                        } else {
+                            const err = await res.json();
+                            this.showToast(err.detail || 'Bulk action failed', true);
+                        }
+                    } catch(e) {
+                        this.showToast('Error performing campaign bulk action', true);
+                    }
+                },
+
+                async bulkDeleteCampaigns() {
+                    const countText = this.campaignsSelectAllState === 'all' ? `all ${this.campaigns.length}` : `${this.campaignsSelected.length}`;
+                    if (!await this.askConfirm(`Delete ${countText} selected campaign(s)? (Drafts/Completed only)`, 'Confirm Bulk Delete', true)) return;
+                    await this.executeCampaignBulkAction('delete');
+                },
+
+                async bulkCancelCampaigns() {
+                    const countText = this.campaignsSelectAllState === 'all' ? `all ${this.campaigns.length}` : `${this.campaignsSelected.length}`;
+                    if (!await this.askConfirm(`Cancel sending broadcasts for ${countText} campaign(s)?`, 'Confirm Cancel Broadcasts', true)) return;
+                    await this.executeCampaignBulkAction('cancel');
                 },
                 
                 async openPreviewModal() {

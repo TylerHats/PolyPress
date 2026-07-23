@@ -1302,3 +1302,59 @@ def clear_failed_logs(
     ).delete()
     db.commit()
     return {"detail": "Failed email diagnostics log cleared successfully"}
+
+@router.post("/my/flush-queue")
+def flush_tenant_queue(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_admin)
+):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    now = datetime.utcnow()
+    updated = db.query(QueueItem).filter(
+        QueueItem.tenant_id == current_user.tenant_id,
+        QueueItem.status.in_(["pending", "deferred"])
+    ).update({
+        QueueItem.next_attempt: now,
+        QueueItem.status: "pending"
+    }, synchronize_session=False)
+    
+    db.commit()
+    return {"detail": f"Flushed queue: {updated} items reset to immediate dispatch."}
+
+@router.post("/my/purge-queue")
+def purge_tenant_queue(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_tenant_admin)
+):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+        
+    mark_failed = bool(payload.get("mark_failed", False))
+    tenant_id = current_user.tenant_id
+    
+    queue_items = db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id).all()
+    purged_count = len(queue_items)
+    
+    if mark_failed and queue_items:
+        sub_ids = {item.subscriber_id for item in queue_items if item.subscriber_id}
+        if sub_ids:
+            subs = db.query(Subscriber).filter(
+                Subscriber.id.in_(sub_ids),
+                Subscriber.tenant_id == tenant_id
+            ).all()
+            for sub in subs:
+                if sub.status == "deferred":
+                    sub.status = "failed"
+                    sub.bounce_reason = "Consecutive Outbox Queue Purges by Admin"
+                    sub.bounce_source_email = "System Outbox Queue Admin"
+                elif sub.status in ["active", "pending"]:
+                    sub.status = "deferred"
+                    sub.bounce_reason = "Outbox Queue Purged by Admin"
+                    sub.bounce_source_email = "System Outbox Queue Admin"
+                    
+    db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id).delete()
+    db.commit()
+    return {"detail": f"Purged outbox queue ({purged_count} items cleared)."}

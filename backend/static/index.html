@@ -64,11 +64,11 @@
                     </p>
                     <div class="field" style="margin-bottom: 12px;">
                         <label>Super Admin Email</label>
-                        <input type="email" x-model="schemaBypassForm.email" placeholder="admin@polypress.local" style="width: 100%; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.05); color: var(--text-primary); border-radius: 6px; padding: 8px;">
+                        <input type="text" name="schema_bypass_email" autocomplete="off" x-model="schemaBypassForm.email" placeholder="admin@polypress.local" style="width: 100%; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.05); color: var(--text-primary); border-radius: 6px; padding: 8px;">
                     </div>
                     <div class="field" style="margin-bottom: 20px;">
                         <label>Super Admin Password</label>
-                        <input type="password" x-model="schemaBypassForm.password" placeholder="••••••••" style="width: 100%; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.05); color: var(--text-primary); border-radius: 6px; padding: 8px;">
+                        <input type="password" name="schema_bypass_password" autocomplete="new-password" x-model="schemaBypassForm.password" placeholder="••••••••" style="width: 100%; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.05); color: var(--text-primary); border-radius: 6px; padding: 8px;">
                     </div>
                     <button @click="submitSchemaBypass()" class="btn btn-danger" style="width: 100%;" :disabled="schemaBypassing">
                         <span x-show="!schemaBypassing">Bypass Schema Check & Force Downgrade</span>
@@ -114,11 +114,11 @@
                     <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
                         <div class="field">
                             <label>Admin Email</label>
-                            <input type="email" x-model="setupForm.admin_email" placeholder="admin@domain.com" required>
+                            <input type="text" name="setup_admin_email" autocomplete="off" x-model="setupForm.admin_email" placeholder="admin@domain.com" required>
                         </div>
                         <div class="field">
                             <label>Admin Password</label>
-                            <input type="password" x-model="setupForm.admin_password" placeholder="••••••••" required>
+                            <input type="password" name="setup_admin_password" autocomplete="new-password" x-model="setupForm.admin_password" placeholder="••••••••" required>
                         </div>
                     </div>
                 </div>
@@ -143,7 +143,7 @@
                             </div>
                             <div class="field">
                                 <label>OIDC Client Secret</label>
-                                <input type="password" x-model="setupForm.oidc_client_secret" placeholder="••••••••">
+                                <input type="password" name="setup_oidc_secret" autocomplete="new-password" x-model="setupForm.oidc_client_secret" placeholder="••••••••">
                             </div>
                         </div>
                         <div class="field">
@@ -169,15 +169,15 @@
             <p class="login-subtitle">Email newsletter management</p>
             
             <!-- Standard Login Form -->
-            <form x-show="!totpRequired && !showForgotPasswordView && !showResetPasswordView && (!globalSettings.oidc_enabled || globalSettings.local_login_enabled)" @submit.prevent="handleLogin()">
+            <form x-show="!totpRequired && !showForgotPasswordView && !showResetPasswordView && (!globalSettings.oidc_enabled || globalSettings.local_login_enabled)" @submit.prevent="handleLogin()" autocomplete="on">
                 <div class="form-grid" style="grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
                     <div class="field" style="text-align: left;">
                         <label>Email Address</label>
-                        <input type="email" x-model="loginForm.email" required placeholder="admin@polypress.local">
+                        <input type="email" name="username" id="login_email" autocomplete="username" x-model="loginForm.email" required placeholder="admin@polypress.local">
                     </div>
                     <div class="field" style="text-align: left;">
                         <label>Password</label>
-                        <input type="password" x-model="loginForm.password" required placeholder="••••••••">
+                        <input type="password" name="password" id="login_password" autocomplete="current-password" x-model="loginForm.password" required placeholder="••••••••">
                     </div>
                 </div>
                 <div style="text-align: right; margin-top: -8px; margin-bottom: 20px;">
@@ -194,7 +194,7 @@
                 </p>
                 <div class="field" style="text-align: left; margin-bottom: 20px;">
                     <label>Email Address</label>
-                    <input type="email" x-model="forgotPasswordEmail" required placeholder="admin@polypress.local" style="width: 100%;">
+                    <input type="text" name="forgot_pass_email" autocomplete="off" x-model="forgotPasswordEmail" required placeholder="admin@polypress.local" style="width: 100%;">
                 </div>
                 <button type="submit" class="btn btn-primary" style="width: 100%;">Send Recovery Link</button>
                 <button type="button" @click="showForgotPasswordView = false" class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 10px;">Back to Login</button>
@@ -209,11 +209,11 @@
                 <div class="form-grid" style="grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
                     <div class="field" style="text-align: left;">
                         <label>New Password</label>
-                        <input type="password" x-model="resetPasswordForm.password" required placeholder="••••••••" style="width: 100%;">
+                        <input type="password" name="reset_pass_new_password" autocomplete="new-password" x-model="resetPasswordForm.password" required placeholder="••••••••" style="width: 100%;">
                     </div>
                     <div class="field" style="text-align: left;">
                         <label>Confirm Password</label>
-                        <input type="password" x-model="resetPasswordForm.confirmPassword" required placeholder="••••••••" style="width: 100%;">
+                        <input type="password" name="reset_pass_confirm_password" autocomplete="new-password" x-model="resetPasswordForm.confirmPassword" required placeholder="••••••••" style="width: 100%;">
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary" style="width: 100%;">Save Password & Sign In</button>
@@ -628,7 +628,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                 <div style="display: flex; flex-direction: column; gap: 15px;">
                     <div class="field">
                         <label>Email Address *</label>
-                        <input type="email" x-model="subscriberForm.email" :disabled="!!subscriberForm.id" required placeholder="name@domain.com">
+                        <input type="email" name="subscriber_email" autocomplete="off" x-model="subscriberForm.email" :disabled="!!subscriberForm.id" required placeholder="name@domain.com">
                     </div>
                     <div class="field">
                         <label>Subscriber Name</label>
@@ -972,7 +972,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                     </div>
                     <div class="field">
                         <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block;">Mock Subscriber Email ({{email}})</label>
-                        <input type="email" x-model="mockPreviewFields.email" @input="updatePreviewIframe()" placeholder="john@example.com">
+                        <input type="email" name="mock_preview_email" autocomplete="off" x-model="mockPreviewFields.email" @input="updatePreviewIframe()" placeholder="john@example.com">
                     </div>
                     <template x-if="editingCampaign && editingCampaign.ab_testing_enabled && !editingCampaign.is_automation_template">
                         <div class="field">
@@ -1218,7 +1218,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                     </div>
                     <div class="field">
                         <label>Email Address</label>
-                        <input type="email" x-model="userForm.email" placeholder="john@example.com" :disabled="!!userForm.id">
+                        <input type="text" name="user_manage_email" autocomplete="off" x-model="userForm.email" placeholder="john@example.com" :disabled="!!userForm.id">
                     </div>
                     <div class="field">
                         <label>Authentication Type</label>
@@ -1229,7 +1229,7 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                     </div>
                     <div class="field" x-show="userForm.auth_type === 'local'">
                         <label x-text="userForm.id ? 'New Password (leave blank to keep current)' : 'Password'"></label>
-                        <input type="password" x-model="userForm.password" placeholder="••••••••">
+                        <input type="password" name="user_manage_password" autocomplete="new-password" x-model="userForm.password" placeholder="••••••••">
                     </div>
                     <div class="field">
                         <label>System/Workspace Role</label>
@@ -1302,11 +1302,11 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                             </div>
                             <div class="field">
                                 <label>Email (Cannot be modified)</label>
-                                <input type="email" :value="user.email" disabled style="opacity: 0.6;">
+                                <input type="text" name="profile_email" autocomplete="off" :value="user.email" disabled style="opacity: 0.6;">
                             </div>
                             <div class="field" x-show="user.auth_type === 'local'">
                                 <label>New Password (leave blank to keep current)</label>
-                                <input type="password" x-model="profileForm.password" placeholder="••••••••">
+                                <input type="password" name="profile_new_password" autocomplete="new-password" x-model="profileForm.password" placeholder="••••••••">
                             </div>
                             <button @click="saveProfile()" class="btn btn-primary btn-sm" style="align-self: flex-start; margin-top: 5px;">Update Profile Details</button>
                         </div>
@@ -1556,8 +1556,8 @@ X-PolyPress-Key: YOUR_API_KEY <span style="color: var(--text-muted); font-size: 
                     Enter the email address where you'd like to receive a fully rendered test copy of this draft campaign:
                 </p>
                 <div class="field">
-                    <label>Test Recipient Email</label>
-                    <input type="email" x-model="testSendEmail" placeholder="e.g. test@yourdomain.com" style="width: 100%;">
+                    <label style="display: block; font-size: 12px; margin-bottom: 5px; text-align: left;">Recipient Email Address</label>
+                    <input type="text" name="test_send_recipient_email" autocomplete="off" x-model="testSendEmail" placeholder="e.g. test@yourdomain.com" style="width: 100%;">
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                     <button @click="modals.sendTest = false" class="btn btn-secondary btn-sm">Cancel</button>

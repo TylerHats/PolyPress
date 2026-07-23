@@ -10,11 +10,40 @@
                         </button>
                     </div>
 
-                    <div class="card">
+                        <!-- Campaign Bulk Selection Action Banner -->
+                        <div x-show="campaignsSelected.length > 0 || campaignsSelectAllState === 'all'" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 12px 16px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="check-square" style="width: 18px; height: 18px; color: var(--color-primary);"></i>
+                                <span style="font-size: 13px; font-weight: 600; color: #fff;">
+                                    <template x-if="campaignsSelectAllState === 'all'">
+                                        <span x-text="'Selected all ' + campaigns.length + ' campaigns'"></span>
+                                    </template>
+                                    <template x-if="campaignsSelectAllState !== 'all'">
+                                        <span x-text="campaignsSelected.length + ' campaign(s) selected'"></span>
+                                    </template>
+                                </span>
+                                <button @click="clearCampaignSelection()" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;">
+                                    Clear Selection
+                                </button>
+                            </div>
+
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                <button @click="bulkCancelCampaigns()" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 10px; background: rgba(239, 68, 68, 0.1); border-color: var(--color-danger); color: var(--color-danger);">
+                                    Cancel Broadcasts
+                                </button>
+                                <button x-show="user.role !== 'tenant_user'" @click="bulkDeleteCampaigns()" class="btn btn-danger btn-sm" style="font-size: 11px; padding: 4px 10px;">
+                                    Delete Selected
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="table-container">
                             <table class="data-table">
                                 <thead>
                                     <tr>
+                                        <th style="width: 38px; text-align: center;">
+                                            <input type="checkbox" :checked="campaignsSelectAllState !== 'none'" @change="toggleSelectAllCampaigns()" style="width: 16px; height: 16px; cursor: pointer;">
+                                        </th>
                                         <th>Campaign Name</th>
                                         <th>Subject</th>
                                         <th style="text-align: center;">Status</th>
@@ -27,7 +56,10 @@
                                 <tbody>
                                     <template x-for="c in campaigns" :key="c.id">
                                         <tr>
-                                             <td style="font-weight: 600;">
+                                            <td style="text-align: center;">
+                                                <input type="checkbox" :value="c.id" :checked="campaignsSelected.includes(c.id) || campaignsSelectAllState === 'all'" @change="toggleCampaignSelection(c.id)" style="width: 16px; height: 16px; cursor: pointer;">
+                                            </td>
+                                            <td style="font-weight: 600;">
                                                  <div x-text="c.name"></div>
                                                  <div x-show="c.description" style="font-size: 11px; color: var(--text-secondary); font-weight: normal; margin-top: 2px;" x-text="c.description"></div>
                                              </td>
