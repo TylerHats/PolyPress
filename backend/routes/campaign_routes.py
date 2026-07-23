@@ -265,6 +265,27 @@ def reconcile_campaign_counts_inline(campaigns, db: Session):
             if failed_count > (c.failed_count or 0):
                 c.failed_count = failed_count
                 need_commit = True
+
+        # Always reconcile click_count with TrackingLog (excluding bot clicks)
+        real_clicks = db.query(TrackingLog).filter(
+            TrackingLog.campaign_id == c.id,
+            TrackingLog.event_type == "click",
+            or_(TrackingLog.is_bot == False, TrackingLog.is_bot == None)
+        ).count()
+        if (c.click_count or 0) != real_clicks:
+            c.click_count = real_clicks
+            need_commit = True
+
+        # Always reconcile unique open_count with TrackingLog (excluding bot opens)
+        real_opens = db.query(TrackingLog.subscriber_id).filter(
+            TrackingLog.campaign_id == c.id,
+            TrackingLog.event_type == "open",
+            or_(TrackingLog.is_bot == False, TrackingLog.is_bot == None)
+        ).distinct().count()
+        if (c.open_count or 0) != real_opens:
+            c.open_count = real_opens
+            need_commit = True
+
     if need_commit:
         db.commit()
 
@@ -661,14 +682,19 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    # Get detailed link clicks
+    # Get detailed link clicks (excluding bot clicks)
     clicks = db.query(TrackingLog.link_url, func.count(TrackingLog.id).label("click_count")).filter(
         TrackingLog.campaign_id == campaign_id,
-        TrackingLog.event_type == "click"
+        TrackingLog.event_type == "click",
+        or_(TrackingLog.is_bot == False, TrackingLog.is_bot == None)
     ).group_by(TrackingLog.link_url).all()
     
     click_stats = [{"link": c.link_url, "clicks": c.click_count} for c in clicks if c.link_url]
     total_clicks = sum(c["clicks"] for c in click_stats)
+
+    if (campaign.click_count or 0) != total_clicks:
+        campaign.click_count = total_clicks
+        db.commit()
 
     # Reconcile counts from QueueItem to ensure exact alignment with outbox states
     failed_items_count = db.query(QueueItem).filter(QueueItem.campaign_id == campaign_id, QueueItem.status == "failed").count()

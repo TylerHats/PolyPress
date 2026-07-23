@@ -4284,6 +4284,18 @@
                                             bubble.className = 'click-overlay-bubble';
                                             bubble.textContent = `${stat.percentage}% (${stat.clicks})`;
                                             
+                                            const pct = Math.min(100, Math.max(0, parseFloat(stat.percentage) || 0));
+                                            const fontSize = Math.round(10 + (pct / 100) * 8);
+                                            const py = Math.round(2 + (pct / 100) * 4);
+                                            const px = Math.round(6 + (pct / 100) * 8);
+                                            const radius = Math.round(12 + (pct / 100) * 8);
+                                            const shadowBlur = Math.round(8 + (pct / 100) * 10);
+                                            
+                                            bubble.style.fontSize = `${fontSize}px`;
+                                            bubble.style.padding = `${py}px ${px}px`;
+                                            bubble.style.borderRadius = `${radius}px`;
+                                            bubble.style.boxShadow = `0 3px ${shadowBlur}px rgba(244, 63, 94, ${(0.4 + (pct / 100) * 0.4).toFixed(2)})`;
+                                            
                                             a.style.position = 'relative';
                                             a.appendChild(bubble);
                                         }
