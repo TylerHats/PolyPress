@@ -4,7 +4,7 @@
   <img src="branding/logo.png" alt="PolyPress Logo" width="220" />
 </p>
 
-**PolyPress** is a premium, self-hosted, multitenant email newsletter management system. Designed to replace commercial newsletter tools, it offers strong data privacy, white-labeling capabilities, OIDC authorization, and flexible sending profiles (external SMTP relays or an internal direct-sending MTA).
+**PolyPress** is a premium, self-hosted, multitenant email newsletter management system. Designed to replace commercial newsletter tools, it offers strong data privacy, white-labeling capabilities, OIDC authorization, multi-domain SMTP connection pooling, automated bot/security scanner filtering, and flexible sending profiles (external SMTP relays or an internal direct-sending MTA).
 
 ---
 

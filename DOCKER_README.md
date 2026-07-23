@@ -1,6 +1,6 @@
 # PolyPress
 
-PolyPress is a self-hosted, multi-tenant email newsletter platform and internal MTA. It features a visual block designer, automated lists subscription preference center, and delivery queue tracking.
+PolyPress is a self-hosted, multi-tenant email newsletter platform and direct MTA featuring high-throughput multi-domain SMTP connection pooling, automated bot/security scanner protection, a visual block designer, outbox queue management, and delivery tracking analytics.
 
 This repository hosts the official Docker image for PolyPress.
 
