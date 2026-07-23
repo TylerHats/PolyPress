@@ -1,10 +1,11 @@
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 import dns.resolver
 import database as db_mod
-from database import get_db, Tenant, User, GlobalSettings, QueueItem
+from database import get_db, Tenant, User, GlobalSettings, QueueItem, Subscriber
 import auth
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
@@ -1325,21 +1326,26 @@ def flush_tenant_queue(
 
 @router.post("/my/purge-queue")
 def purge_tenant_queue(
-    payload: dict = Body(...),
+    payload: dict = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.require_tenant_admin)
 ):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User not associated with a tenant")
         
-    mark_failed = bool(payload.get("mark_failed", False))
+    mark_failed = False
+    if payload and isinstance(payload, dict):
+        mark_failed = bool(payload.get("mark_failed", False))
     tenant_id = current_user.tenant_id
     
-    queue_items = db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id).all()
-    purged_count = len(queue_items)
+    outbox_items = db.query(QueueItem).filter(
+        QueueItem.tenant_id == tenant_id,
+        QueueItem.status.in_(["pending", "sending", "deferred"])
+    ).all()
+    purged_count = len(outbox_items)
     
-    if mark_failed and queue_items:
-        sub_ids = {item.subscriber_id for item in queue_items if item.subscriber_id}
+    if mark_failed and outbox_items:
+        sub_ids = {item.subscriber_id for item in outbox_items if item.subscriber_id}
         if sub_ids:
             subs = db.query(Subscriber).filter(
                 Subscriber.id.in_(sub_ids),
@@ -1355,6 +1361,9 @@ def purge_tenant_queue(
                     sub.bounce_reason = "Outbox Queue Purged by Admin"
                     sub.bounce_source_email = "System Outbox Queue Admin"
                     
-    db.query(QueueItem).filter(QueueItem.tenant_id == tenant_id).delete()
+    db.query(QueueItem).filter(
+        QueueItem.tenant_id == tenant_id,
+        QueueItem.status.in_(["pending", "sending", "deferred"])
+    ).delete(synchronize_session=False)
     db.commit()
     return {"detail": f"Purged outbox queue ({purged_count} items cleared)."}

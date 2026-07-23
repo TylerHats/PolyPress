@@ -11,10 +11,10 @@
                     </div>
 
                         <!-- Campaign Bulk Selection Action Banner -->
-                        <div x-show="campaignsSelected.length > 0 || campaignsSelectAllState === 'all'" style="background: rgba(59, 130, 246, 0.09); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 14px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
-                            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                                <i data-lucide="check-square" style="width: 18px; height: 18px; color: var(--color-primary);"></i>
-                                <span style="font-size: 13px; font-weight: 600; color: #fff;">
+                        <div x-show="campaignsSelected.length > 0 || campaignsSelectAllState === 'all'" style="background: rgba(59, 130, 246, 0.09); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 14px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px;">
+                            <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                                <i data-lucide="check-square" style="width: 18px; height: 18px; color: var(--color-primary); flex-shrink: 0;"></i>
+                                <span style="font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap;">
                                     <template x-if="campaignsSelectAllState === 'all'">
                                         <span x-text="'Selected all ' + campaigns.length + ' campaigns'"></span>
                                     </template>
@@ -22,17 +22,17 @@
                                         <span x-text="campaignsSelected.length + ' campaign(s) selected'"></span>
                                     </template>
                                 </span>
-                                <button @click="clearCampaignSelection()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 4px 10px;">
+                                <button @click="clearCampaignSelection()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 5px 12px; white-space: nowrap;">
                                     Clear Selection
                                 </button>
                             </div>
 
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                                <button @click="bulkCancelCampaigns()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 6px 12px; background: rgba(239, 68, 68, 0.1); border-color: var(--color-danger); color: var(--color-danger); display: flex; align-items: center; gap: 4px;">
-                                    Cancel Broadcasts
+                            <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                                <button @click="bulkCancelCampaigns()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 6px 14px; background: rgba(239, 68, 68, 0.1); border-color: var(--color-danger); color: var(--color-danger); display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                    <i data-lucide="x-circle" style="width: 14px; height: 14px;"></i> Cancel Broadcasts
                                 </button>
-                                <button x-show="user.role !== 'tenant_user'" @click="bulkDeleteCampaigns()" class="btn btn-danger btn-sm" style="font-size: 12px; padding: 6px 12px; display: flex; align-items: center; gap: 4px;">
-                                    Delete Selected
+                                <button x-show="user.role !== 'tenant_user'" @click="bulkDeleteCampaigns()" class="btn btn-danger btn-sm" style="font-size: 12px; padding: 6px 14px; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Delete Selected
                                 </button>
                             </div>
                         </div>
