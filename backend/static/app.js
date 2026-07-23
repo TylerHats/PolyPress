@@ -35,10 +35,13 @@
                         </td>
                     </tr>`;
                 } else if (b.type === 'image') {
+                    const imgStyle = `display: block; width: 100%; max-width: 600px; height: auto; border: 0; border-radius: ${b.border_radius || '0px'};`;
+                    const imgHtml = `<img src="${b.url || 'https://picsum.photos/600/300'}" alt="${b.alt || 'Image'}" style="${imgStyle}" />`;
+                    const content = (b.link_url && b.link_url.trim()) ? `<a href="${b.link_url.trim()}" target="_blank" style="display: block; text-decoration: none;">${imgHtml}</a>` : imgHtml;
                     return `
                     <tr>
                         <td align="center" style="padding: ${b.padding || '10px 0'};">
-                            <img src="${b.url || 'https://picsum.photos/600/300'}" alt="${b.alt || 'Image'}" style="display: block; width: 100%; max-width: 600px; height: auto; border: 0; border-radius: ${b.border_radius || '0px'};" />
+                            ${content}
                         </td>
                     </tr>`;
                 } else if (b.type === 'divider') {
@@ -91,7 +94,9 @@
                     } else if (block.left.type === 'heading') {
                         leftHtml = `<h3 style="text-align: ${block.left.align || 'center'}; color: ${block.left.color || '#1e293b'}; font-family: sans-serif; font-size: ${block.left.size || '22px'}; margin: 0 0 10px 0;">${block.left.text}</h3>`;
                     } else if (block.left.type === 'image') {
-                        leftHtml = `<img src="${block.left.url || 'https://picsum.photos/300/150'}" alt="${block.left.alt || ''}" style="display: block; width: 100%; height: auto; border: 0; border-radius: 4px;" />`;
+                        const imgStyle = `display: block; width: 100%; height: auto; border: 0; border-radius: ${block.left.border_radius || '4px'};`;
+                        const imgHtml = `<img src="${block.left.url || 'https://picsum.photos/300/150'}" alt="${block.left.alt || ''}" style="${imgStyle}" />`;
+                        leftHtml = (block.left.link_url && block.left.link_url.trim()) ? `<a href="${block.left.link_url.trim()}" target="_blank" style="display: block; text-decoration: none;">${imgHtml}</a>` : imgHtml;
                     } else if (block.left.type === 'button') {
                         leftHtml = `
                         <table border="0" cellpadding="0" cellspacing="0" align="${block.left.align || 'center'}">
@@ -111,7 +116,9 @@
                     } else if (block.right.type === 'heading') {
                         rightHtml = `<h3 style="text-align: ${block.right.align || 'center'}; color: ${block.right.color || '#1e293b'}; font-family: sans-serif; font-size: ${block.right.size || '22px'}; margin: 0 0 10px 0;">${block.right.text}</h3>`;
                     } else if (block.right.type === 'image') {
-                        rightHtml = `<img src="${block.right.url || 'https://picsum.photos/300/150'}" alt="${block.right.alt || ''}" style="display: block; width: 100%; height: auto; border: 0; border-radius: 4px;" />`;
+                        const imgStyle = `display: block; width: 100%; height: auto; border: 0; border-radius: ${block.right.border_radius || '4px'};`;
+                        const imgHtml = `<img src="${block.right.url || 'https://picsum.photos/300/150'}" alt="${block.right.alt || ''}" style="${imgStyle}" />`;
+                        rightHtml = (block.right.link_url && block.right.link_url.trim()) ? `<a href="${block.right.link_url.trim()}" target="_blank" style="display: block; text-decoration: none;">${imgHtml}</a>` : imgHtml;
                     } else if (block.right.type === 'button') {
                         rightHtml = `
                         <table border="0" cellpadding="0" cellspacing="0" align="${block.right.align || 'center'}">
@@ -3815,7 +3822,7 @@
                     } else if (type === 'button') {
                         block = { type, text: 'Click Link', url: 'https://example.com', align: 'center', bg_color: '#6366f1', text_color: '#ffffff', padding: '12px 24px', border_radius: '6px' };
                     } else if (type === 'image') {
-                        block = { type, url: 'https://picsum.photos/600/300', alt: 'Marketing Banner', border_radius: '0px' };
+                        block = { type, url: 'https://picsum.photos/600/300', alt: 'Marketing Banner', link_url: '', border_radius: '0px' };
                     } else if (type === 'divider') {
                         block = { type, color: '#e2e8f0', height: '2px', padding: '20px 0px' };
                     } else if (type === 'spacer') {
@@ -3825,8 +3832,8 @@
                             type, 
                             layout: '50-50', 
                             gap: '20px',
-                            left: { type: 'paragraph', text: 'Left Content', align: 'left', color: '#334155', size: '15px' },
-                            right: { type: 'paragraph', text: 'Right Content', align: 'left', color: '#334155', size: '15px' }
+                            left: { type: 'paragraph', text: 'Left Content', align: 'left', color: '#334155', size: '15px', url: '', alt: '', link_url: '', border_radius: '4px' },
+                            right: { type: 'paragraph', text: 'Right Content', align: 'left', color: '#334155', size: '15px', url: '', alt: '', link_url: '', border_radius: '4px' }
                         };
                     } else if (type === 'conditional') {
                         block = { 

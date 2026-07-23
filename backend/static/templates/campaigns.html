@@ -287,7 +287,14 @@
                                             </template>
                                             <template x-if="b.type === 'image'">
                                                 <div style="text-align: center; width: 100%;">
-                                                    <img :src="b.url" :alt="b.alt" :style="'max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius:' + (b.border_radius || '0px')">
+                                                    <template x-if="b.link_url && b.link_url.trim()">
+                                                        <a :href="b.link_url" target="_blank" style="display: inline-block; text-decoration: none; max-width: 100%;">
+                                                            <img :src="b.url" :alt="b.alt" :style="'max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius:' + (b.border_radius || '0px')">
+                                                        </a>
+                                                    </template>
+                                                    <template x-if="!b.link_url || !b.link_url.trim()">
+                                                        <img :src="b.url" :alt="b.alt" :style="'max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius:' + (b.border_radius || '0px')">
+                                                    </template>
                                                 </div>
                                             </template>
                                             <template x-if="b.type === 'columns'">
@@ -300,7 +307,16 @@
                                                             <h3 :style="'text-align:' + b.left.align + '; color:' + (b.left.color || '#1e293b') + '; font-size:' + (b.left.size || '22px') + '; margin: 0 0 10px 0;'" x-html="b.left.text"></h3>
                                                         </template>
                                                         <template x-if="b.left.type === 'image'">
-                                                            <img :src="b.left.url || 'https://picsum.photos/300/150'" :alt="b.left.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                            <div>
+                                                                <template x-if="b.left.link_url && b.left.link_url.trim()">
+                                                                    <a :href="b.left.link_url" target="_blank" style="display: inline-block; text-decoration: none; width: 100%;">
+                                                                        <img :src="b.left.url || 'https://picsum.photos/300/150'" :alt="b.left.alt || ''" :style="'max-width: 100%; height: auto; display: block; border-radius: ' + (b.left.border_radius || '4px') + '; margin: 0 auto;'">
+                                                                    </a>
+                                                                </template>
+                                                                <template x-if="!b.left.link_url || !b.left.link_url.trim()">
+                                                                    <img :src="b.left.url || 'https://picsum.photos/300/150'" :alt="b.left.alt || ''" :style="'max-width: 100%; height: auto; display: block; border-radius: ' + (b.left.border_radius || '4px') + '; margin: 0 auto;'">
+                                                                </template>
+                                                            </div>
                                                         </template>
                                                         <template x-if="b.left.type === 'button'">
                                                             <div :style="'text-align:' + b.left.align">
@@ -316,7 +332,16 @@
                                                             <h3 :style="'text-align:' + b.right.align + '; color:' + (b.right.color || '#1e293b') + '; font-size:' + (b.right.size || '22px') + '; margin: 0 0 10px 0;'" x-html="b.right.text"></h3>
                                                         </template>
                                                         <template x-if="b.right.type === 'image'">
-                                                            <img :src="b.right.url || 'https://picsum.photos/300/150'" :alt="b.right.alt || ''" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 0 auto;">
+                                                            <div>
+                                                                <template x-if="b.right.link_url && b.right.link_url.trim()">
+                                                                    <a :href="b.right.link_url" target="_blank" style="display: inline-block; text-decoration: none; width: 100%;">
+                                                                        <img :src="b.right.url || 'https://picsum.photos/300/150'" :alt="b.right.alt || ''" :style="'max-width: 100%; height: auto; display: block; border-radius: ' + (b.right.border_radius || '4px') + '; margin: 0 auto;'">
+                                                                    </a>
+                                                                </template>
+                                                                <template x-if="!b.right.link_url || !b.right.link_url.trim()">
+                                                                    <img :src="b.right.url || 'https://picsum.photos/300/150'" :alt="b.right.alt || ''" :style="'max-width: 100%; height: auto; display: block; border-radius: ' + (b.right.border_radius || '4px') + '; margin: 0 auto;'">
+                                                                </template>
+                                                            </div>
                                                         </template>
                                                         <template x-if="b.right.type === 'button'">
                                                             <div :style="'text-align:' + b.right.align">
@@ -643,15 +668,19 @@
                                     </template>
 
                                     <template x-if="editorBlocks[selectedBlockIndex].type === 'image'">
-                                        <div>
-                                            <div class="field" style="margin-bottom: 10px;">
+                                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                                            <div class="field">
                                                 <label>Image Source URL</label>
                                                 <input type="text" x-model="editorBlocks[selectedBlockIndex].url" @input="reRenderCanvas()">
+                                            </div>
+                                            <div class="field">
+                                                <label>Image Target Link URL (Optional)</label>
+                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].link_url" @input="reRenderCanvas()" placeholder="https://yourwebsite.com/page">
                                             </div>
                                             <div class="form-grid">
                                                 <div class="field">
                                                     <label>Alt Text</label>
-                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].alt">
+                                                    <input type="text" x-model="editorBlocks[selectedBlockIndex].alt" @input="reRenderCanvas()">
                                                 </div>
                                                 <div class="field">
                                                     <label>Border Radius</label>
@@ -703,9 +732,25 @@
                                                 </template>
                                                 
                                                 <template x-if="editorBlocks[selectedBlockIndex].left.type === 'image'">
-                                                    <div class="field" style="margin-bottom: 8px;">
-                                                        <label>Image Source URL</label>
-                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].left.url" @input="reRenderCanvas()">
+                                                    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px;">
+                                                        <div class="field">
+                                                            <label>Image Source URL</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].left.url" @input="reRenderCanvas()">
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Image Target Link URL (Optional)</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].left.link_url" @input="reRenderCanvas()" placeholder="https://example.com">
+                                                        </div>
+                                                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                                                            <div class="field">
+                                                                <label>Alt Text</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.alt" @input="reRenderCanvas()">
+                                                            </div>
+                                                            <div class="field">
+                                                                <label>Border Radius</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].left.border_radius" @input="reRenderCanvas()" placeholder="e.g. 4px, 12px or 50%">
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </template>
                                                 
@@ -797,9 +842,25 @@
                                                 </template>
                                                 
                                                 <template x-if="editorBlocks[selectedBlockIndex].right.type === 'image'">
-                                                    <div class="field" style="margin-bottom: 8px;">
-                                                        <label>Image Source URL</label>
-                                                        <input type="text" x-model="editorBlocks[selectedBlockIndex].right.url" @input="reRenderCanvas()">
+                                                    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px;">
+                                                        <div class="field">
+                                                            <label>Image Source URL</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].right.url" @input="reRenderCanvas()">
+                                                        </div>
+                                                        <div class="field">
+                                                            <label>Image Target Link URL (Optional)</label>
+                                                            <input type="text" x-model="editorBlocks[selectedBlockIndex].right.link_url" @input="reRenderCanvas()" placeholder="https://example.com">
+                                                        </div>
+                                                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                                                            <div class="field">
+                                                                <label>Alt Text</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.alt" @input="reRenderCanvas()">
+                                                            </div>
+                                                            <div class="field">
+                                                                <label>Border Radius</label>
+                                                                <input type="text" x-model="editorBlocks[selectedBlockIndex].right.border_radius" @input="reRenderCanvas()" placeholder="e.g. 4px, 12px or 50%">
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </template>
                                                 
