@@ -87,9 +87,12 @@
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Tag:</span>
                                 <input type="text" x-model="subscribersFilterTag" @input.debounce.300ms="fetchSubscribers()" placeholder="e.g. VIP" style="font-size: 12px; padding: 4px 8px; border-radius: 4px; height: 32px; max-width: 120px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); color: #fff;">
+                            </div>
+                        </div>
+
                         <!-- Subscriber Bulk Selection Action Banner -->
-                        <div x-show="subscribersSelected.length > 0 || subscribersSelectAllState === 'all'" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 12px 16px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
+                        <div x-show="subscribersSelected.length > 0 || subscribersSelectAllState === 'all'" style="background: rgba(59, 130, 246, 0.09); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 14px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+                            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                                 <i data-lucide="check-square" style="width: 18px; height: 18px; color: var(--color-primary);"></i>
                                 <span style="font-size: 13px; font-weight: 600; color: #fff;">
                                     <template x-if="subscribersSelectAllState === 'all'">
@@ -100,17 +103,17 @@
                                     </template>
                                 </span>
                                 <template x-if="subscribersSelectAllState === 'page' && subscribersCount > subscribers.length">
-                                    <button @click="toggleSelectAllSubscribers('all')" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px; color: var(--color-accent); border-color: var(--color-accent);">
+                                    <button @click="toggleSelectAllSubscribers('all')" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 4px 10px; color: var(--color-accent); border-color: var(--color-accent);">
                                         Select all <span x-text="subscribersCount"></span> matching filter
                                     </button>
                                 </template>
-                                <button @click="clearSubscriberSelection()" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;">
+                                <button @click="clearSubscriberSelection()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 4px 10px;">
                                     Clear Selection
                                 </button>
                             </div>
 
-                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                                <select @change="bulkChangeSubscriberStatus($event.target.value); $event.target.value='';" style="font-size: 11px; padding: 4px 8px; border-radius: 4px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-glass); color: #fff;">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                                <select @change="bulkChangeSubscriberStatus($event.target.value); $event.target.value='';" style="font-size: 12px; padding: 6px 12px; border-radius: 6px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: #fff; cursor: pointer;">
                                     <option value="">-- Change Status --</option>
                                     <option value="active">Set Active</option>
                                     <option value="unsubscribed">Set Unsubscribed</option>
@@ -119,13 +122,13 @@
                                     <option value="spam">Set Spam</option>
                                 </select>
                                 
-                                <button @click="bulkAddSubscriberTag()" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 10px;">
+                                <button @click="bulkAddSubscriberTag()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 6px 12px; display: flex; align-items: center; gap: 4px;">
                                     + Add Tag
                                 </button>
-                                <button @click="bulkRemoveSubscriberTag()" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 10px;">
+                                <button @click="bulkRemoveSubscriberTag()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 6px 12px; display: flex; align-items: center; gap: 4px;">
                                     - Remove Tag
                                 </button>
-                                <button x-show="user.role !== 'tenant_user'" @click="bulkDeleteSubscribers()" class="btn btn-danger btn-sm" style="font-size: 11px; padding: 4px 10px;">
+                                <button x-show="user.role !== 'tenant_user'" @click="bulkDeleteSubscribers()" class="btn btn-danger btn-sm" style="font-size: 12px; padding: 6px 12px; display: flex; align-items: center; gap: 4px;">
                                     Delete Selected
                                 </button>
                             </div>

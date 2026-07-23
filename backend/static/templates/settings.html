@@ -454,10 +454,10 @@
                                 <button @click="fetchOutboxQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px;">
                                     <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Refresh Queue
                                 </button>
-                                <button x-show="outboxQueue && outboxQueue.length > 0" @click="flushTenantQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px; background: rgba(59, 130, 246, 0.1); border-color: var(--color-primary); color: var(--color-primary);" title="Force immediate retries for all pending/deferred queue items">
+                                <button @click="flushTenantQueue()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 5px; background: rgba(59, 130, 246, 0.1); border-color: var(--color-primary); color: var(--color-primary);" title="Force immediate retries for all pending/deferred queue items">
                                     <i data-lucide="zap" style="width: 14px; height: 14px;"></i> Flush Queue
                                 </button>
-                                <button x-show="outboxQueue && outboxQueue.length > 0" @click="openPurgeQueueModal()" class="btn btn-danger btn-sm" style="display: flex; align-items: center; gap: 5px;" title="Clear all outbound queue items">
+                                <button @click="openPurgeQueueModal()" class="btn btn-danger btn-sm" style="display: flex; align-items: center; gap: 5px;" title="Clear all outbound queue items">
                                     <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Purge Entire Queue
                                 </button>
                             </div>
