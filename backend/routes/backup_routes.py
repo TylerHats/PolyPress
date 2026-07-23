@@ -355,28 +355,34 @@ def get_system_stats(
             "users": user_count
         })
         
-    # Calculate estimated max emails per hour based on recent sending data
+    # Calculate estimated max emails per hour based on global thread pool capacity and connection pooling
+    global_settings = db.query(GlobalSettings).first()
+    max_global_threads = global_settings.max_global_sending_threads if (global_settings and global_settings.max_global_sending_threads) else 50
+    connection_reuse = global_settings.smtp_connection_reuse if (global_settings and global_settings.smtp_connection_reuse is not None) else True
+    
+    # Base estimated throughput: 25ms per email with pooling (144,000/hr per thread), 250ms without pooling (14,400/hr per thread)
+    emails_per_thread_per_hour = 144000 if connection_reuse else 14400
+    est_max_per_hour = max_global_threads * 1000 # Realistic conservative hardware capacity baseline
+    
     recent_sent = db.query(QueueItem).filter(
         QueueItem.status == "sent"
     ).order_by(QueueItem.updated_at.desc()).limit(100).all()
     recent_sent = [r for r in recent_sent if r.updated_at]
     
-    est_max_per_hour = 36000 # default
     if len(recent_sent) >= 5:
         recent_sent.sort(key=lambda x: x.updated_at)
         max_rate = 0.0
-        # Check window size of 10 consecutive sends to find peak speed under load
         window_size = min(10, len(recent_sent))
         for i in range(len(recent_sent) - window_size + 1):
             t1 = recent_sent[i].updated_at
             t2 = recent_sent[i + window_size - 1].updated_at
             delta = (t2 - t1).total_seconds()
-            if delta > 0.1:
+            if delta > 0.05:
                 rate = (window_size - 1) / delta
                 if rate > max_rate:
                     max_rate = rate
         if max_rate > 0.0:
-            est_max_per_hour = int(max_rate * 3600)
+            est_max_per_hour = max(est_max_per_hour, int(max_rate * 3600))
         
     return {
         "db_size": db_size,
@@ -384,5 +390,8 @@ def get_system_stats(
         "assets_size": assets_size,
         "assets_count": assets_count,
         "tenant_stats": tenant_stats,
-        "est_max_per_hour": est_max_per_hour
+        "est_max_per_hour": est_max_per_hour,
+        "max_global_sending_threads": max_global_threads,
+        "max_domain_sending_threads": global_settings.max_domain_sending_threads if (global_settings and global_settings.max_domain_sending_threads) else 20,
+        "smtp_connection_reuse": connection_reuse
     }

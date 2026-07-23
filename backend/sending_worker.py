@@ -164,24 +164,36 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         use_ssl = tenant.smtp_use_ssl
         use_tls = tenant.smtp_use_tls
         
-        if not host:
-            from database import SessionLocal, GlobalSettings
-            db = SessionLocal()
-            try:
-                g = db.query(GlobalSettings).first()
-                if g and g.smtp_host:
-                    host = g.smtp_host
-                    port = g.smtp_port or 587
-                    username = g.smtp_username
-                    password = g.smtp_password
-                    use_ssl = g.smtp_use_ssl
-                    use_tls = g.smtp_use_tls
-            finally:
-                db.close()
+        from database import SessionLocal, GlobalSettings
+        db = SessionLocal()
+        global_settings = None
+        try:
+            global_settings = db.query(GlobalSettings).first()
+            if not host and global_settings and global_settings.smtp_host:
+                host = global_settings.smtp_host
+                port = global_settings.smtp_port or 587
+                username = global_settings.smtp_username
+                password = global_settings.smtp_password
+                use_ssl = global_settings.smtp_use_ssl
+                use_tls = global_settings.smtp_use_tls
+        finally:
+            db.close()
                 
         if not host:
             return False, False, 500, "Outbound SMTP server not configured"
             
+        use_reuse = global_settings.smtp_connection_reuse if (global_settings and global_settings.smtp_connection_reuse is not None) else True
+        conn_key = f"{host}:{port}:{username}:{use_ssl}:{use_tls}"
+        
+        if use_reuse:
+            try:
+                server = get_pooled_smtp(conn_key, host, port, use_ssl, use_tls, username, password)
+                server.sendmail(tenant.bounce_email or f"bounce@{tenant.dkim_domain or tenant.smtp_host or 'localhost'}", item.email, msg_bytes)
+                return True, True, 250, "Sent successfully"
+            except Exception as pool_err:
+                # Connection dropped or stale; close pooled connection and fallback once
+                close_pooled_smtp(conn_key)
+                
         if use_ssl:
             server = smtplib.SMTP_SSL(host, port, timeout=15.0)
         else:
@@ -195,7 +207,12 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
             server.login(username, password)
             
         server.sendmail(tenant.bounce_email or f"bounce@{tenant.dkim_domain or tenant.smtp_host or 'localhost'}", item.email, msg_bytes)
-        server.quit()
+        if not use_reuse:
+            server.quit()
+        else:
+            if hasattr(thread_local, "smtp_conns"):
+                thread_local.smtp_conns[conn_key] = server
+                
         return True, True, 250, "Sent successfully"
     except Exception as e:
         logger.error(f"External SMTP failed for QueueItem {item.id}: {e}")
@@ -345,12 +362,65 @@ import threading
 active_threads_lock = threading.Lock()
 active_threads = {}
 
+domain_active_threads_lock = threading.Lock()
+domain_active_threads = {}
+
+# Thread-local storage for persistent SMTP connection pooling
+thread_local = threading.local()
+
 def get_active_threads_for_tenant(tenant_id: int) -> int:
     with active_threads_lock:
         return active_threads.get(tenant_id, 0)
 
-# Global Thread Pool Executor for concurrent sends
-executor = ThreadPoolExecutor(max_workers=50)
+def get_active_threads_for_domain(domain: str) -> int:
+    if not domain:
+        return 0
+    with domain_active_threads_lock:
+        return domain_active_threads.get(domain.lower(), 0)
+
+def get_pooled_smtp(key: str, host: str, port: int, use_ssl: bool, use_tls: bool, username: str = None, password: str = None):
+    if not hasattr(thread_local, "smtp_conns"):
+        thread_local.smtp_conns = {}
+        
+    server = thread_local.smtp_conns.get(key)
+    if server is not None:
+        try:
+            status = server.noop()
+            if status[0] == 250:
+                return server
+        except Exception:
+            try:
+                server.quit()
+            except Exception:
+                pass
+            thread_local.smtp_conns.pop(key, None)
+            
+    if use_ssl:
+        server = smtplib.SMTP_SSL(host, port, timeout=15.0)
+    else:
+        server = smtplib.SMTP(host, port, timeout=15.0)
+        if use_tls:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            
+    if username and password:
+        server.login(username, password)
+        
+    thread_local.smtp_conns[key] = server
+    return server
+
+def close_pooled_smtp(key: str):
+    if hasattr(thread_local, "smtp_conns") and key in thread_local.smtp_conns:
+        server = thread_local.smtp_conns.pop(key, None)
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+# Global Thread Pool Executor for concurrent sends (scales up to 200 workers)
+executor = ThreadPoolExecutor(max_workers=200)
 rate_limiters = {}
 
 def deliver_item_task(item_id: int):
@@ -489,6 +559,10 @@ def deliver_item_task(item_id: int):
         if tenant_id is not None:
             with active_threads_lock:
                 active_threads[tenant_id] = max(0, active_threads.get(tenant_id, 0) - 1)
+        if item and item.email and "@" in item.email:
+            dest_domain = item.email.split("@")[-1].lower()
+            with domain_active_threads_lock:
+                domain_active_threads[dest_domain] = max(0, domain_active_threads.get(dest_domain, 0) - 1)
         db.close()
 
 async def process_queue():
@@ -766,6 +840,21 @@ async def process_queue():
                 continue
                 
             for item in items:
+                # Resolve global settings for concurrency limits
+                global_settings = db.query(GlobalSettings).first()
+                max_global_threads = global_settings.max_global_sending_threads if (global_settings and global_settings.max_global_sending_threads) else 50
+                max_domain_threads = global_settings.max_domain_sending_threads if (global_settings and global_settings.max_domain_sending_threads) else 20
+                
+                # Check overall program active thread limit
+                total_active_threads = sum(active_threads.values())
+                if total_active_threads >= max_global_threads:
+                    break
+                
+                # Check destination domain active thread limit
+                item_domain = item.email.split("@")[-1].lower() if (item and item.email and "@" in item.email) else ""
+                if item_domain and get_active_threads_for_domain(item_domain) >= max_domain_threads:
+                    continue
+                
                 # Resolve rate limiter for this tenant
                 tenant_id = item.tenant_id
                 

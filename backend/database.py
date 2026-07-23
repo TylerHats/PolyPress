@@ -153,7 +153,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 15
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -178,6 +178,11 @@ class GlobalSettings(Base):
     local_login_enabled = Column(Boolean, default=True) # Disable local email/pass login if OIDC is only option
     mail_server_identity = Column(String, nullable=True) # Domain name for HELO/EHLO handshake
     sending_ip_override = Column(String, nullable=True) # IP override for reverse DNS / SPF diagnostics
+    
+    # Global Worker & Concurrency Scaling Settings
+    max_global_sending_threads = Column(Integer, default=50)
+    max_domain_sending_threads = Column(Integer, default=20)
+    smtp_connection_reuse = Column(Boolean, default=True)
     
     # Global SMTP relay fallback settings
     smtp_host = Column(String, nullable=True)

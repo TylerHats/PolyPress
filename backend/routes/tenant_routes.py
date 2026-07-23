@@ -170,6 +170,14 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     settings.smtp_use_ssl = payload.get("smtp_use_ssl", settings.smtp_use_ssl)
     settings.smtp_use_tls = payload.get("smtp_use_tls", settings.smtp_use_tls)
     
+    # Global Worker & Concurrency Scaling Settings
+    if "max_global_sending_threads" in payload:
+        settings.max_global_sending_threads = max(1, int(payload["max_global_sending_threads"]))
+    if "max_domain_sending_threads" in payload:
+        settings.max_domain_sending_threads = max(1, int(payload["max_domain_sending_threads"]))
+    if "smtp_connection_reuse" in payload:
+        settings.smtp_connection_reuse = bool(payload["smtp_connection_reuse"])
+    
     db.commit()
     db.refresh(settings)
     return settings

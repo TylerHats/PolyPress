@@ -88,6 +88,33 @@
                                      <span style="font-size: 11px; color: var(--text-muted);">Override the auto-detected server public IP used for host-wide reverse DNS PTR and SPF checks in tenant diagnostics.</span>
                                  </div>
                                 
+                                 <!-- Worker Engine & Thread Scaling -->
+                                 <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 10px; display: flex; flex-direction: column; gap: 15px;">
+                                     <h4 style="font-size: 13px; margin: 0; color: var(--color-primary); display: flex; align-items: center; gap: 6px;">
+                                         <i data-lucide="cpu" style="width: 16px; height: 16px;"></i> Worker Engine & Concurrency Scaling
+                                     </h4>
+                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                         <div class="field">
+                                             <label>Max Global Thread Pool Capacity</label>
+                                             <input type="number" x-model.number="globalSettings.max_global_sending_threads" min="1" max="200" placeholder="50">
+                                             <span style="font-size: 11px; color: var(--text-muted);">Total active sending threads program-wide.</span>
+                                         </div>
+                                         <div class="field">
+                                             <label>Max Per-Domain Thread Cap</label>
+                                             <input type="number" x-model.number="globalSettings.max_domain_sending_threads" min="1" max="50" placeholder="20">
+                                             <span style="font-size: 11px; color: var(--text-muted);">Max concurrent connections per destination MX domain (e.g. Gmail).</span>
+                                         </div>
+                                     </div>
+                                     <div class="toggle-field" style="margin-top: 5px;">
+                                         <input type="checkbox" x-model="globalSettings.smtp_connection_reuse" style="display:none;">
+                                         <div class="toggle-switch" @click="globalSettings.smtp_connection_reuse = !globalSettings.smtp_connection_reuse"></div>
+                                         <div>
+                                             <div style="font-weight:600;">Enable Persistent SMTP Connection Pooling</div>
+                                             <div style="font-size: 11px; color: var(--text-muted);">Reuses open SMTP connections for sequential emails to boost speed up to 50k+/hr.</div>
+                                         </div>
+                                     </div>
+                                 </div>
+                                
                                 <div class="toggle-field" style="margin-top: 10px;">
                                      <input type="checkbox" x-model="globalSettings.oidc_enabled" style="display:none;">
                                      <div class="toggle-switch" @click="toggleOidcSetting()"></div>
