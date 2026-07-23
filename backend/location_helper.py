@@ -45,27 +45,43 @@ def download_geoip_db():
 # Initialize / try to download immediately on helper load
 download_geoip_db()
 
+BOT_UA_PATTERNS = [
+    "googleimageproxy", "via ggpht.com",
+    "outlook-express", "outlook.office", "office365",
+    "apple-mailshare", "apple-pubsub", "apple image proxy",
+    "yahoo", "yandex", "baidu",
+    "bot", "crawler", "spider", "prefetch", "preview", "validator", "fetcher",
+    "scan", "security", "mime", "barracuda", "proofpoint", "mimecast", "cisco",
+    "trendmicro", "fireeye", "kaspersky", "avast", "sophos", "zscaler", "cyren",
+    "mailguard", "cloudmark", "symantec", "mcafee", "checkpoint", "fortinet",
+    "spamhaus", "head", "curl", "python", "go-http-client", "wget", "urllib",
+    "httpx", "axios", "postman", "phantom", "selenium", "puppeteer", "playwright"
+]
+
+def is_bot_or_proxy(user_agent: str) -> bool:
+    if not user_agent or not user_agent.strip():
+        return True
+        
+    ua_lower = user_agent.lower()
+    
+    for pattern in BOT_UA_PATTERNS:
+        if pattern in ua_lower:
+            return True
+            
+    if "outlook" in ua_lower and ("via" in ua_lower or "caching" in ua_lower or "proxy" in ua_lower):
+        return True
+    if "yahoo" in ua_lower and ("via" in ua_lower or "proxy" in ua_lower):
+        return True
+        
+    return False
+
 def parse_user_agent(ua: str) -> tuple[str, str]:
     if not ua:
         return "Unknown Platform", "Unknown App"
     
     ua_lower = ua.lower()
     
-    # Intercept security proxies / image prefetchers first
-    is_proxy = False
-    if "googleimageproxy" in ua_lower or "via ggpht.com" in ua_lower:
-        is_proxy = True
-    elif "outlook-express" in ua_lower or "outlook.office" in ua_lower:
-        if "via" in ua_lower or "caching" in ua_lower:
-            is_proxy = True
-    elif "apple-mailshare" in ua_lower or "apple-pubsub" in ua_lower:
-        is_proxy = True
-    elif "yahoo" in ua_lower and ("via" in ua_lower or "proxy" in ua_lower):
-        is_proxy = True
-    elif "bot" in ua_lower or "crawler" in ua_lower or "spider" in ua_lower or "prefetch" in ua_lower:
-        is_proxy = True
-        
-    if is_proxy:
+    if is_bot_or_proxy(ua):
         return "Cloud Proxy", "Proxy / Image Prefetcher"
     
     # Platform Detection

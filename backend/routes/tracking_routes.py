@@ -32,6 +32,10 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
             ).first()
             ab_variant = queue_item.ab_variant if queue_item else None
 
+            from location_helper import is_bot_or_proxy, log_subscriber_activity
+            user_agent = request.headers.get("user-agent", "")
+            is_bot = is_bot_or_proxy(user_agent)
+
             # Log open event
             log = TrackingLog(
                 tenant_id=campaign.tenant_id,
@@ -39,33 +43,30 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 subscriber_id=subscriber_id,
                 event_type="open",
                 ip_address=request.client.host if request.client else None,
-                ab_variant=ab_variant
+                user_agent=user_agent,
+                ab_variant=ab_variant,
+                is_bot=is_bot
             )
-            
-            # Note: We didn't define `headers` in DB TrackingLog, but let's save user_agent instead to match schema
-            log.user_agent = request.headers.get("user-agent")
             db.add(log)
             
-            if not existing_open:
-                # Increment campaign unique opens using atomic SQL
-                from sqlalchemy import func
-                db.query(Campaign).filter(Campaign.id == campaign_id).update(
-                    {Campaign.open_count: func.coalesce(Campaign.open_count, 0) + 1}
-                )
-                
-            # Update subscriber's last open time and total opens count
-            subscriber.last_open_at = datetime.utcnow()
-            subscriber.opens_count = (subscriber.opens_count or 0) + 1
+            if not is_bot:
+                if not existing_open:
+                    from sqlalchemy import func
+                    db.query(Campaign).filter(Campaign.id == campaign_id).update(
+                        {Campaign.open_count: func.coalesce(Campaign.open_count, 0) + 1}
+                    )
+                    
+                subscriber.last_open_at = datetime.utcnow()
+                subscriber.opens_count = (subscriber.opens_count or 0) + 1
             
             db.commit()
 
-            from location_helper import log_subscriber_activity
             log_subscriber_activity(
                 db=db,
                 tenant_id=campaign.tenant_id,
                 subscriber_id=subscriber_id,
                 ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent", "")
+                user_agent=user_agent
             )
             
             from webhook_dispatcher import trigger_webhook
@@ -75,8 +76,9 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
                 "email": subscriber.email
             })
             
-            from engagement_service import trigger_engagement_recalc
-            trigger_engagement_recalc(subscriber_id)
+            if not is_bot:
+                from engagement_service import trigger_engagement_recalc
+                trigger_engagement_recalc(subscriber_id)
     except Exception as e:
         # Fail silently to avoid showing broken pixel image in email clients
         print(f"Tracking open error: {e}")
@@ -111,6 +113,10 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
             ).first()
             ab_variant = queue_item.ab_variant if queue_item else None
 
+            from location_helper import is_bot_or_proxy, log_subscriber_activity
+            user_agent = request.headers.get("user-agent", "")
+            is_bot = is_bot_or_proxy(user_agent)
+
             # Log click event
             log = TrackingLog(
                 tenant_id=campaign.tenant_id,
@@ -119,25 +125,25 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 event_type="click",
                 link_url=url,
                 ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent"),
-                ab_variant=ab_variant
+                user_agent=user_agent,
+                ab_variant=ab_variant,
+                is_bot=is_bot
             )
             db.add(log)
             
-            # Always increment click count for total clicks tracking using atomic SQL
-            from sqlalchemy import func
-            db.query(Campaign).filter(Campaign.id == campaign_id).update(
-                {Campaign.click_count: func.coalesce(Campaign.click_count, 0) + 1}
-            )
+            if not is_bot:
+                from sqlalchemy import func
+                db.query(Campaign).filter(Campaign.id == campaign_id).update(
+                    {Campaign.click_count: func.coalesce(Campaign.click_count, 0) + 1}
+                )
             db.commit()
 
-            from location_helper import log_subscriber_activity
             log_subscriber_activity(
                 db=db,
                 tenant_id=campaign.tenant_id,
                 subscriber_id=subscriber_id,
                 ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent", "")
+                user_agent=user_agent
             )
             
             from webhook_dispatcher import trigger_webhook

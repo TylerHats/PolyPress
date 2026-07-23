@@ -153,7 +153,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 15
+CURRENT_SCHEMA_VERSION = 16
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -463,6 +463,7 @@ class TrackingLog(Base):
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
     ab_variant = Column(String, nullable=True)
+    is_bot = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     campaign = relationship("Campaign", back_populates="tracking_logs")

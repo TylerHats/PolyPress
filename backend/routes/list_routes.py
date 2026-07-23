@@ -479,7 +479,7 @@ def test_subscribers_hygiene(
     if not sub_list:
         raise HTTPException(status_code=404, detail="List not found")
         
-    subscribers = db.query(Subscriber).filter(Subscriber.list_id == list_id).all()
+    subscribers = db.query(Subscriber).filter(Subscriber.list_id == list_id, Subscriber.status == "active").all()
     if not subscribers:
         return {"total_checked": 0, "invalid_count": 0, "results": []}
         
