@@ -2075,7 +2075,7 @@
                 },
 
                 async clearFailedLogs() {
-                    if (!await this.confirmModalPromise("Clear Failure Log", "Are you sure you want to clear the failed email diagnostics log?", { isDanger: true })) return;
+                    if (!await this.askConfirm("Are you sure you want to clear the failed email diagnostics log?", "Clear Failure Log", true)) return;
                     try {
                         const res = await fetch('/api/tenants/my/clear-failed-logs', {
                             method: 'POST',
