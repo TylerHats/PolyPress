@@ -10,12 +10,16 @@ ENV PYTHONPATH=/app/backend
 # Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies (like Git, which PolyPress uses for self-updating and version tracking)
-RUN apk add --no-cache git
+# Upgrade system packages and install dependencies (like Git, which PolyPress uses for self-updating and version tracking)
+RUN apk update && \
+    apk upgrade --no-cache && \
+    apk add --no-cache git && \
+    (apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main 'nghttp2-libs>=1.70.0-r0' || true)
 
-# Copy requirements and install dependencies
+# Copy requirements, upgrade pip, and install dependencies
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # Copy the rest of the application code
 COPY . /app
