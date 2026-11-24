@@ -301,6 +301,8 @@
 
                 // Form payloads
                 loginForm: { email: '', password: '' },
+                loginError: '',
+                loggingIn: false,
                 campaignForm: { name: '', subject: '', description: '', list_id: '', list_ids: [] },
                 listForm: { name: '', description: '' },
                 tenantForm: { id: null, name: '', generate_dkim: true },
@@ -336,7 +338,7 @@
                 mobileSidebarOpen: false,
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
                 tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500, queue_send_order: 'default', bounce_provider: 'imap', bounce_webhook_token: '', subscription_confirmed_html: '', unsubscribed_html: '' },
-                globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '', sending_ip_override: '', oidc_role_claim: 'role', oidc_tenant_claim: 'tenant', oidc_super_admin_value: 'super_admin', oidc_tenant_admin_value: 'tenant_admin', oidc_tenant_user_value: 'tenant_user', backup_interval_hours: 0, backup_retention_count: 10, max_global_sending_threads: 50, max_domain_sending_threads: 20, smtp_connection_reuse: true },
+                globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, oidc_require_email_verified: false, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '', sending_ip_override: '', oidc_role_claim: 'role', oidc_tenant_claim: 'tenant', oidc_super_admin_value: 'super_admin', oidc_tenant_admin_value: 'tenant_admin', oidc_tenant_user_value: 'tenant_user', backup_interval_hours: 0, backup_retention_count: 10, max_global_sending_threads: 50, max_domain_sending_threads: 20, smtp_connection_reuse: true },
                 updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
                 schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
                 schemaBypassForm: { email: '', password: '' },
@@ -636,7 +638,16 @@
                             urlError = hashParams.get('error');
                         }
                         if (urlError) {
-                            this.showToast(decodeURIComponent(urlError), 'error');
+                            const decodedErr = decodeURIComponent(urlError);
+                            const errMap = {
+                                email_not_verified: 'OIDC login failed: your identity provider marked your email as unverified.',
+                                invalid_oidc_state: 'OIDC login failed: invalid or expired login state. Please try again.',
+                                no_email_claim: 'OIDC login failed: your identity provider did not return an email claim.',
+                                OIDC_disabled: 'OIDC login is disabled by the administrator.',
+                            };
+                            const displayErr = errMap[decodedErr] || decodedErr;
+                            this.loginError = displayErr;
+                            this.showToast(displayErr, 'error');
                             // Clean url
                             let cleanUrl = window.location.pathname;
                             if (window.location.hash) {
@@ -754,7 +765,7 @@
                 },
                 
                 showToast(message, type = 'success') {
-                    const id = Date.now();
+                    const id = Date.now() + Math.random();
                     this.toasts.push({ id, message, type });
                     setTimeout(() => {
                         this.toasts = this.toasts.filter(t => t.id !== id);
@@ -763,16 +774,29 @@
                 },
                 
                 async handleLogin() {
+                    this.loginError = '';
+                    const emailEl = document.getElementById('login_email');
+                    const passEl = document.getElementById('login_password');
+                    const emailVal = (this.loginForm.email || (emailEl ? emailEl.value : '') || '').trim();
+                    const passVal = this.loginForm.password || (passEl ? passEl.value : '') || '';
+                    this.loginForm.email = emailVal;
+                    this.loginForm.password = passVal;
+                    if (!emailVal || !passVal) {
+                        this.loginError = 'Please enter both your email address and password.';
+                        this.showToast(this.loginError, 'error');
+                        return;
+                    }
+                    this.loggingIn = true;
                     try {
                         const res = await fetch('/api/auth/login', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.loginForm)
+                            body: JSON.stringify({ email: emailVal, password: passVal })
                         });
                         
                         if (!res.ok) {
-                            const err = await res.json();
-                            throw new Error(err.detail || 'Authentication failed');
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(err.detail || `Authentication failed (HTTP ${res.status})`);
                         }
                         
                         const data = await res.json();
@@ -791,14 +815,23 @@
                             } finally {
                                 this.loadingSession = false;
                             }
-                            this.showToast('Login successful!');
+                            if (this.authenticated) {
+                                this.showToast('Login successful!');
+                            } else {
+                                this.loginError = 'Session verification failed. Please try signing in again.';
+                                this.showToast(this.loginError, 'error');
+                            }
                         }
                     } catch(e) {
-                        this.showToast(e.message, 'error');
+                        this.loginError = e.message || 'Authentication failed';
+                        this.showToast(this.loginError, 'error');
+                    } finally {
+                        this.loggingIn = false;
                     }
                 },
                 
                 async handleTotpVerify() {
+                    this.loginError = '';
                     try {
                         const res = await fetch('/api/auth/totp-verify', {
                             method: 'POST',
@@ -811,7 +844,7 @@
                         });
                         
                         if (!res.ok) {
-                            const err = await res.json();
+                            const err = await res.json().catch(() => ({}));
                             throw new Error(err.detail || 'Invalid 2FA code');
                         }
                         
@@ -825,9 +858,15 @@
                         } finally {
                             this.loadingSession = false;
                         }
-                        this.showToast('2FA Verification successful!');
+                        if (this.authenticated) {
+                            this.showToast('2FA Verification successful!');
+                        } else {
+                            this.loginError = 'Session verification failed. Please try signing in again.';
+                            this.showToast(this.loginError, 'error');
+                        }
                     } catch(e) {
-                        this.showToast(e.message, 'error');
+                        this.loginError = e.message || 'Invalid 2FA code';
+                        this.showToast(this.loginError, 'error');
                     }
                 },
 
@@ -1464,13 +1503,18 @@
                         const data = await res.json();
                         this.user = data;
                         this.authenticated = true;
+                    } catch(e) {
+                        this.handleLogout();
+                        return;
+                    }
                         
-                        // Handle pending approval block
-                        if (this.user.role === 'pending') {
-                            this.switchTab('pending_approval');
-                            return;
-                        }
-                        
+                    // Handle pending approval block
+                    if (this.user.role === 'pending') {
+                        this.switchTab('pending_approval');
+                        return;
+                    }
+                    
+                    try {
                         // Retrieve saved host admin mode preference (Super Admin only)
                         if (this.user.role === 'super_admin') {
                             const savedHostMode = localStorage.getItem('polypress_host_admin_mode');
@@ -1499,7 +1543,7 @@
                                         : 'System Update Available! Go to Admin Panel to install.';
                                     this.showToast(msg, 'info');
                                 }
-                            });
+                            }).catch(() => {});
                         }
                         
                         // Load saved tenant context if not in host admin mode
@@ -1533,8 +1577,10 @@
                         await Promise.all(initTasks);
                         
                         this.switchTab('dashboard', true);
-                    } catch(e) {
-                        this.handleLogout();
+                    } catch(loadErr) {
+                        console.error('Post-login initialization warning:', loadErr);
+                        this.activeTab = 'dashboard';
+                        this.refreshIcons();
                     }
                 },
                 
@@ -2701,7 +2747,7 @@
                     }
                     if (tab !== 'reports') {
                         const canvas = document.getElementById('reportsChart');
-                        if (canvas) {
+                        if (canvas && typeof Chart !== 'undefined') {
                             const existingChart = Chart.getChart(canvas);
                             if (existingChart) {
                                 try {
@@ -2725,7 +2771,7 @@
                     
                     if (tab !== 'dashboard') {
                         const canvas = document.getElementById('dashboardChart');
-                        if (canvas) {
+                        if (canvas && typeof Chart !== 'undefined') {
                             const existingChart = Chart.getChart(canvas);
                             if (existingChart) {
                                 try {
@@ -3013,7 +3059,8 @@
                             ]);
 
                             const summary = summaryRes.ok ? await summaryRes.json() : {};
-                            const historyData = historyRes.ok ? await historyRes.json() : [];
+                            const rawHistory = historyRes.ok ? await historyRes.json() : [];
+                            const historyData = Array.isArray(rawHistory) ? rawHistory : [];
 
                             this.stats.totalSubscribers = summary.active_subscribers ?? summary.total_subscribers ?? 0;
 
@@ -3069,6 +3116,8 @@
                             // Generate padded history for chart rendering
                             const chartPoints = this.preparePaddedHistory(currentPeriodRecs, this.dashboardPeriod, this.reportsTimezone);
                             this.renderMetricsChart(chartPoints);
+                        } catch (e) {
+                            console.error('Failed to load dashboard metrics:', e);
                         } finally {
                             this.loadingDashboardStats = false;
                             this._dashboardInFlight = null;
@@ -3092,7 +3141,7 @@
                     }
                     this.chartTimeoutId = setTimeout(() => {
                         this.chartTimeoutId = null;
-                        if (this.activeTab !== 'dashboard') return;
+                        if (this.activeTab !== 'dashboard' || typeof Chart === 'undefined') return;
                         const ctx = document.getElementById('dashboardChart');
                         if (!ctx || ctx.offsetParent === null) return;
                         
@@ -4590,8 +4639,8 @@
                     this.reportsChartTimeoutId = setTimeout(() => {
                         this.reportsChartTimeoutId = null;
                         
-                        // Guard: Only render if we are currently on the reports tab
-                        if (this.activeTab !== 'reports') return;
+                        // Guard: Only render if we are currently on the reports tab and Chart.js loaded
+                        if (this.activeTab !== 'reports' || typeof Chart === 'undefined') return;
                         
                         const ctx = document.getElementById('reportsChart');
                         if (!ctx) return;

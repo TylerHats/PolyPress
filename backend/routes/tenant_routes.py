@@ -115,6 +115,7 @@ def _serialize_global_settings_safe(s: GlobalSettings) -> dict:
         "allowed_domains": s.allowed_domains,
         "auto_create_tenants": s.auto_create_tenants,
         "local_login_enabled": s.local_login_enabled,
+        "oidc_require_email_verified": bool(getattr(s, "oidc_require_email_verified", False)),
         "auto_update": s.auto_update,
         "update_channel": s.update_channel,
         "backup_token": s.backup_token,
@@ -281,6 +282,9 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     settings.allowed_domains = payload.get("allowed_domains", settings.allowed_domains)
     settings.auto_create_tenants = payload.get("auto_create_tenants", settings.auto_create_tenants)
     settings.local_login_enabled = new_local
+    settings.oidc_require_email_verified = bool(
+        payload.get("oidc_require_email_verified", getattr(settings, "oidc_require_email_verified", False))
+    )
     
     # Auto-updates and Backups API
     settings.auto_update = payload.get("auto_update", settings.auto_update)

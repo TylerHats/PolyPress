@@ -154,6 +154,11 @@
                                               <div class="toggle-switch" @click="toggleLocalLoginSetting()"></div>
                                               <span>Allow Standard Password Login (Local Auth)</span>
                                           </div>
+                                          <div class="toggle-field" style="margin-top: 10px;">
+                                              <input type="checkbox" x-model="globalSettings.oidc_require_email_verified" style="display:none;">
+                                              <div class="toggle-switch" @click="globalSettings.oidc_require_email_verified = !globalSettings.oidc_require_email_verified"></div>
+                                              <span>Require Verified Email Claim (<code>email_verified</code>)</span>
+                                          </div>
                                           
                                           <div style="border-top: 1px dashed var(--border-glass); padding-top: 15px; margin-top: 10px; display: flex; flex-direction: column; gap: 15px;">
                                               <h4 style="font-size: 13px; margin: 0; color: var(--color-accent);">SSO Claim to Role & Workspace Mappings</h4>

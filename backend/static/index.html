@@ -170,23 +170,28 @@
             <img :src="(globalSettings.app_logo || '/branding/logo.png') + '?v=' + logoVersion" alt="PolyPress Logo" class="login-logo" onerror="this.src='https://raw.githubusercontent.com/FortAwesome/Font-Awesome/solid/newspaper.svg'">
             <h1 class="login-title" x-text="globalSettings.app_name || 'PolyPress'"></h1>
             <p class="login-subtitle">Email newsletter management</p>
+
+            <div x-show="loginError" style="display: none; background: rgba(239, 68, 68, 0.14); border: 1px solid rgba(239, 68, 68, 0.4); color: #fecaca; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 16px; text-align: left;" x-text="loginError"></div>
             
             <!-- Standard Login Form -->
             <form x-show="!totpRequired && !showForgotPasswordView && !showResetPasswordView && (!globalSettings.oidc_enabled || globalSettings.local_login_enabled)" @submit.prevent="handleLogin()" autocomplete="on">
                 <div class="form-grid" style="grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
                     <div class="field" style="text-align: left;">
                         <label>Email Address</label>
-                        <input type="email" name="username" id="login_email" autocomplete="username" x-model="loginForm.email" required placeholder="admin@polypress.local">
+                        <input type="text" inputmode="email" name="username" id="login_email" autocomplete="username" x-model="loginForm.email" @input="loginError = ''" placeholder="admin@polypress.local">
                     </div>
                     <div class="field" style="text-align: left;">
                         <label>Password</label>
-                        <input type="password" name="password" id="login_password" autocomplete="current-password" x-model="loginForm.password" required placeholder="••••••••">
+                        <input type="password" name="password" id="login_password" autocomplete="current-password" x-model="loginForm.password" @input="loginError = ''" placeholder="••••••••">
                     </div>
                 </div>
                 <div style="text-align: right; margin-top: -8px; margin-bottom: 20px;">
                     <a href="javascript:void(0)" @click="showForgotPasswordView = true; forgotPasswordEmail = loginForm.email" style="font-size: 12px; color: var(--color-accent); text-decoration: none;">Forgot password?</a>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+                <button type="submit" class="btn btn-primary" style="width: 100%;" :disabled="loggingIn">
+                    <span x-show="!loggingIn">Sign In</span>
+                    <span x-show="loggingIn">Signing In...</span>
+                </button>
             </form>
 
             <!-- Forgot Password Request Form -->

@@ -364,28 +364,34 @@ def oidc_callback(request: Request, code: str = Query(...), state: str = Query(N
         userinfo_res.raise_for_status()
         userinfo = userinfo_res.json()
 
-        if userinfo.get("email_verified") is False or str(userinfo.get("email_verified", "true")).lower() == "false":
+        require_verified = bool(getattr(settings, "oidc_require_email_verified", False)) or (
+            os.getenv("POLYPRESS_OIDC_REQUIRE_EMAIL_VERIFIED", "").strip().lower() == "true"
+        )
+        if require_verified and (
+            userinfo.get("email_verified") is False
+            or str(userinfo.get("email_verified", "true")).lower() == "false"
+        ):
             resp = RedirectResponse(url="/#/login?error=email_not_verified")
-            resp.delete_cookie("polypress_oidc_state")
+            resp.delete_cookie("polypress_oidc_state", path="/")
             return resp
         
         email = userinfo.get("email")
         if not email:
             resp = RedirectResponse(url="/#/login?error=no_email_claim")
-            resp.delete_cookie("polypress_oidc_state")
+            resp.delete_cookie("polypress_oidc_state", path="/")
             return resp
 
-        name = userinfo.get("name", email.split("@")[0])
+        name = userinfo.get("name") or userinfo.get("preferred_username") or email.split("@")[0]
         user = auth.process_oidc_user(db, email, name, userinfo)
         session_token = auth.create_access_token({"sub": user.email})
         resp = RedirectResponse(url=f"/#/login?token={urllib.parse.quote(session_token, safe='')}")
-        resp.delete_cookie("polypress_oidc_state")
+        resp.delete_cookie("polypress_oidc_state", path="/")
         return resp
         
     except Exception as e:
         print(f"OIDC callback error: {e}")
         resp = RedirectResponse(url=f"/#/login?error={urllib.parse.quote(str(e), safe='')}")
-        resp.delete_cookie("polypress_oidc_state")
+        resp.delete_cookie("polypress_oidc_state", path="/")
         return resp
 
 @router.get("/me")

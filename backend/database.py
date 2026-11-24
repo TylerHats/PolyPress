@@ -186,6 +186,7 @@ class GlobalSettings(Base):
     allowed_domains = Column(String, nullable=True) # Comma-separated domains (e.g. "company.com,org.net")
     auto_create_tenants = Column(Boolean, default=True) # Automatically create a tenant for a new OIDC domain
     local_login_enabled = Column(Boolean, default=True) # Disable local email/pass login if OIDC is only option
+    oidc_require_email_verified = Column(Boolean, default=False) # Enforce email_verified claim only when opted in
     mail_server_identity = Column(String, nullable=True) # Domain name for HELO/EHLO handshake
     sending_ip_override = Column(String, nullable=True) # IP override for reverse DNS / SPF diagnostics
     
