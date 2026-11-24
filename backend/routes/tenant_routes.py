@@ -1,3 +1,9 @@
+import time
+import threading
+import concurrent.futures
+import ipaddress
+import socket
+import urllib.request
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
@@ -7,8 +13,135 @@ import dns.resolver
 import database as db_mod
 from database import get_db, Tenant, User, GlobalSettings, QueueItem, Subscriber
 import auth
+from security_utils import is_safe_mail_host, is_safe_outbound_url
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
+
+VALID_QUEUE_SEND_ORDERS = {"default", "random", "alphabetical", "alphabetical_desc", "domain_interleaved"}
+
+_ip_cache_lock = threading.Lock()
+_cached_public_ip = None
+_cached_public_ip_at = 0.0
+
+
+def get_cached_public_ip(force_refresh: bool = False) -> str:
+    """Resolve outbound public IP via api.ipify.org at most once every 10 minutes."""
+    global _cached_public_ip, _cached_public_ip_at
+    now = time.monotonic()
+    if not force_refresh and _cached_public_ip and (now - _cached_public_ip_at) < 600:
+        return _cached_public_ip
+    with _ip_cache_lock:
+        now = time.monotonic()
+        if not force_refresh and _cached_public_ip and (now - _cached_public_ip_at) < 600:
+            return _cached_public_ip
+        try:
+            ip = urllib.request.urlopen("https://api.ipify.org", timeout=2).read().decode("utf-8").strip()
+            if ip:
+                _cached_public_ip = ip
+                _cached_public_ip_at = now
+                return ip
+        except Exception:
+            pass
+    return _cached_public_ip or "unknown"
+
+
+def _serialize_tenant_safe(t: Tenant) -> dict:
+    """Serialize Tenant omitting sensitive secrets (smtp_password, imap_password, dkim_private_key)."""
+    return {
+        "id": t.id,
+        "name": t.name,
+        "logo_path": t.logo_path,
+        "smtp_host": t.smtp_host,
+        "smtp_port": t.smtp_port,
+        "smtp_username": t.smtp_username,
+        "smtp_has_password": bool(t.smtp_password),
+        "smtp_use_ssl": t.smtp_use_ssl,
+        "smtp_use_tls": t.smtp_use_tls,
+        "direct_send": t.direct_send,
+        "dkim_domain": t.dkim_domain,
+        "dkim_selector": t.dkim_selector,
+        "dkim_public_key": t.dkim_public_key,
+        "dkim_has_private_key": bool(t.dkim_private_key),
+        "mta_from_prefix": t.mta_from_prefix,
+        "imap_host": t.imap_host,
+        "imap_port": t.imap_port,
+        "imap_username": t.imap_username,
+        "imap_has_password": bool(t.imap_password),
+        "imap_use_ssl": t.imap_use_ssl,
+        "imap_delete_processed": t.imap_delete_processed,
+        "speed_emails_per_hour": t.speed_emails_per_hour,
+        "max_sending_threads": t.max_sending_threads,
+        "queue_send_order": getattr(t, "queue_send_order", None) or "default",
+        "bounce_email": t.bounce_email,
+        "bounce_provider": t.bounce_provider,
+        "bounce_webhook_token": t.bounce_webhook_token,
+        "double_opt_in": t.double_opt_in,
+        "retry_interval_minutes": t.retry_interval_minutes,
+        "double_opt_in_subject": t.double_opt_in_subject,
+        "double_opt_in_body_blocks": t.double_opt_in_body_blocks,
+        "double_opt_in_body_html": t.double_opt_in_body_html,
+        "double_opt_in_is_custom_html": t.double_opt_in_is_custom_html,
+        "double_opt_in_custom_html": t.double_opt_in_custom_html,
+        "email_footer_blocks": t.email_footer_blocks,
+        "email_footer_html": t.email_footer_html,
+        "email_footer_is_custom_html": t.email_footer_is_custom_html,
+        "email_footer_custom_html": t.email_footer_custom_html,
+        "sending_ip_override": t.sending_ip_override,
+        "subscription_confirmed_html": t.subscription_confirmed_html,
+        "unsubscribed_html": t.unsubscribed_html,
+        "history_retention_days": t.history_retention_days,
+        "history_record_frequency_hours": t.history_record_frequency_hours,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+def _serialize_global_settings_safe(s: GlobalSettings) -> dict:
+    """Serialize GlobalSettings while masking stored secrets."""
+    if not s:
+        return {}
+    return {
+        "id": s.id,
+        "app_name": s.app_name,
+        "app_logo": s.app_logo,
+        "public_url": s.public_url,
+        "mail_server_identity": s.mail_server_identity,
+        "sending_ip_override": s.sending_ip_override,
+        "oidc_enabled": s.oidc_enabled,
+        "oidc_issuer": s.oidc_issuer,
+        "oidc_client_id": s.oidc_client_id,
+        "oidc_client_secret": "",
+        "oidc_has_client_secret": bool(s.oidc_client_secret),
+        "oidc_redirect_url": s.oidc_redirect_url,
+        "allowed_domains": s.allowed_domains,
+        "auto_create_tenants": s.auto_create_tenants,
+        "local_login_enabled": s.local_login_enabled,
+        "auto_update": s.auto_update,
+        "update_channel": s.update_channel,
+        "backup_token": s.backup_token,
+        "external_backup_url": s.external_backup_url,
+        "external_backup_auth_header": "",
+        "external_backup_has_auth_header": bool(s.external_backup_auth_header),
+        "oidc_role_claim": s.oidc_role_claim,
+        "oidc_tenant_claim": s.oidc_tenant_claim,
+        "oidc_super_admin_value": s.oidc_super_admin_value,
+        "oidc_tenant_admin_value": s.oidc_tenant_admin_value,
+        "oidc_tenant_user_value": s.oidc_tenant_user_value,
+        "backup_interval_hours": s.backup_interval_hours,
+        "backup_retention_count": s.backup_retention_count,
+        "smtp_host": s.smtp_host,
+        "smtp_port": s.smtp_port,
+        "smtp_username": s.smtp_username,
+        "smtp_password": "",
+        "smtp_has_password": bool(s.smtp_password),
+        "smtp_use_ssl": s.smtp_use_ssl,
+        "smtp_use_tls": s.smtp_use_tls,
+        "max_global_sending_threads": s.max_global_sending_threads,
+        "max_domain_sending_threads": s.max_domain_sending_threads,
+        "smtp_connection_reuse": s.smtp_connection_reuse,
+        "history_retention_days": s.history_retention_days,
+        "history_record_frequency_hours": s.history_record_frequency_hours,
+    }
+
 
 def generate_dkim_keypair():
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -34,20 +167,20 @@ def generate_dkim_keypair():
 
 @router.get("")
 def list_tenants(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
-    return db.query(Tenant).all()
+    tenants = db.query(Tenant).all()
+    return [_serialize_tenant_safe(t) for t in tenants]
 
 @router.get("/accessible")
 def list_accessible_tenants(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     if current_user.role == "super_admin":
-        return db.query(Tenant).all()
-        
-    if current_user.allowed_tenants:
-        return db.query(Tenant).filter(Tenant.id.in_(current_user.allowed_tenants)).all()
-        
-    if current_user.tenant_id:
-        return db.query(Tenant).filter(Tenant.id == current_user.tenant_id).all()
-        
-    return []
+        tenants = db.query(Tenant).all()
+    elif current_user.allowed_tenants:
+        tenants = db.query(Tenant).filter(Tenant.id.in_(current_user.allowed_tenants)).all()
+    elif current_user.tenant_id:
+        tenants = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).all()
+    else:
+        tenants = []
+    return [_serialize_tenant_safe(t) for t in tenants]
 
 @router.post("")
 def create_tenant(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
@@ -58,6 +191,10 @@ def create_tenant(payload: dict = Body(...), db: Session = Depends(get_db), curr
     existing = db.query(Tenant).filter(Tenant.name == name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Tenant name already exists")
+
+    raw_order = (payload.get("queue_send_order") or "default").strip().lower()
+    if raw_order not in VALID_QUEUE_SEND_ORDERS:
+        raw_order = "default"
         
     tenant = Tenant(
         name=name,
@@ -78,7 +215,8 @@ def create_tenant(payload: dict = Body(...), db: Session = Depends(get_db), curr
         imap_use_ssl=payload.get("imap_use_ssl", True),
         speed_emails_per_hour=payload.get("speed_emails_per_hour", 500),
         bounce_email=payload.get("bounce_email"),
-        max_sending_threads=payload.get("max_sending_threads", 10)
+        max_sending_threads=payload.get("max_sending_threads", 10),
+        queue_send_order=raw_order,
     )
     
     if payload.get("generate_dkim"):
@@ -89,14 +227,14 @@ def create_tenant(payload: dict = Body(...), db: Session = Depends(get_db), curr
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
-    return tenant
+    return _serialize_tenant_safe(tenant)
 
 # GLOBAL SETTINGS (Super Admin Only)
 
 @router.get("/global-settings")
 def get_global_settings(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
     settings = db.query(GlobalSettings).first()
-    return settings
+    return _serialize_global_settings_safe(settings)
 
 @router.put("/global-settings")
 def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
@@ -137,7 +275,8 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     settings.oidc_enabled = new_oidc
     settings.oidc_issuer = payload.get("oidc_issuer", settings.oidc_issuer)
     settings.oidc_client_id = payload.get("oidc_client_id", settings.oidc_client_id)
-    settings.oidc_client_secret = payload.get("oidc_client_secret", settings.oidc_client_secret)
+    if payload.get("oidc_client_secret"):
+        settings.oidc_client_secret = payload["oidc_client_secret"]
     settings.oidc_redirect_url = payload.get("oidc_redirect_url", settings.oidc_redirect_url)
     settings.allowed_domains = payload.get("allowed_domains", settings.allowed_domains)
     settings.auto_create_tenants = payload.get("auto_create_tenants", settings.auto_create_tenants)
@@ -147,8 +286,15 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     settings.auto_update = payload.get("auto_update", settings.auto_update)
     settings.update_channel = payload.get("update_channel", settings.update_channel)
     settings.backup_token = payload.get("backup_token", settings.backup_token)
-    settings.external_backup_url = payload.get("external_backup_url", settings.external_backup_url)
-    settings.external_backup_auth_header = payload.get("external_backup_auth_header", settings.external_backup_auth_header)
+    if "external_backup_url" in payload:
+        ext_url = (payload.get("external_backup_url") or "").strip()
+        if ext_url:
+            is_safe, reason = is_safe_outbound_url(ext_url)
+            if not is_safe:
+                raise HTTPException(status_code=400, detail=f"External backup URL rejected: {reason}")
+        settings.external_backup_url = ext_url or None
+    if payload.get("external_backup_auth_header"):
+        settings.external_backup_auth_header = payload["external_backup_auth_header"]
     
     # Custom OIDC Claim Mappings
     settings.oidc_role_claim = payload.get("oidc_role_claim", settings.oidc_role_claim)
@@ -181,9 +327,7 @@ def update_global_settings(payload: dict = Body(...), db: Session = Depends(get_
     
     db.commit()
     db.refresh(settings)
-    return settings
-
-
+    return _serialize_global_settings_safe(settings)
 
 
 # TENANT ADMIN / USER SETTINGS (Scoped to Current Tenant)
@@ -203,48 +347,7 @@ def get_my_tenant(db: Session = Depends(get_db), current_user: User = Depends(au
         db.commit()
         db.refresh(tenant)
         
-    # Return everything except private key
-    return {
-        "id": tenant.id,
-        "name": tenant.name,
-        "logo_path": tenant.logo_path,
-        "smtp_host": tenant.smtp_host,
-        "smtp_port": tenant.smtp_port,
-        "smtp_username": tenant.smtp_username,
-        # Mask password
-        "smtp_has_password": bool(tenant.smtp_password),
-        "smtp_use_ssl": tenant.smtp_use_ssl,
-        "smtp_use_tls": tenant.smtp_use_tls,
-        "direct_send": tenant.direct_send,
-        "dkim_domain": tenant.dkim_domain,
-        "dkim_selector": tenant.dkim_selector,
-        "dkim_public_key": tenant.dkim_public_key,
-        "mta_from_prefix": tenant.mta_from_prefix,
-        "imap_host": tenant.imap_host,
-        "imap_port": tenant.imap_port,
-        "imap_username": tenant.imap_username,
-        "imap_has_password": bool(tenant.imap_password),
-        "imap_use_ssl": tenant.imap_use_ssl,
-        "imap_delete_processed": tenant.imap_delete_processed,
-        "speed_emails_per_hour": tenant.speed_emails_per_hour,
-        "bounce_email": tenant.bounce_email,
-        "bounce_provider": tenant.bounce_provider,
-        "bounce_webhook_token": tenant.bounce_webhook_token,
-        "double_opt_in": tenant.double_opt_in,
-        "retry_interval_minutes": tenant.retry_interval_minutes,
-        "double_opt_in_subject": tenant.double_opt_in_subject,
-        "double_opt_in_body_blocks": tenant.double_opt_in_body_blocks,
-        "double_opt_in_body_html": tenant.double_opt_in_body_html,
-        "double_opt_in_is_custom_html": tenant.double_opt_in_is_custom_html,
-        "double_opt_in_custom_html": tenant.double_opt_in_custom_html,
-        "email_footer_blocks": tenant.email_footer_blocks,
-        "email_footer_html": tenant.email_footer_html,
-        "email_footer_is_custom_html": tenant.email_footer_is_custom_html,
-        "email_footer_custom_html": tenant.email_footer_custom_html,
-        "sending_ip_override": tenant.sending_ip_override,
-        "subscription_confirmed_html": tenant.subscription_confirmed_html,
-        "unsubscribed_html": tenant.unsubscribed_html
-    }
+    return _serialize_tenant_safe(tenant)
 
 @router.put("/my")
 def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
@@ -284,6 +387,12 @@ def update_my_tenant(payload: dict = Body(...), db: Session = Depends(get_db), c
         tenant.bounce_webhook_token = payload["bounce_webhook_token"]
         
     tenant.speed_emails_per_hour = payload.get("speed_emails_per_hour", tenant.speed_emails_per_hour)
+    if "max_sending_threads" in payload and payload["max_sending_threads"]:
+        tenant.max_sending_threads = max(1, int(payload["max_sending_threads"]))
+    if "queue_send_order" in payload:
+        raw_order = (payload.get("queue_send_order") or "default").strip().lower()
+        if raw_order in VALID_QUEUE_SEND_ORDERS:
+            tenant.queue_send_order = raw_order
     tenant.bounce_email = payload.get("bounce_email", tenant.bounce_email)
     tenant.double_opt_in = payload.get("double_opt_in", tenant.double_opt_in)
     tenant.retry_interval_minutes = payload.get("retry_interval_minutes", tenant.retry_interval_minutes)
@@ -350,6 +459,10 @@ def test_smtp_settings(payload: dict = Body(...), db: Session = Depends(get_db),
     smtp_use_tls = payload.get("smtp_use_tls", db_tenant.smtp_use_tls if db_tenant else True)
     
     direct_send = payload.get("direct_send", db_tenant.direct_send if db_tenant else False)
+    if not direct_send and smtp_host:
+        is_safe, reason = is_safe_mail_host(smtp_host)
+        if not is_safe:
+            raise HTTPException(status_code=400, detail=f"Invalid SMTP host: {reason}")
     dkim_selector = payload.get("dkim_selector") or (db_tenant.dkim_selector if db_tenant else "polypress")
     dkim_domain = payload.get("dkim_domain") or (db_tenant.dkim_domain if db_tenant else None)
     dkim_private_key = payload.get("dkim_private_key") or (db_tenant.dkim_private_key if db_tenant else None)
@@ -381,11 +494,9 @@ def test_smtp_settings(payload: dict = Body(...), db: Session = Depends(get_db),
     elif db_settings and db_settings.sending_ip_override:
         public_ip = db_settings.sending_ip_override.strip()
     else:
-        try:
-            import urllib.request
-            public_ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
-        except Exception:
-            pass
+        detected_ip = get_cached_public_ip()
+        if detected_ip and detected_ip != "unknown":
+            public_ip = detected_ip
 
     if mock_tenant.direct_send:
         test_subject = f"MTA Direct Send Test successful - {mock_tenant.name}"
@@ -500,6 +611,10 @@ def test_imap_settings(payload: dict = Body(...), db: Session = Depends(get_db),
             
     if not host or not username or not password:
         raise HTTPException(status_code=400, detail="imap_host, imap_username, and imap_password are required")
+
+    is_safe, reason = is_safe_mail_host(host)
+    if not is_safe:
+        raise HTTPException(status_code=400, detail=f"Invalid IMAP host: {reason}")
         
     import imaplib
     try:
@@ -571,20 +686,43 @@ def test_imap_loopback_send(payload: dict = Body(...), db: Session = Depends(get
         body_html=test_body_html
     )
     
-    # Temporarily override tenant SMTP/MTA settings from payload if provided (similar to test_smtp_settings)
-    import copy
-    mock_tenant = copy.copy(db_tenant)
-    if "smtp_host" in payload: mock_tenant.smtp_host = payload["smtp_host"]
-    if "smtp_port" in payload: mock_tenant.smtp_port = payload["smtp_port"]
-    if "smtp_username" in payload: mock_tenant.smtp_username = payload["smtp_username"]
-    if "smtp_password" in payload: mock_tenant.smtp_password = payload["smtp_password"]
-    if "smtp_use_ssl" in payload: mock_tenant.smtp_use_ssl = payload["smtp_use_ssl"]
-    if "smtp_use_tls" in payload: mock_tenant.smtp_use_tls = payload["smtp_use_tls"]
-    if "direct_send" in payload: mock_tenant.direct_send = payload["direct_send"]
-    if "mta_from_prefix" in payload: mock_tenant.mta_from_prefix = payload["mta_from_prefix"]
-    if "dkim_domain" in payload: mock_tenant.dkim_domain = payload["dkim_domain"]
-    
-    if "bounce_email" in payload: mock_tenant.bounce_email = payload["bounce_email"]
+    # Build an isolated detached Tenant snapshot with fallback to stored DB secrets
+    smtp_host = payload.get("smtp_host") or db_tenant.smtp_host
+    smtp_port = payload.get("smtp_port") or db_tenant.smtp_port
+    smtp_username = payload.get("smtp_username") or db_tenant.smtp_username
+    smtp_password = payload.get("smtp_password") or db_tenant.smtp_password
+    smtp_use_ssl = payload.get("smtp_use_ssl", db_tenant.smtp_use_ssl)
+    smtp_use_tls = payload.get("smtp_use_tls", db_tenant.smtp_use_tls)
+    direct_send = payload.get("direct_send", db_tenant.direct_send)
+    dkim_selector = payload.get("dkim_selector") or db_tenant.dkim_selector or "polypress"
+    dkim_domain = payload.get("dkim_domain") or db_tenant.dkim_domain
+    dkim_private_key = payload.get("dkim_private_key") or db_tenant.dkim_private_key
+    mta_from_prefix = payload.get("mta_from_prefix") or db_tenant.mta_from_prefix or "noreply"
+    bounce_email = payload.get("bounce_email") or db_tenant.bounce_email
+    sending_ip_override = payload.get("sending_ip_override") or db_tenant.sending_ip_override
+
+    mock_tenant = Tenant(
+        id=db_tenant.id,
+        name=payload.get("name") or db_tenant.name,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_username=smtp_username,
+        smtp_password=smtp_password,
+        smtp_use_ssl=smtp_use_ssl,
+        smtp_use_tls=smtp_use_tls,
+        direct_send=direct_send,
+        mta_from_prefix=mta_from_prefix,
+        dkim_selector=dkim_selector,
+        dkim_domain=dkim_domain,
+        dkim_private_key=dkim_private_key,
+        bounce_email=bounce_email,
+        sending_ip_override=sending_ip_override,
+    )
+
+    if not mock_tenant.direct_send and mock_tenant.smtp_host:
+        is_safe, reason = is_safe_mail_host(mock_tenant.smtp_host)
+        if not is_safe:
+            raise HTTPException(status_code=400, detail=f"Invalid SMTP host: {reason}")
     
     try:
         if mock_tenant.direct_send:
@@ -623,6 +761,10 @@ def test_imap_loopback_receive(payload: dict = Body(...), db: Session = Depends(
         
     if not host or not username or not password:
         raise HTTPException(status_code=400, detail="IMAP settings (host, username, password) are not fully configured")
+
+    is_safe, reason = is_safe_mail_host(host)
+    if not is_safe:
+        raise HTTPException(status_code=400, detail=f"Invalid IMAP host: {reason}")
         
     import imaplib
     import time
@@ -761,10 +903,9 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     elif tenant.sending_ip_override:
         public_ip = tenant.sending_ip_override.strip()
     else:
-        try:
-            public_ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
-        except Exception:
-            pass
+        detected = get_cached_public_ip()
+        if detected and detected != "unknown":
+            public_ip = detected
 
     servers = {
         "local": None,
@@ -987,7 +1128,7 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     ptr_sources = run_concurrently(get_ptr_record)
     results["ptr"] = {"sources": ptr_sources, "status": calculate_status(ptr_sources)}
 
-    # 6. IP Blacklist Check
+    # 6. IP Blacklist Check (executed concurrently across DNSBLs and resolvers)
     def get_blacklist_status_per_dnsbl():
         if not public_ip:
             empty_res = {"records": ["No sending IP detected/configured"], "error": None, "success": False}
@@ -1015,16 +1156,30 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
             "Spamcop (bl.spamcop.net)": "bl.spamcop.net",
             "SORBS (dnsbl.sorbs.net)": "dnsbl.sorbs.net"
         }
+
+        query_results = {label: {} for label in blacklists}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+            future_map = {}
+            for label, dnsbl in blacklists.items():
+                query_host = f"{rev_ip}.{dnsbl}"
+                for ns_name, ns_srv in servers.items():
+                    fut = pool.submit(resolve_dns, query_host, 'A', ns_srv)
+                    future_map[fut] = (label, ns_name)
+            for fut in concurrent.futures.as_completed(future_map):
+                label, ns_name = future_map[fut]
+                try:
+                    query_results[label][ns_name] = fut.result()
+                except Exception as exc:
+                    query_results[label][ns_name] = {"records": [], "error": f"Resolver Error: {type(exc).__name__}"}
         
         dnsbl_results = {}
-        for label, dnsbl in blacklists.items():
-            query_host = f"{rev_ip}.{dnsbl}"
+        for label in blacklists:
             listed_ips = []
             resolver_errors = []
             valid_queries = 0
             
-            for ns_name, ns_srv in servers.items():
-                res = resolve_dns(query_host, 'A', ns_srv)
+            for ns_name in servers:
+                res = query_results[label].get(ns_name, {"records": [], "error": "Missing"})
                 if res["error"] is not None:
                     resolver_errors.append(f"{ns_name}: {res['error']}")
                 else:
@@ -1059,13 +1214,8 @@ def test_my_dns(db: Session = Depends(get_db), current_user: User = Depends(auth
     return results
 
 @router.get("/my/detected-ip")
-def get_detected_ip(current_user: User = Depends(auth.require_tenant_admin)):
-    import urllib.request
-    try:
-        ip = urllib.request.urlopen('https://api.ipify.org', timeout=2).read().decode('utf-8').strip()
-        return {"public_ip": ip}
-    except Exception:
-        return {"public_ip": "unknown"}
+def get_detected_ip(force: bool = False, current_user: User = Depends(auth.require_tenant_admin)):
+    return {"public_ip": get_cached_public_ip(force_refresh=force)}
 
 @router.get("/my/queue")
 def get_my_queue(db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
@@ -1134,6 +1284,10 @@ def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depen
         if field in payload:
             setattr(tenant, field, payload[field])
             
+    if "queue_send_order" in payload:
+        raw_order = (payload.get("queue_send_order") or "default").strip().lower()
+        if raw_order in VALID_QUEUE_SEND_ORDERS:
+            tenant.queue_send_order = raw_order
     if payload.get("smtp_password"):
         tenant.smtp_password = payload["smtp_password"]
     if payload.get("imap_password"):
@@ -1141,13 +1295,41 @@ def update_tenant(tenant_id: int, payload: dict = Body(...), db: Session = Depen
         
     db.commit()
     db.refresh(tenant)
-    return tenant
+    return _serialize_tenant_safe(tenant)
 
 @router.delete("/{tenant_id}")
 def delete_tenant(tenant_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
+
+    from sqlalchemy.orm.attributes import flag_modified
+    # Unlink users belonging to this tenant cleanly without deleting super admins
+    for u in db.query(User).all():
+        changed = False
+        if u.tenant_id == tenant_id:
+            u.tenant_id = None
+            changed = True
+        if isinstance(u.allowed_tenants, list) and tenant_id in u.allowed_tenants:
+            u.allowed_tenants = [tid for tid in u.allowed_tenants if tid != tenant_id]
+            flag_modified(u, "allowed_tenants")
+            changed = True
+        if changed and u.role != "super_admin" and u.tenant_id is None and u.allowed_tenants:
+            u.tenant_id = u.allowed_tenants[0]
+
+    # Delete all tenant-owned child records explicitly to leave no orphaned rows
+    db.query(db_mod.AutomationLog).filter(db_mod.AutomationLog.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.AutomationState).filter(db_mod.AutomationState.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.AutomationFlow).filter(db_mod.AutomationFlow.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.SubscriberActivity).filter(db_mod.SubscriberActivity.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.TrackingLog).filter(db_mod.TrackingLog.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.QueueItem).filter(db_mod.QueueItem.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.Campaign).filter(db_mod.Campaign.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.Subscriber).filter(db_mod.Subscriber.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.SubscriberList).filter(db_mod.SubscriberList.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.ApiKey).filter(db_mod.ApiKey.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(db_mod.WebhookSubscription).filter(db_mod.WebhookSubscription.tenant_id == tenant_id).delete(synchronize_session=False)
+
     db.delete(tenant)
     db.commit()
     return {"detail": "Tenant deleted"}
@@ -1183,7 +1365,11 @@ def reset_all(db: Session = Depends(get_db), current_user: User = Depends(auth.r
         
     # 2. Reset main DB
     try:
-        # Delete in dependency order to respect foreign key constraints
+        # Delete in dependency order across all tables
+        db.query(db_mod.AutomationLog).delete()
+        db.query(db_mod.AutomationState).delete()
+        db.query(db_mod.AutomationFlow).delete()
+        db.query(db_mod.SubscriberActivity).delete()
         db.query(db_mod.TrackingLog).delete()
         db.query(db_mod.QueueItem).delete()
         db.query(db_mod.Campaign).delete()

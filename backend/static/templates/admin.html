@@ -133,7 +133,7 @@
                                          </div>
                                          <div class="field">
                                              <label>Client Secret</label>
-                                             <input type="password" name="global_oidc_secret_field" autocomplete="new-password" x-model="globalSettings.oidc_client_secret" placeholder="••••••••">
+                                             <input type="password" name="global_oidc_secret_field" autocomplete="new-password" x-model="globalSettings.oidc_client_secret" :placeholder="globalSettings.oidc_has_client_secret ? 'Configured (leave blank to keep)' : '••••••••'">
                                          </div>
                                          <div class="field">
                                              <label>Redirect URI</label>
@@ -237,7 +237,7 @@
                                             <span x-show="!updateChecking">Check for Updates</span>
                                             <span x-show="updateChecking">Checking...</span>
                                         </button>
-                                        <template x-if="updateStatus.update_available">
+                                        <template x-if="updateStatus.update_available && !updateStatus.is_docker">
                                             <button @click="installUpdate()" class="btn btn-success" style="flex: 1;" :disabled="updateInstalling">
                                                 <span x-show="!updateInstalling">Install Update</span>
                                                 <span x-show="updateInstalling">Installing...</span>
@@ -245,7 +245,7 @@
                                         </template>
                                     </div>
                                     
-                                    <template x-if="updateStatus.update_available">
+                                    <template x-if="updateStatus.update_available && !updateStatus.is_docker">
                                         <div style="margin-top: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 6px; padding: 10px; font-size: 12px;">
                                             <span style="color: var(--color-success); font-weight: 600;">Update Available!</span>
                                             <div style="margin-top: 4px; color: var(--text-secondary);">
@@ -274,24 +274,27 @@
                                             <i data-lucide="info" style="width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"></i>
                                             <div>
                                                 <strong>Running in Docker Container</strong>
-                                                <div style="margin-top: 2px; color: var(--text-secondary); line-height: 1.3; font-size: 11px;">
-                                                    UI updates will apply a temporary hot-patch. If the container is recreated (e.g. during a pull or stack update), it will revert back to the base image.
+                                                <div style="margin-top: 2px; color: var(--text-secondary); line-height: 1.4; font-size: 11px;">
+                                                    Version status tracks the container image's built release (<code x-text="updateStatus.current_tag || 'unknown'"></code>). To upgrade when a new image is released, pull and recreate the container on your Docker host:
+                                                    <div style="margin-top: 5px; background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 4px; font-family: monospace; color: #e2e8f0;">docker compose pull && docker compose up -d</div>
                                                 </div>
                                             </div>
                                         </div>
                                     </template>
                                 </div>
 
-                                <div style="border-top: 1px solid var(--border-glass); padding-top: 15px; margin-top: 5px;">
-                                    <h4 style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Developer Testing / Beta</h4>
-                                    <button @click="forceBetaUpdate()" class="btn btn-danger" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;" :disabled="updateInstalling">
-                                        <span>Force Pull Main Branch (Alpha)</span>
-                                        <span x-show="updateStatus.latest_main_commit" style="opacity: 0.85; font-size: 11px; font-family: monospace;" x-text="'(Latest Commit: ' + updateStatus.latest_main_commit + ')'"></span>
-                                    </button>
-                                    <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">
-                                        Pulls origin/main, runs pip install, stashes local code changes, and restarts.
-                                    </span>
-                                </div>
+                                <template x-if="!updateStatus.is_docker">
+                                    <div style="border-top: 1px solid var(--border-glass); padding-top: 15px; margin-top: 5px;">
+                                        <h4 style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Developer Testing / Beta</h4>
+                                        <button @click="forceBetaUpdate()" class="btn btn-danger" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;" :disabled="updateInstalling">
+                                            <span>Force Pull Main Branch (Alpha)</span>
+                                            <span x-show="updateStatus.latest_main_commit" style="opacity: 0.85; font-size: 11px; font-family: monospace;" x-text="'(Latest Commit: ' + updateStatus.latest_main_commit + ')'"></span>
+                                        </button>
+                                        <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.3;">
+                                            Pulls origin/main, runs pip install, stashes local code changes, and restarts.
+                                        </span>
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     </div>
@@ -531,7 +534,8 @@
                                 </div>
                             </div>
                         </div>
-                        
+                    </div>
+
                     <!-- Developer Console & Global APIs -->
                     <div class="card" style="margin-top: 30px;">
                         <h2 style="font-size: 18px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
@@ -573,7 +577,7 @@
                                     </div>
                                     <div class="field" style="margin-bottom:0;">
                                         <label>Authorization Header Value</label>
-                                        <input type="text" x-model="globalSettings.external_backup_auth_header" placeholder="Bearer your-secret-token">
+                                        <input type="password" name="global_ext_backup_auth" autocomplete="new-password" x-model="globalSettings.external_backup_auth_header" :placeholder="globalSettings.external_backup_has_auth_header ? 'Configured (leave blank to keep)' : 'Bearer your-secret-token'">
                                     </div>
                                 </div>
                                 <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 5px;">
@@ -615,7 +619,7 @@
                                     </div>
                                     <div class="field" style="margin-bottom:0;">
                                         <label>SMTP Password</label>
-                                         <input type="password" name="global_smtp_pass_field" autocomplete="new-password" x-model="globalSettings.smtp_password" placeholder="••••••••">
+                                         <input type="password" name="global_smtp_pass_field" autocomplete="new-password" x-model="globalSettings.smtp_password" :placeholder="globalSettings.smtp_has_password ? 'Configured (leave blank to keep)' : '••••••••'">
                                     </div>
                                     <div style="display: flex; gap: 20px; margin-top: 5px;">
                                         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #fff; font-size:12px;">
@@ -652,7 +656,6 @@
                             </div>
                         </div>
                         <button @click="saveGlobalSettings()" class="btn btn-primary btn-sm" style="margin-top: 25px; display: block; width: 100%;">Save Global Developer Configuration</button>
-                    </div>
                     </div>
                     
                     <!-- Danger Zone & System Recovery -->

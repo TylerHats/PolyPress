@@ -1,14 +1,42 @@
+import html as html_lib
+import re
+import urllib.parse
+from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import Response, RedirectResponse
 from sqlalchemy.orm import Session
+import auth
 import database as db_mod
 from database import get_db, Campaign, TrackingLog, Subscriber
-from datetime import datetime
+from analytics_service import real_tracking_filter
 
 router = APIRouter(prefix="/api/track", tags=["tracking"])
 
 # 1x1 transparent GIF binary representation
 GIF_1X1 = b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
+
+
+def _is_url_in_campaign_html(campaign: Campaign, target_url: str) -> bool:
+    """Fallback check allowing legacy unsigned tracking links that exist in campaign content."""
+    if not campaign or not target_url:
+        return False
+    html_sources = [campaign.body_html or "", campaign.custom_html or ""]
+    if isinstance(campaign.ab_variants, list):
+        for v in campaign.ab_variants:
+            if isinstance(v, dict):
+                html_sources.append(v.get("body_html") or "")
+                html_sources.append(v.get("custom_html") or "")
+    candidate_urls = set()
+    for src in html_sources:
+        if not src:
+            continue
+        for match in re.finditer(r'href\s*=\s*["\']([^"\']+)["\']', src, flags=re.IGNORECASE):
+            raw_href = match.group(1).strip()
+            candidate_urls.add(raw_href)
+            candidate_urls.add(html_lib.unescape(raw_href))
+    return target_url in candidate_urls or html_lib.unescape(target_url) in candidate_urls
+
 
 @router.get("/open/{campaign_id}/{subscriber_id}.gif")
 def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Session = Depends(get_db)):
@@ -18,11 +46,12 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
         subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
         
         if campaign and subscriber:
-            # Check for unique open
+            # Check for existing REAL (non-bot) open so image proxy pre-fetches don't suppress human opens
             existing_open = db.query(TrackingLog).filter(
                 TrackingLog.campaign_id == campaign_id,
                 TrackingLog.subscriber_id == subscriber_id,
-                TrackingLog.event_type == "open"
+                TrackingLog.event_type == "open",
+                real_tracking_filter(),
             ).first()
             
             from database import QueueItem
@@ -93,16 +122,27 @@ def track_open(campaign_id: int, subscriber_id: int, request: Request, db: Sessi
         }
     )
 
+
 @router.get("/click/{campaign_id}/{subscriber_id}")
-def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request, db: Session = Depends(get_db)):
-    # Validate redirect scheme to prevent XSS / protocol manipulation
-    import urllib.parse
+def track_click(
+    campaign_id: int,
+    subscriber_id: int,
+    url: str,
+    request: Request,
+    sig: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    # Validate redirect scheme and prevent arbitrary Open Redirect abuse
     parsed_target = urllib.parse.urlparse(url)
-    if parsed_target.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="Invalid redirect scheme")
-        
+    if parsed_target.scheme not in ("http", "https") or not parsed_target.netloc:
+        raise HTTPException(status_code=400, detail="Invalid redirect URL")
+
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    sig_valid = bool(sig is not None and auth.verify_url_token(f"click:{campaign_id}:{subscriber_id}:{url}", sig))
+    if not sig_valid and not _is_url_in_campaign_html(campaign, url):
+        raise HTTPException(status_code=403, detail="Untrusted or invalid tracking redirect URL")
+
     try:
-        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
         subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
         
         if campaign and subscriber:
@@ -154,8 +194,9 @@ def track_click(campaign_id: int, subscriber_id: int, url: str, request: Request
                 "url": url
             })
             
-            from engagement_service import trigger_engagement_recalc
-            trigger_engagement_recalc(subscriber_id)
+            if not is_bot:
+                from engagement_service import trigger_engagement_recalc
+                trigger_engagement_recalc(subscriber_id)
     except Exception as e:
         print(f"Tracking click error: {e}")
         

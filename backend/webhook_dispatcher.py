@@ -7,11 +7,17 @@ from sqlalchemy.orm import Session
 from database import SessionLocal, WebhookSubscription
 import logging
 from threading import Thread
+from security_utils import is_safe_outbound_url
 
 logger = logging.getLogger("webhook_dispatcher")
 
 def send_webhook_request(url: str, secret: str, event_type: str, payload: dict):
     try:
+        is_safe, reason = is_safe_outbound_url(url)
+        if not is_safe:
+            logger.warning(f"Blocked unsafe webhook dispatch to {url}: {reason}")
+            return
+
         body_dict = {
             "event": event_type,
             "timestamp": datetime.utcnow().isoformat(),
@@ -32,7 +38,7 @@ def send_webhook_request(url: str, secret: str, event_type: str, payload: dict):
             "User-Agent": "PolyPress-Webhook-Dispatcher/1.0"
         }
         
-        res = requests.post(url, data=body, headers=headers, timeout=5.0)
+        res = requests.post(url, data=body, headers=headers, timeout=5.0, allow_redirects=False)
         logger.info(f"Webhook {event_type} dispatched to {url} - Response Code: {res.status_code}")
     except Exception as e:
         logger.error(f"Webhook delivery failed for {url}: {e}")

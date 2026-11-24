@@ -1,154 +1,172 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Form, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
+import html as html_lib
+import re
+import urllib.parse
 import database as db_mod
 from database import get_db, SubscriberList, Subscriber, Campaign, Tenant, GlobalSettings
+import auth
 import json
 import secrets
+from security_utils import embed_rate_limiter
 
 router = APIRouter(prefix="/api/embed", tags=["embed"])
 
-def get_html_style(theme: str = "dark") -> str:
-    if theme == "light":
-        return """
-<style>
-    body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        background-color: #f8fafc;
-        color: #0f172a;
-        margin: 0;
-        padding: 20px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-    }
-    .card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 30px;
-        width: 100%;
-        max-width: 400px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    }
-    h2 {
-        margin-top: 0;
-        font-size: 20px;
-        font-weight: 700;
-        color: #0f172a;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .form-group {
-        margin-bottom: 15px;
-    }
-    label {
-        display: block;
-        font-size: 13px;
-        font-weight: 600;
-        color: #475569;
-        margin-bottom: 5px;
-    }
-    input[type="text"], input[type="email"], select {
-        width: 100%;
-        padding: 10px 12px;
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
-        color: #0f172a;
-        font-size: 14px;
-        box-sizing: border-box;
-        transition: border-color 0.15s ease;
-    }
-    input:focus, select:focus {
-        border-color: #3b82f6;
-        outline: none;
-    }
-    .btn {
-        width: 100%;
-        padding: 11px;
-        background: #2563eb;
-        border: none;
-        border-radius: 6px;
-        color: #ffffff;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.15s ease;
-        margin-top: 10px;
-    }
-    .btn:hover {
-        background: #1d4ed8;
-    }
-    .success-msg {
-        text-align: center;
-        color: #059669;
-        font-size: 15px;
-        font-weight: 500;
-    }
-</style>
-"""
+_HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+
+
+def _sanitize_css_color(value: str, fallback: str) -> str:
+    v = (value or "").strip()
+    if v.lower() == "transparent" or _HEX_COLOR_RE.match(v):
+        return v
+    return fallback
+
+
+def _darken_hex(hex_color: str, fallback: str = "#1d4ed8") -> str:
+    c = (hex_color or "").strip().lstrip("#")
+    if len(c) == 3:
+        c = "".join(ch * 2 for ch in c)
+    if len(c) != 6 or not all(ch in "0123456789abcdefABCDEF" for ch in c):
+        return fallback
+    r = max(0, int(c[0:2], 16) - 22)
+    g = max(0, int(c[2:4], 16) - 22)
+    b = max(0, int(c[4:6], 16) - 22)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def get_autoresize_script() -> str:
+    """Emit ResizeObserver height updates to parent window for seamless auto-sizing iFrames."""
     return """
+<script>
+(function() {
+    var lastH = 0;
+    function sendHeight() {
+        try {
+            var card = document.querySelector('.card');
+            var h = card ? Math.ceil(document.body.scrollHeight) : Math.ceil(document.documentElement.scrollHeight);
+            if (h > 0 && h !== lastH && window.parent && window.parent !== window) {
+                lastH = h;
+                window.parent.postMessage({ type: 'polypress-embed-resize', height: h }, '*');
+            }
+        } catch (e) {}
+    }
+    window.addEventListener('load', sendHeight);
+    window.addEventListener('resize', sendHeight);
+    if (typeof ResizeObserver !== 'undefined') {
+        var ro = new ResizeObserver(sendHeight);
+        ro.observe(document.documentElement);
+    }
+    setTimeout(sendHeight, 50);
+})();
+</script>
+"""
+
+
+def get_html_style(
+    theme: str = "dark",
+    accent: str = "",
+    bg: str = "",
+    text_color: str = "",
+    card: bool = True,
+    compact: bool = False,
+    align: str = "center",
+    full_page: bool = False,
+) -> str:
+    theme_clean = (theme or "dark").strip().lower()
+    if theme_clean not in ("dark", "light", "transparent"):
+        theme_clean = "dark"
+
+    is_light = theme_clean == "light"
+    is_transparent = theme_clean == "transparent"
+
+    default_bg = "transparent" if is_transparent else ("#f8fafc" if is_light else "#0f172a")
+    default_text = "#0f172a" if is_light else "#f8fafc"
+    default_accent = "#2563eb"
+
+    body_bg = _sanitize_css_color(bg, default_bg)
+    fg = _sanitize_css_color(text_color, default_text)
+    btn_bg = _sanitize_css_color(accent, default_accent)
+    btn_hover = _darken_hex(btn_bg, "#1d4ed8")
+
+    label_color = "#475569" if (is_light or is_transparent) else "#94a3b8"
+    input_bg = "#ffffff" if is_light else ("rgba(15, 23, 42, 0.85)" if is_transparent else "#0f172a")
+    input_border = "#cbd5e1" if is_light else "#334155"
+    input_fg = "#0f172a" if is_light else "#f8fafc"
+
+    card_bg = "#ffffff" if is_light else "rgba(30, 41, 59, 0.78)"
+    card_border = "1px solid #e2e8f0" if is_light else "1px solid rgba(255, 255, 255, 0.1)"
+    card_shadow = "0 4px 6px -1px rgba(0,0,0,0.1)" if is_light else "0 10px 25px -5px rgba(0,0,0,0.3)"
+    card_pad = "16px" if compact else "24px"
+    body_pad = "8px" if (compact or not card) else "12px"
+
+    justify = "flex-start" if align == "left" else "center"
+    full_page_css = "min-height: 100vh; align-items: center;" if full_page else "align-items: flex-start;"
+
+    if not card:
+        card_css = f"background: transparent; border: none; border-radius: 0; padding: 4px 0; width: 100%; max-width: 440px; box-shadow: none;"
+    else:
+        card_css = f"background: {card_bg}; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: {card_border}; border-radius: 12px; padding: {card_pad}; width: 100%; max-width: 420px; box-shadow: {card_shadow};"
+
+    title_align = "left" if align == "left" else "center"
+    gap_bottom = "10px" if compact else "14px"
+
+    return f"""
 <style>
-    body {
+    *, *::before, *::after {{ box-sizing: border-box; }}
+    html {{ margin: 0; padding: 0; overflow-x: hidden; background: {body_bg}; }}
+    body {{
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        background-color: #0f172a;
-        color: #f8fafc;
+        background-color: {body_bg};
+        color: {fg};
         margin: 0;
-        padding: 20px;
+        padding: {body_pad};
         display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-    }
-    .card {
-        background: rgba(30, 41, 59, 0.7);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
-        padding: 30px;
-        width: 100%;
-        max-width: 400px;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-    }
-    h2 {
+        justify-content: {justify};
+        {full_page_css}
+        overflow-x: hidden;
+    }}
+    .card {{
+        {card_css}
+    }}
+    h2 {{
         margin-top: 0;
-        font-size: 20px;
+        font-size: 19px;
         font-weight: 700;
-        color: #f1f5f9;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .form-group {
-        margin-bottom: 15px;
-    }
-    label {
+        color: {fg};
+        text-align: {title_align};
+        margin-bottom: {gap_bottom};
+    }}
+    .form-group {{
+        margin-bottom: {gap_bottom};
+    }}
+    label {{
         display: block;
         font-size: 13px;
         font-weight: 600;
-        color: #94a3b8;
+        color: {label_color};
         margin-bottom: 5px;
-    }
-    input[type="text"], input[type="email"], select {
+    }}
+    input[type="text"], input[type="email"], select {{
         width: 100%;
         padding: 10px 12px;
-        background: #0f172a;
-        border: 1px solid #334155;
+        background: {input_bg};
+        border: 1px solid {input_border};
         border-radius: 6px;
-        color: #f8fafc;
+        color: {input_fg};
         font-size: 14px;
         box-sizing: border-box;
         transition: border-color 0.15s ease;
-    }
-    input:focus, select:focus {
-        border-color: #3b82f6;
+    }}
+    input:focus, select:focus {{
+        border-color: {btn_bg};
         outline: none;
-    }
-    .btn {
+    }}
+    .btn {{
         width: 100%;
         padding: 11px;
-        background: #2563eb;
+        background: {btn_bg};
         border: none;
         border-radius: 6px;
         color: #ffffff;
@@ -156,20 +174,22 @@ def get_html_style(theme: str = "dark") -> str:
         font-weight: 600;
         cursor: pointer;
         transition: background 0.15s ease;
-        margin-top: 10px;
-    }
-    .btn:hover {
-        background: #1d4ed8;
-    }
-    .success-msg {
+        margin-top: 6px;
+    }}
+    .btn:hover {{
+        background: {btn_hover};
+    }}
+    .success-msg {{
         text-align: center;
         color: #10b981;
         font-size: 15px;
         font-weight: 500;
-    }
+    }}
 </style>
 """
-HTML_STYLE = get_html_style("dark")
+
+
+HTML_STYLE = get_html_style("dark", full_page=True)
 
 # Premium responsive HTML template for Double Opt-in confirmation email
 CONFIRMATION_EMAIL_TEMPLATE = """<!DOCTYPE html>
@@ -289,7 +309,22 @@ CONFIRMATION_EMAIL_TEMPLATE = """<!DOCTYPE html>
 """
 
 @router.get("/subscribe/{list_id}", response_class=HTMLResponse)
-def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed", theme: str = "dark", db: Session = Depends(get_db)):
+def get_embed_subscribe(
+    list_id: int,
+    request: Request,
+    tag: str = "iFrame Embed",
+    theme: str = "dark",
+    accent: str = "",
+    bg: str = "",
+    text_color: str = "",
+    card: bool = True,
+    compact: bool = False,
+    align: str = "center",
+    title: str = "",
+    button_text: str = "Subscribe",
+    show_title: bool = True,
+    db: Session = Depends(get_db),
+):
     sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
     if not sub_list:
         return HTMLResponse("<h2>List not found</h2>", status_code=404)
@@ -335,53 +370,97 @@ def get_embed_subscribe(list_id: int, request: Request, tag: str = "iFrame Embed
     # Sort fields by form_order
     fields_to_render.sort(key=lambda x: x["form_order"])
     
-    # Generate fields inputs HTML
+    # Generate fields inputs HTML safely escaped
     inputs_html = ""
     for field in fields_to_render:
-        key = field["key"]
-        label = field["label"]
-        ftype = field["type"]
+        key = str(field["key"] or "")
+        label = str(field["label"] or key)
+        ftype = str(field["type"] or "text")
+        if ftype not in ("text", "email", "number", "tel", "url", "date"):
+            ftype = "text"
         required = field["required"]
         req_attr = "required" if required else ""
         req_star = " *" if required else ""
         
-        # Name and Email have special input names/IDs for database model compatibility
-        input_name = key if key in ["email", "name"] else f"custom_{key}"
-        input_id = key if key in ["email", "name"] else f"custom_{key}"
+        input_name = html_lib.escape(key if key in ["email", "name"] else f"custom_{key}", quote=True)
+        label_esc = html_lib.escape(label)
+        placeholder_esc = html_lib.escape(f"Enter your {label.lower()}", quote=True)
         
         inputs_html += f"""
         <div class="form-group">
-            <label for="{input_id}">{label}{req_star}</label>
-            <input type="{ftype}" id="{input_id}" name="{input_name}" placeholder="Enter your {label.lower()}" {req_attr}>
+            <label for="{input_name}">{label_esc}{req_star}</label>
+            <input type="{ftype}" id="{input_name}" name="{input_name}" placeholder="{placeholder_esc}" {req_attr}>
         </div>
         """
-            
-    submit_url = f"/api/embed/subscribe/{list_id}/submit?theme={theme}"
+
+    import urllib.parse
+    submit_params = urllib.parse.urlencode({
+        "theme": theme,
+        "accent": accent,
+        "bg": bg,
+        "text_color": text_color,
+        "card": "true" if card else "false",
+        "compact": "true" if compact else "false",
+        "align": align,
+    })
+    submit_url = f"/api/embed/subscribe/{list_id}/submit?{submit_params}"
+    style_block = get_html_style(
+        theme=theme,
+        accent=accent,
+        bg=bg,
+        text_color=text_color,
+        card=card,
+        compact=compact,
+        align=align,
+    )
+    list_name_esc = html_lib.escape(sub_list.name or "Newsletter")
+    heading_raw = title.strip() if title and title.strip() else f"Subscribe to {tenant.name if tenant else 'Newsletter'}"
+    heading_html = f"<h2>{html_lib.escape(heading_raw)}</h2>" if show_title else ""
+    button_esc = html_lib.escape(button_text.strip() if button_text and button_text.strip() else "Subscribe")
+    tag_esc = html_lib.escape(tag or "iFrame Embed", quote=True)
     
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Subscribe to {sub_list.name}</title>
+        <title>Subscribe to {list_name_esc}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        {get_html_style(theme)}
+        {style_block}
     </head>
     <body>
         <div class="card">
-            <h2>Subscribe to {tenant.name if tenant else "Newsletter"}</h2>
+            {heading_html}
             <form action="{submit_url}" method="POST">
-                <input type="hidden" name="tag" value="{tag}">
+                <input type="hidden" name="tag" value="{tag_esc}">
                 {inputs_html}
-                <button type="submit" class="btn">Subscribe</button>
+                <button type="submit" class="btn">{button_esc}</button>
             </form>
         </div>
+        {get_autoresize_script()}
     </body>
     </html>
     """
     return HTMLResponse(content=html)
 
+
 @router.post("/subscribe/{list_id}/submit", response_class=HTMLResponse)
-async def post_embed_subscribe(list_id: int, request: Request, background_tasks: BackgroundTasks, theme: str = "dark", db: Session = Depends(get_db)):
+async def post_embed_subscribe(
+    list_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    theme: str = "dark",
+    accent: str = "",
+    bg: str = "",
+    text_color: str = "",
+    card: bool = True,
+    compact: bool = False,
+    align: str = "center",
+    db: Session = Depends(get_db),
+):
+    client_ip = request.client.host if request.client else "unknown"
+    if not embed_rate_limiter.check_and_record(f"embed:{client_ip}:{list_id}", 20, 60):
+        return HTMLResponse("<h2>Too many subscription attempts. Please try again shortly.</h2>", status_code=429)
+
     form_data = await request.form()
     
     sub_list = db.query(SubscriberList).filter(SubscriberList.id == list_id).first()
@@ -389,9 +468,9 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         return HTMLResponse("<h2>List not found</h2>", status_code=404)
         
     tenant = db.query(Tenant).filter(Tenant.id == sub_list.tenant_id).first()
-    email = form_data.get("email")
-    name = form_data.get("name")
-    tag = form_data.get("tag", "iFrame Embed")
+    email = str(form_data.get("email") or "").strip()
+    name = str(form_data.get("name") or "").strip() or None
+    tag = str(form_data.get("tag") or "iFrame Embed")[:128]
     
     if not email or "@" not in email:
         return HTMLResponse("<h2>Invalid email address</h2>", status_code=400)
@@ -399,8 +478,6 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
     # Extract custom values and validate required fields
     custom_data = {}
     
-    # Validate name field schema if present
-    name_field = None
     if sub_list.custom_fields:
         for field in sub_list.custom_fields:
             key = field.get("key")
@@ -408,13 +485,12 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
             show = field.get("show_on_form", True)
             
             if key == "name":
-                name_field = field
                 if show and required and not name:
                     return HTMLResponse("<h2>Name is a required field</h2>", status_code=400)
             else:
                 form_val = form_data.get(f"custom_{key}")
                 if show and required and not form_val:
-                    label = field.get("label", key.capitalize())
+                    label = html_lib.escape(str(field.get("label", key.capitalize())))
                     return HTMLResponse(f"<h2>{label} is a required field</h2>", status_code=400)
                 if form_val is not None:
                     custom_data[key] = form_val
@@ -434,7 +510,10 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         existing.name = name or existing.name
         existing.status = status_state
         existing.double_opt_in_token = token
-        existing.custom_data.update(custom_data)
+        merged_custom = dict(existing.custom_data or {})
+        merged_custom.update(custom_data)
+        existing.custom_data = merged_custom
+        flag_modified(existing, "custom_data")
         subscriber_id = existing.id
     else:
         sub = Subscriber(
@@ -476,6 +555,17 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         "list_id": list_id,
         "source": tag
     })
+
+    style_block = get_html_style(
+        theme=theme,
+        accent=accent,
+        bg=bg,
+        text_color=text_color,
+        card=card,
+        compact=compact,
+        align=align,
+    )
+    email_esc = html_lib.escape(email)
     
     # Send transactional confirmation email if pending (Double Opt-In)
     if is_double_optin:
@@ -490,18 +580,17 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
             email_body = tenant.double_opt_in_body_html.replace("{{confirm_url}}", confirm_url).replace("{confirm_url}", confirm_url)
         else:
             email_body = CONFIRMATION_EMAIL_TEMPLATE.format(
-                tenant_name=tenant.name,
+                tenant_name=html_lib.escape(tenant.name or "PolyPress"),
                 confirm_url=confirm_url
             )
         
-        # Import transactional sender to avoid circular import issues
-        from sending_worker import send_transactional_email
+        from sending_worker import send_transactional_email_by_tenant_id
         background_tasks.add_task(
-            send_transactional_email,
+            send_transactional_email_by_tenant_id,
             to_email=email,
             subject=subject,
             body_html=email_body,
-            tenant=tenant
+            tenant_id=tenant.id,
         )
         
         html = f"""
@@ -509,16 +598,17 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
         <html>
         <head>
             <title>Verification Sent</title>
-            {get_html_style(theme)}
+            {style_block}
         </head>
         <body>
             <div class="card" style="text-align: center;">
                 <svg width="48" height="48" fill="none" stroke="#6366f1" viewBox="0 0 24 24" style="margin: 0 auto 15px; display: block;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                 <h2>Check Your Inbox</h2>
-                <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
-                    We have sent a subscription verification link to <strong>{email}</strong>. Please check your email inbox and click the link to confirm subscription.
+                <p style="font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 10px;">
+                    We have sent a subscription verification link to <strong>{email_esc}</strong>. Please check your email inbox and click the link to confirm subscription.
                 </p>
             </div>
+            {get_autoresize_script()}
         </body>
         </html>
         """
@@ -529,7 +619,7 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
     <html>
     <head>
         <title>Success</title>
-        {get_html_style(theme)}
+        {style_block}
     </head>
     <body>
         <div class="card">
@@ -538,10 +628,12 @@ async def post_embed_subscribe(list_id: int, request: Request, background_tasks:
                 Thank you! You have successfully subscribed.
             </div>
         </div>
+        {get_autoresize_script()}
     </body>
     </html>
     """
     return HTMLResponse(content=html)
+
 
 @router.get("/confirm-optin/{token}", response_class=HTMLResponse)
 def confirm_optin(token: str, request: Request, db: Session = Depends(get_db)):
@@ -595,9 +687,9 @@ def confirm_optin(token: str, request: Request, db: Session = Depends(get_db)):
     tenant = db.query(Tenant).filter(Tenant.id == subscriber.tenant_id).first()
     if tenant and tenant.subscription_confirmed_html:
         custom_html = tenant.subscription_confirmed_html
-        custom_html = custom_html.replace("{email}", subscriber.email or "")
-        custom_html = custom_html.replace("{name}", subscriber.name or "")
-        custom_html = custom_html.replace("{tenant_name}", tenant.name or "")
+        custom_html = custom_html.replace("{email}", html_lib.escape(subscriber.email or ""))
+        custom_html = custom_html.replace("{name}", html_lib.escape(subscriber.name or ""))
+        custom_html = custom_html.replace("{tenant_name}", html_lib.escape(tenant.name or ""))
         return HTMLResponse(content=custom_html)
 
     html = f"""
@@ -620,9 +712,36 @@ def confirm_optin(token: str, request: Request, db: Session = Depends(get_db)):
     """
     return HTMLResponse(content=html)
 
+def _mask_email(email: str) -> str:
+    """Mask email local-part for legacy unsigned confirmation views without leaking PII."""
+    if not email or "@" not in email:
+        return "subscriber"
+    local, domain = email.split("@", 1)
+    if len(local) <= 1:
+        masked_local = "*"
+    elif len(local) == 2:
+        masked_local = f"{local[0]}*"
+    else:
+        masked_local = f"{local[:2]}***"
+    return f"{masked_local}@{domain}"
+
+
+def _is_legacy_unsub_allowed(db: Session, campaign_id: int) -> bool:
+    """Allow legacy unsigned unsubscribes strictly for campaigns sent prior to HMAC enforcement."""
+    settings = db.query(GlobalSettings).first()
+    cutoff = getattr(settings, "legacy_unsub_cutoff_campaign_id", 0) if settings else 0
+    return bool(cutoff and int(campaign_id) <= int(cutoff))
+
+
 @router.get("/unsubscribe/{subscriber_id}/{campaign_id}", response_class=HTMLResponse)
-def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = Depends(get_db)):
+def get_unsubscribe_confirm(
+    subscriber_id: int,
+    campaign_id: int,
+    sig: str = None,
+    db: Session = Depends(get_db),
+):
     if subscriber_id == 0:
+        sig_esc = html_lib.escape(sig or "", quote=True)
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -637,6 +756,7 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
                     This is a mock unsubscribe page for system testing. If you were a real subscriber, clicking below would immediately remove you from our list.
                 </p>
                 <form action="/api/embed/unsubscribe/0/{campaign_id}" method="POST">
+                    <input type="hidden" name="sig" value="{sig_esc}">
                     <button type="submit" class="btn" style="background-color: #dc2626;">Yes, Unsubscribe (Test)</button>
                 </form>
             </div>
@@ -648,7 +768,7 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     
-    if not subscriber or not campaign:
+    if not subscriber or not campaign or (subscriber.tenant_id and campaign.tenant_id and subscriber.tenant_id != campaign.tenant_id):
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -667,6 +787,24 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
         </html>
         """
         return HTMLResponse(content=html, status_code=400)
+
+    if sig is not None:
+        if not auth.verify_url_token(f"unsub:{subscriber_id}:{campaign_id}", sig):
+            return HTMLResponse(
+                f"""<!DOCTYPE html><html><head><title>Forbidden</title>{HTML_STYLE}</head><body><div class="card" style="text-align:center;"><h2 style="color:#ef4444;">Unauthorized Link</h2><p style="font-size:14px;color:#94a3b8;">This subscription management link has an invalid or missing signature.</p></div></body></html>""",
+                status_code=403,
+            )
+    elif _is_legacy_unsub_allowed(db, campaign_id):
+        masked_email_esc = html_lib.escape(_mask_email(subscriber.email or ""))
+        legacy_sig = auth.sign_url_token(f"unsub:{subscriber_id}:{campaign_id}")
+        post_legacy_url = f"/api/embed/unsubscribe/{subscriber_id}/{campaign_id}?sig={urllib.parse.quote(legacy_sig, safe='')}"
+        html = f"""<!DOCTYPE html><html><head><title>Unsubscribe</title>{HTML_STYLE}</head><body><div class="card" style="max-width:460px;width:100%;box-sizing:border-box;background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:30px;text-align:center;"><h2 style="margin-bottom:10px;font-size:22px;color:#fff;">Confirm Unsubscribe</h2><p style="font-size:14px;color:#94a3b8;line-height:1.5;margin-bottom:22px;">Unsubscribe <strong>{masked_email_esc}</strong> from all mailing lists in this workspace?</p><form action="{post_legacy_url}" method="POST"><input type="hidden" name="action" value="unsubscribe_all"><input type="hidden" name="sig" value="{html_lib.escape(legacy_sig, quote=True)}"><button type="submit" class="btn" style="background:#dc2626;width:100%;">Confirm Unsubscribe</button></form></div></body></html>"""
+        return HTMLResponse(content=html)
+    else:
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><head><title>Forbidden</title>{HTML_STYLE}</head><body><div class="card" style="text-align:center;"><h2 style="color:#ef4444;">Unauthorized Link</h2><p style="font-size:14px;color:#94a3b8;">This subscription management link has an invalid or missing signature.</p></div></body></html>""",
+            status_code=403,
+        )
         
     tenant_id = campaign.tenant_id
     
@@ -689,17 +827,21 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     list_items_html = ""
     for l in lists:
         is_checked = "checked" if l.id in active_list_ids else ""
+        list_name_esc = html_lib.escape(l.name or "")
+        list_desc_esc = html_lib.escape(l.description or "Mailing list")
         list_items_html += f"""
         <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 12px; text-align: left;">
             <input type="checkbox" name="lists" value="{l.id}" {is_checked} style="width: 18px; height: 18px; margin-top: 2px; cursor: pointer;">
             <div>
-                <div style="font-weight: 600; font-size: 14px; color: #fff;">{l.name}</div>
-                <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">{l.description or "Mailing list"}</div>
+                <div style="font-weight: 600; font-size: 14px; color: #fff;">{list_name_esc}</div>
+                <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">{list_desc_esc}</div>
             </div>
         </div>
         """
-        
-    post_url = f"/api/embed/unsubscribe/{subscriber_id}/{campaign_id}"
+
+    post_url = f"/api/embed/unsubscribe/{subscriber_id}/{campaign_id}?sig={urllib.parse.quote(sig or '', safe='')}"
+    email_esc = html_lib.escape(subscriber.email or "")
+    sig_esc = html_lib.escape(sig or "", quote=True)
     
     html = f"""
     <!DOCTYPE html>
@@ -712,10 +854,11 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
         <div class="card" style="max-width: 480px; width: 100%; box-sizing: border-box; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 30px;">
             <h2 style="margin-bottom: 10px; font-size: 22px; color: #fff; text-align: center;">Subscription Preferences Center</h2>
             <p style="text-align: center; font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 25px;">
-                Manage your subscriptions for <strong>{subscriber.email}</strong>. Check the lists you want to subscribe to, or unsubscribe from everything.
+                Manage your subscriptions for <strong>{email_esc}</strong>. Check the lists you want to subscribe to, or unsubscribe from everything.
             </p>
             <form action="{post_url}" method="POST" style="display: flex; flex-direction: column; gap: 15px;">
                 <input type="hidden" name="action" id="preference_action" value="update_preferences">
+                <input type="hidden" name="sig" value="{sig_esc}">
                 <div>
                     {list_items_html}
                 </div>
@@ -731,11 +874,20 @@ def get_unsubscribe_confirm(subscriber_id: int, campaign_id: int, db: Session = 
     """
     return HTMLResponse(content=html)
 
+
 @router.post("/unsubscribe/{subscriber_id}/{campaign_id}", response_class=HTMLResponse)
-async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Request, db: Session = Depends(get_db)):
+async def post_unsubscribe(
+    subscriber_id: int,
+    campaign_id: int,
+    request: Request,
+    sig: str = None,
+    db: Session = Depends(get_db),
+):
+    form_data = await request.form()
+    sig_val = sig or form_data.get("sig")
+
     if subscriber_id == 0:
-        form_data = await request.form()
-        action = form_data.get("action", "unsubscribe_all")
+        action = html_lib.escape(str(form_data.get("action", "unsubscribe_all")))
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -758,7 +910,7 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
     subscriber = db.query(Subscriber).filter(Subscriber.id == subscriber_id).first()
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     
-    if not subscriber or not campaign:
+    if not subscriber or not campaign or (subscriber.tenant_id and campaign.tenant_id and subscriber.tenant_id != campaign.tenant_id):
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -777,9 +929,22 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
         </html>
         """
         return HTMLResponse(content=html, status_code=400)
-        
-    form_data = await request.form()
-    action = form_data.get("action", "unsubscribe_all")
+
+    action = str(form_data.get("action", "unsubscribe_all"))
+    if sig_val is not None:
+        if not auth.verify_url_token(f"unsub:{subscriber_id}:{campaign_id}", sig_val):
+            return HTMLResponse(
+                f"""<!DOCTYPE html><html><head><title>Forbidden</title>{HTML_STYLE}</head><body><div class="card" style="text-align:center;"><h2 style="color:#ef4444;">Unauthorized Request</h2><p style="font-size:14px;color:#94a3b8;">Invalid or missing unsubscribe signature.</p></div></body></html>""",
+                status_code=403,
+            )
+    elif _is_legacy_unsub_allowed(db, campaign_id) and action == "unsubscribe_all":
+        pass
+    else:
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><head><title>Forbidden</title>{HTML_STYLE}</head><body><div class="card" style="text-align:center;"><h2 style="color:#ef4444;">Unauthorized Request</h2><p style="font-size:14px;color:#94a3b8;">Invalid or missing unsubscribe signature.</p></div></body></html>""",
+            status_code=403,
+        )
+
     tenant = db.query(Tenant).filter(Tenant.id == subscriber.tenant_id).first()
     
     from sqlalchemy import func
@@ -816,9 +981,9 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
         
         if tenant and tenant.unsubscribed_html:
             custom_html = tenant.unsubscribed_html
-            custom_html = custom_html.replace("{email}", subscriber.email or "")
-            custom_html = custom_html.replace("{name}", subscriber.name or "")
-            custom_html = custom_html.replace("{tenant_name}", tenant.name or "")
+            custom_html = custom_html.replace("{email}", html_lib.escape(subscriber.email or ""))
+            custom_html = custom_html.replace("{name}", html_lib.escape(subscriber.name or ""))
+            custom_html = custom_html.replace("{tenant_name}", html_lib.escape(tenant.name or ""))
             return HTMLResponse(content=custom_html)
             
         success_title = "✓ Unsubscribed"
@@ -826,7 +991,12 @@ async def post_unsubscribe(subscriber_id: int, campaign_id: int, request: Reques
         
     else:
         # Update preferences
-        selected_list_ids = [int(lid) for lid in form_data.getlist("lists")]
+        selected_list_ids = []
+        for lid in form_data.getlist("lists"):
+            try:
+                selected_list_ids.append(int(lid))
+            except (TypeError, ValueError):
+                pass
         tenant_id = campaign.tenant_id
         tenant_lists = db.query(SubscriberList).filter(SubscriberList.tenant_id == tenant_id).all()
         
@@ -985,12 +1155,14 @@ def process_webhook_event(db: Session, tenant: Tenant, email: str, event_type: s
                 except (ValueError, TypeError):
                     pass
             if resolved_campaign_id:
-                campaign = db.query(Campaign).filter(
+                from sqlalchemy import func
+                db.query(Campaign).filter(
                     Campaign.id == resolved_campaign_id,
                     Campaign.tenant_id == tenant.id
-                ).first()
-                if campaign:
-                    campaign.bounce_count = Campaign.bounce_count + 1
+                ).update(
+                    {Campaign.bounce_count: func.coalesce(Campaign.bounce_count, 0) + 1},
+                    synchronize_session=False,
+                )
                     
             db.commit()
             
@@ -1037,15 +1209,24 @@ async def incoming_bounce_webhook(
         if sns_type == "SubscriptionConfirmation":
             subscribe_url = payload.get("SubscribeURL")
             if subscribe_url:
-                import urllib.request
+                import requests
                 import urllib.parse
                 try:
                     parsed_url = urllib.parse.urlparse(subscribe_url)
-                    if parsed_url.scheme != "https" or not (parsed_url.netloc.endswith(".amazonaws.com") or parsed_url.netloc.endswith(".amazonaws.com.cn")):
+                    sns_host = (parsed_url.hostname or "").lower()
+                    if parsed_url.scheme != "https" or not (
+                        sns_host == "amazonaws.com"
+                        or sns_host.endswith(".amazonaws.com")
+                        or sns_host.endswith(".amazonaws.com.cn")
+                    ):
                         raise HTTPException(status_code=400, detail="Invalid SNS subscription confirmation URL domain")
-                    # AWS SNS requires confirmation by fetching the URL
-                    urllib.request.urlopen(subscribe_url, timeout=10)
+                    # AWS SNS requires confirmation by fetching the URL without following untrusted redirects
+                    res = requests.get(subscribe_url, timeout=10, allow_redirects=False)
+                    if res.status_code >= 400:
+                        raise HTTPException(status_code=400, detail=f"SNS confirmation returned status {res.status_code}")
                     return {"success": True, "detail": "Subscription confirmed successfully."}
+                except HTTPException:
+                    raise
                 except Exception as e:
                     raise HTTPException(status_code=400, detail=f"Failed to confirm subscription: {e}")
                     

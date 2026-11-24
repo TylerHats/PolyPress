@@ -23,6 +23,8 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(auth.
             if u_tenants.issubset(admin_tenants) and len(u_tenants) > 0:
                 users.append(u)
         
+    tenant_map = {tid: tname for tid, tname in db.query(Tenant.id, Tenant.name).all()}
+
     result = []
     for u in users:
         allowed_names = []
@@ -31,13 +33,10 @@ def list_users(db: Session = Depends(get_db), current_user: User = Depends(auth.
         else:
             if u.allowed_tenants:
                 for tid in u.allowed_tenants:
-                    t = db.query(Tenant).filter(Tenant.id == tid).first()
-                    if t:
-                        allowed_names.append(t.name)
-            if not allowed_names and u.tenant_id:
-                t = db.query(Tenant).filter(Tenant.id == u.tenant_id).first()
-                if t:
-                    allowed_names.append(t.name)
+                    if tid in tenant_map:
+                        allowed_names.append(tenant_map[tid])
+            if not allowed_names and u.tenant_id and u.tenant_id in tenant_map:
+                allowed_names.append(tenant_map[u.tenant_id])
             allowed_names_str = ", ".join(allowed_names) if allowed_names else "None/No Workspaces"
             
         result.append({

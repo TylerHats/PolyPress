@@ -53,9 +53,14 @@ def evaluate_condition_single(subscriber: Subscriber, field: str, operator: str,
     elif field == "location":
         sub_value = subscriber.ip_location or ""
     elif field.startswith("tag"):
-        tags = [t.strip().lower() for t in (subscriber.tags or "").split(",") if t.strip()]
+        if isinstance(subscriber.tags, list):
+            tags = [str(t).strip().lower() for t in subscriber.tags if str(t).strip()]
+        else:
+            tags = [t.strip().lower() for t in str(subscriber.tags or "").split(",") if t.strip()]
         if operator == "contains":
             return target_value in tags
+        if operator == "not_contains":
+            return target_value not in tags
         return False
     else:
         if subscriber.custom_data and field in subscriber.custom_data:
@@ -353,20 +358,20 @@ async def process_automation_states():
                         db.commit()
                         continue
 
-                    # Compile body HTML using footer if applicable
-                    tenant = db.query(Tenant).filter(Tenant.id == state.tenant_id).first()
-                    footer_html = tenant.email_footer_html if tenant else ""
-                    
-                    body_html = campaign.body_html or ""
-                    # Ensure footer is appended if visual campaign template or custom HTML campaign lacks it
-                    if not campaign.is_custom_html:
-                        from static.app import compileBlocksToHtml
-                        # Wait, we are in python, compileBlocksToHtml is Javascript.
-                        # But wait, campaign.body_html is already compiled and stored inside campaigns update/save draft!
-                        # So campaign.body_html already contains the full visual HTML output with footer!
-                        # Therefore we can use campaign.body_html directly!
-                        pass
-                    
+                    # Render campaign HTML with personalization, tracking pixel, and signed unsubscribe/click links
+                    from database import GlobalSettings
+                    settings = db.query(GlobalSettings).first()
+                    tracking_domain = settings.public_url.strip().rstrip("/") if (settings and settings.public_url and settings.public_url.strip()) else ""
+                    raw_body = campaign.custom_html if (campaign.is_custom_html and campaign.custom_html) else (campaign.body_html or "")
+                    rendered_body = render_email_template(
+                        body_html=raw_body,
+                        subscriber=subscriber,
+                        tracking_domain=tracking_domain,
+                        campaign_id=campaign.id,
+                        subscriber_id=subscriber.id,
+                        preheader=campaign.preheader or "",
+                    )
+
                     # Insert record into Outbox QueueItem
                     queue_item = QueueItem(
                         tenant_id=state.tenant_id,
@@ -374,7 +379,7 @@ async def process_automation_states():
                         subscriber_id=subscriber.id,
                         email=subscriber.email,
                         subject=campaign.subject,
-                        body_html=body_html,
+                        body_html=rendered_body,
                         status="pending"
                     )
                     db.add(queue_item)

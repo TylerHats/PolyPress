@@ -16,10 +16,50 @@ try:
     import dkim
 except ImportError:
     dkim = None
+import threading
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from database import SessionLocal, QueueItem, Campaign, Tenant, Subscriber, TrackingLog, GlobalSettings
-from ntp_sync import get_corrected_time
-from routes.campaign_routes import render_email_template
+from ntp_sync import get_corrected_time, get_cached_corrected_time, refresh_ntp_offset_if_needed
+from analytics_service import real_tracking_filter
+from routes.campaign_routes import render_email_template, apply_targeting_rules_to_query, order_subscribers_for_queue
+
+_gs_cache_lock = threading.Lock()
+_gs_cache_data = None
+_gs_cache_ts = 0.0
+
+
+def get_cached_global_settings(force_refresh: bool = False) -> dict:
+    """Return a thread-safe snapshot of GlobalSettings refreshed every 5 seconds."""
+    global _gs_cache_data, _gs_cache_ts
+    now_mono = time.monotonic()
+    if not force_refresh and _gs_cache_data is not None and (now_mono - _gs_cache_ts) < 5.0:
+        return _gs_cache_data
+    with _gs_cache_lock:
+        now_mono = time.monotonic()
+        if not force_refresh and _gs_cache_data is not None and (now_mono - _gs_cache_ts) < 5.0:
+            return _gs_cache_data
+        db = SessionLocal()
+        try:
+            gs = db.query(GlobalSettings).first()
+            snapshot = {
+                "smtp_host": gs.smtp_host if gs else None,
+                "smtp_port": (gs.smtp_port or 587) if gs else 587,
+                "smtp_username": gs.smtp_username if gs else None,
+                "smtp_password": gs.smtp_password if gs else None,
+                "smtp_use_ssl": gs.smtp_use_ssl if gs else False,
+                "smtp_use_tls": gs.smtp_use_tls if gs else True,
+                "smtp_connection_reuse": gs.smtp_connection_reuse if (gs and gs.smtp_connection_reuse is not None) else True,
+                "mail_server_identity": gs.mail_server_identity if gs else None,
+                "public_url": gs.public_url if gs else None,
+                "max_global_sending_threads": (gs.max_global_sending_threads or 50) if (gs and gs.max_global_sending_threads) else 50,
+                "max_domain_sending_threads": (gs.max_domain_sending_threads or 20) if (gs and gs.max_domain_sending_threads) else 20,
+            }
+            _gs_cache_data = snapshot
+            _gs_cache_ts = time.monotonic()
+            return snapshot
+        finally:
+            db.close()
 
 def html_to_text(html: str) -> str:
     if not html:
@@ -140,8 +180,8 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = make_msgid(domain=sender_domain)
         
-        # List-Unsubscribe Header Extraction (RFC 8058)
-        match = re.search(r'https?://[^/]+/api/embed/unsubscribe/\d+/\d+', item.body_html)
+        # List-Unsubscribe Header Extraction (RFC 8058), preserving signed query parameters
+        match = re.search(r'https?://[^\s"\'<>]+/api/embed/unsubscribe/\d+/\d+(?:\?[^\s"\'<>]*)?', item.body_html or "")
         if match:
             msg["List-Unsubscribe"] = f"<{match.group(0)}>"
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
@@ -163,26 +203,20 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         password = tenant.smtp_password
         use_ssl = tenant.smtp_use_ssl
         use_tls = tenant.smtp_use_tls
-        
-        from database import SessionLocal, GlobalSettings
-        db = SessionLocal()
-        global_settings = None
-        try:
-            global_settings = db.query(GlobalSettings).first()
-            if not host and global_settings and global_settings.smtp_host:
-                host = global_settings.smtp_host
-                port = global_settings.smtp_port or 587
-                username = global_settings.smtp_username
-                password = global_settings.smtp_password
-                use_ssl = global_settings.smtp_use_ssl
-                use_tls = global_settings.smtp_use_tls
-        finally:
-            db.close()
+
+        global_settings = get_cached_global_settings()
+        if not host and global_settings.get("smtp_host"):
+            host = global_settings["smtp_host"]
+            port = global_settings.get("smtp_port") or 587
+            username = global_settings.get("smtp_username")
+            password = global_settings.get("smtp_password")
+            use_ssl = global_settings.get("smtp_use_ssl")
+            use_tls = global_settings.get("smtp_use_tls")
                 
         if not host:
             return False, False, 500, "Outbound SMTP server not configured"
             
-        use_reuse = global_settings.smtp_connection_reuse if (global_settings and global_settings.smtp_connection_reuse is not None) else True
+        use_reuse = global_settings.get("smtp_connection_reuse", True)
         conn_key = f"{host}:{port}:{username}:{use_ssl}:{use_tls}"
         
         if use_reuse:
@@ -190,7 +224,7 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
                 server = get_pooled_smtp(conn_key, host, port, use_ssl, use_tls, username, password)
                 server.sendmail(tenant.bounce_email or f"bounce@{tenant.dkim_domain or tenant.smtp_host or 'localhost'}", item.email, msg_bytes)
                 return True, True, 250, "Sent successfully"
-            except Exception as pool_err:
+            except Exception:
                 # Connection dropped or stale; close pooled connection and fallback once
                 close_pooled_smtp(conn_key)
                 
@@ -210,8 +244,9 @@ def send_external_smtp(item: QueueItem, tenant: Tenant) -> tuple:
         if not use_reuse:
             server.quit()
         else:
-            if hasattr(thread_local, "smtp_conns"):
-                thread_local.smtp_conns[conn_key] = server
+            if not hasattr(thread_local, "smtp_conns"):
+                thread_local.smtp_conns = {}
+            thread_local.smtp_conns[conn_key] = (server, time.monotonic())
                 
         return True, True, 250, "Sent successfully"
     except Exception as e:
@@ -249,8 +284,8 @@ def send_direct_mta(item: QueueItem, tenant: Tenant) -> tuple:
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = make_msgid(domain=sender_domain)
         
-        # List-Unsubscribe Header Extraction (RFC 8058)
-        match = re.search(r'https?://[^/]+/api/embed/unsubscribe/\d+/\d+', item.body_html)
+        # List-Unsubscribe Header Extraction (RFC 8058), preserving signed query parameters
+        match = re.search(r'https?://[^\s"\'<>]+/api/embed/unsubscribe/\d+/\d+(?:\?[^\s"\'<>]*)?', item.body_html or "")
         if match:
             msg["List-Unsubscribe"] = f"<{match.group(0)}>"
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
@@ -266,18 +301,8 @@ def send_direct_mta(item: QueueItem, tenant: Tenant) -> tuple:
         msg_bytes = msg.as_bytes(policy=SMTP)
         msg_bytes = generate_dkim_signature(msg_bytes, tenant)
         
-        # Resolve HELO identity domain from GlobalSettings if set
-        helo_domain = sender_domain
-        db = SessionLocal()
-        try:
-            from database import GlobalSettings
-            settings = db.query(GlobalSettings).first()
-            if settings and settings.mail_server_identity:
-                helo_domain = settings.mail_server_identity
-        except Exception as helo_err:
-            logger.warning(f"Could not load mail_server_identity global setting: {helo_err}")
-        finally:
-            db.close()
+        # Resolve HELO identity domain from cached GlobalSettings if set
+        helo_domain = get_cached_global_settings().get("mail_server_identity") or sender_domain
 
         connected = False
         last_err = None
@@ -334,6 +359,19 @@ def send_transactional_email(to_email: str, subject: str, body_html: str, tenant
         logger.error(f"Transactional email failed to send to {to_email}: [{code}] {msg}")
         return False, f"[{code}] {msg}"
 
+
+def send_transactional_email_by_tenant_id(to_email: str, subject: str, body_html: str, tenant_id: int):
+    """Background-safe wrapper that opens its own DB session to load Tenant."""
+    db = SessionLocal()
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            logger.error(f"Transactional email skipped: Tenant ID {tenant_id} not found")
+            return False, "Tenant not found"
+        return send_transactional_email(to_email=to_email, subject=subject, body_html=body_html, tenant=tenant)
+    finally:
+        db.close()
+
 from concurrent.futures import ThreadPoolExecutor
 
 class TenantRateLimiter:
@@ -358,12 +396,13 @@ class TenantRateLimiter:
             return True
         return False
 
-import threading
 active_threads_lock = threading.Lock()
 active_threads = {}
 
 domain_active_threads_lock = threading.Lock()
 domain_active_threads = {}
+
+SMTP_POOL_IDLE_SECONDS = 60.0
 
 # Thread-local storage for persistent SMTP connection pooling
 thread_local = threading.local()
@@ -378,15 +417,33 @@ def get_active_threads_for_domain(domain: str) -> int:
     with domain_active_threads_lock:
         return domain_active_threads.get(domain.lower(), 0)
 
-def get_pooled_smtp(key: str, host: str, port: int, use_ssl: bool, use_tls: bool, username: str = None, password: str = None):
+def _evict_idle_smtp_conns():
     if not hasattr(thread_local, "smtp_conns"):
         thread_local.smtp_conns = {}
-        
-    server = thread_local.smtp_conns.get(key)
-    if server is not None:
+        return
+    now_mono = time.monotonic()
+    stale_keys = [
+        k for k, entry in thread_local.smtp_conns.items()
+        if (now_mono - entry[1]) > SMTP_POOL_IDLE_SECONDS
+    ]
+    for k in stale_keys:
+        entry = thread_local.smtp_conns.pop(k, None)
+        if entry:
+            try:
+                entry[0].quit()
+            except Exception:
+                pass
+
+def get_pooled_smtp(key: str, host: str, port: int, use_ssl: bool, use_tls: bool, username: str = None, password: str = None):
+    _evict_idle_smtp_conns()
+
+    entry = thread_local.smtp_conns.get(key)
+    if entry is not None:
+        server, _ = entry
         try:
             status = server.noop()
             if status[0] == 250:
+                thread_local.smtp_conns[key] = (server, time.monotonic())
                 return server
         except Exception:
             try:
@@ -407,13 +464,14 @@ def get_pooled_smtp(key: str, host: str, port: int, use_ssl: bool, use_tls: bool
     if username and password:
         server.login(username, password)
         
-    thread_local.smtp_conns[key] = server
+    thread_local.smtp_conns[key] = (server, time.monotonic())
     return server
 
 def close_pooled_smtp(key: str):
     if hasattr(thread_local, "smtp_conns") and key in thread_local.smtp_conns:
-        server = thread_local.smtp_conns.pop(key, None)
-        if server:
+        entry = thread_local.smtp_conns.pop(key, None)
+        if entry:
+            server = entry[0] if isinstance(entry, tuple) else entry
             try:
                 server.quit()
             except Exception:
@@ -423,22 +481,101 @@ def close_pooled_smtp(key: str):
 executor = ThreadPoolExecutor(max_workers=200)
 rate_limiters = {}
 
-def deliver_item_task(item_id: int):
+def _reconcile_campaign_status_atomic(db: Session, campaign_id: int, campaign_name: str = ""):
+    """Transition campaign status cleanly using conditional SQL updates so paused/cancelled states are never overwritten."""
+    pending_or_sending = db.query(QueueItem).filter(
+        QueueItem.campaign_id == campaign_id,
+        QueueItem.status.in_(["pending", "sending"])
+    ).count()
+
+    deferred_count = db.query(QueueItem).filter(
+        QueueItem.campaign_id == campaign_id,
+        QueueItem.status == "deferred"
+    ).count()
+
+    if pending_or_sending > 0:
+        db.query(Campaign).filter(
+            Campaign.id == campaign_id,
+            Campaign.status == "flushing"
+        ).update({Campaign.status: "sending"}, synchronize_session=False)
+        db.commit()
+    elif deferred_count > 0:
+        changed = db.query(Campaign).filter(
+            Campaign.id == campaign_id,
+            Campaign.status == "sending"
+        ).update({Campaign.status: "flushing"}, synchronize_session=False)
+        db.commit()
+        if changed:
+            logger.info(f"Campaign '{campaign_name}' (ID: {campaign_id}) status updated to flushing ({deferred_count} deferred items remaining).")
+    else:
+        changed = db.query(Campaign).filter(
+            Campaign.id == campaign_id,
+            Campaign.status.in_(["sending", "flushing"])
+        ).update({Campaign.status: "completed"}, synchronize_session=False)
+        db.commit()
+        if changed:
+            logger.info(f"Campaign '{campaign_name}' (ID: {campaign_id}) finished dispatching all items (status: completed).")
+
+
+def _run_scheduled_backup_sync():
     db = SessionLocal()
-    tenant_id = None
+    try:
+        from routes.backup_routes import perform_system_backup
+        perform_system_backup(db)
+    finally:
+        db.close()
+
+
+def deliver_item_task(
+    item_id: int,
+    pre_acquired: bool = False,
+    pre_tenant_id: int = None,
+    pre_domain: str = None,
+):
+    db = SessionLocal()
+    item = None
+    tenant_id = pre_tenant_id if pre_acquired else None
+    dest_domain = pre_domain if pre_acquired else None
+    acquired_tenant = bool(pre_acquired and pre_tenant_id is not None)
+    acquired_domain = bool(pre_acquired and pre_domain)
     try:
         item = db.query(QueueItem).filter(QueueItem.id == item_id).first()
-        if item:
-            tenant_id = item.tenant_id
-            with active_threads_lock:
-                active_threads[tenant_id] = active_threads.get(tenant_id, 0) + 1
         if not item:
             return
-            
+        if not pre_acquired:
+            tenant_id = item.tenant_id
+            if tenant_id is not None:
+                with active_threads_lock:
+                    active_threads[tenant_id] = active_threads.get(tenant_id, 0) + 1
+                acquired_tenant = True
+            if item.email and "@" in item.email:
+                dest_domain = item.email.split("@")[-1].lower()
+                with domain_active_threads_lock:
+                    domain_active_threads[dest_domain] = domain_active_threads.get(dest_domain, 0) + 1
+                acquired_domain = True
+
+        if item.status not in ["sending", "pending", "deferred"]:
+            return
+
         tenant = db.query(Tenant).filter(Tenant.id == item.tenant_id).first()
         campaign = db.query(Campaign).filter(Campaign.id == item.campaign_id).first()
         subscriber = db.query(Subscriber).filter(Subscriber.id == item.subscriber_id).first()
-        
+
+        # Re-check live campaign status before dispatching over SMTP to prevent paused/cancelled race
+        if campaign:
+            if campaign.status == "paused":
+                item.status = "pending"
+                db.commit()
+                return
+            if campaign.status == "cancelled":
+                db.delete(item)
+                db.commit()
+                return
+            if campaign.status not in ["sending", "flushing", "automation"]:
+                item.status = "pending"
+                db.commit()
+                return
+
         if not tenant or not campaign or not subscriber or subscriber.status not in ["active", "deferred"]:
             item.status = "failed"
             item.error_message = "Tenant, Campaign, or active/deferred Subscriber not found"
@@ -461,9 +598,9 @@ def deliver_item_task(item_id: int):
             item.status = "sent"
             item.error_code = 250
             item.last_mx_response = "Sent successfully"
-            from sqlalchemy import func
             db.query(Campaign).filter(Campaign.id == campaign.id).update(
-                {Campaign.sent_count: func.coalesce(Campaign.sent_count, 0) + 1}
+                {Campaign.sent_count: func.coalesce(Campaign.sent_count, 0) + 1},
+                synchronize_session=False,
             )
         else:
             item.error_code = code
@@ -476,12 +613,12 @@ def deliver_item_task(item_id: int):
                 item.next_attempt = datetime.utcnow() + timedelta(minutes=retry_mins)
             else:
                 item.status = "failed"
-                from sqlalchemy import func
                 db.query(Campaign).filter(Campaign.id == campaign.id).update(
                     {
                         Campaign.failed_count: func.coalesce(Campaign.failed_count, 0) + 1,
                         Campaign.bounce_count: func.coalesce(Campaign.bounce_count, 0) + 1
-                    }
+                    },
+                    synchronize_session=False,
                 )
                 
                 subscriber.status = "bounced"
@@ -523,50 +660,26 @@ def deliver_item_task(item_id: int):
         except Exception as webhook_err:
             logger.error(f"Failed to dispatch webhooks for item {item.id}: {webhook_err}")
             
-        # Reconcile campaign status (bypass for paused, draft, cancelled, or automation campaigns)
-        if campaign.status not in ["sending", "flushing"]:
-            return
-            
-        pending_or_sending = db.query(QueueItem).filter(
-            QueueItem.campaign_id == campaign.id,
-            QueueItem.status.in_(["pending", "sending"])
-        ).count()
-        
-        deferred_count = db.query(QueueItem).filter(
-            QueueItem.campaign_id == campaign.id,
-            QueueItem.status == "deferred"
-        ).count()
-        
-        if pending_or_sending > 0:
-            if campaign.status != "sending":
-                campaign.status = "sending"
-                db.commit()
-        else:
-            if deferred_count > 0:
-                if campaign.status != "flushing":
-                    campaign.status = "flushing"
-                    db.commit()
-                    logger.info(f"Campaign '{campaign.name}' (ID: {campaign.id}) status updated to flushing ({deferred_count} deferred items remaining).")
-            else:
-                if campaign.status != "completed":
-                    campaign.status = "completed"
-                    db.commit()
-                    logger.info(f"Campaign '{campaign.name}' (ID: {campaign.id}) finished dispatching all items (status: completed).")
+        # Atomically reconcile campaign status only if still active in sending/flushing
+        db.refresh(campaign)
+        if campaign.status in ["sending", "flushing"]:
+            _reconcile_campaign_status_atomic(db, campaign.id, campaign.name or "")
             
     except Exception as e:
         logger.exception(f"Error in deliver_item_task for QueueItem {item_id}: {e}")
     finally:
-        if tenant_id is not None:
+        if acquired_tenant and tenant_id is not None:
             with active_threads_lock:
                 active_threads[tenant_id] = max(0, active_threads.get(tenant_id, 0) - 1)
-        if item and item.email and "@" in item.email:
-            dest_domain = item.email.split("@")[-1].lower()
+        if acquired_domain and dest_domain:
             with domain_active_threads_lock:
                 domain_active_threads[dest_domain] = max(0, domain_active_threads.get(dest_domain, 0) - 1)
         db.close()
 
+
 async def process_queue():
     last_expiry_check = 0
+    last_ntp_refresh = 0
     
     # Run Power Loss Recovery on startup
     db_recovery = SessionLocal()
@@ -585,11 +698,13 @@ async def process_queue():
     while True:
         db = SessionLocal()
         try:
-            now = get_corrected_time()
+            if time.time() - last_ntp_refresh > 300:
+                last_ntp_refresh = time.time()
+                await asyncio.to_thread(refresh_ntp_offset_if_needed)
+            now = get_cached_corrected_time()
             
             # Check and evaluate A/B test campaigns whose test periods have elapsed
             try:
-                from datetime import timedelta
                 ab_campaigns = db.query(Campaign).filter(
                     Campaign.ab_testing_enabled == True,
                     Campaign.ab_winning_variant == None,
@@ -612,13 +727,15 @@ async def process_queue():
                                 opens = db.query(TrackingLog.subscriber_id).filter(
                                     TrackingLog.campaign_id == ac.id,
                                     TrackingLog.ab_variant == vid,
-                                    TrackingLog.event_type == "open"
+                                    TrackingLog.event_type == "open",
+                                    real_tracking_filter(),
                                 ).distinct().count()
                                 
                                 clicks = db.query(TrackingLog.subscriber_id).filter(
                                     TrackingLog.campaign_id == ac.id,
                                     TrackingLog.ab_variant == vid,
-                                    TrackingLog.event_type == "click"
+                                    TrackingLog.event_type == "click",
+                                    real_tracking_filter(),
                                 ).distinct().count()
                                 
                                 score = float(opens) if ac.ab_winner_criteria == "open_rate" else float(clicks)
@@ -635,56 +752,24 @@ async def process_queue():
                             # Find winning variant config
                             winner = next((v for v in ac.ab_variants if v.get("id") == best_variant), None)
                             winner_subject = winner.get("subject") if winner else ac.subject
-                            winner_body_html = winner.get("body_html") if winner else ac.body_html
+                            if winner and winner.get("is_custom_html"):
+                                winner_body_html = winner.get("custom_html") or winner.get("body_html") or ""
+                            else:
+                                winner_body_html = winner.get("body_html") if winner else (ac.custom_html if (ac.is_custom_html and ac.custom_html) else (ac.body_html or ""))
+                            winner_preheader = (winner.get("preheader") if winner else None) or (ac.preheader or "")
                             
                             # Find subscribers who already received a test email
                             sent_sub_ids = db.query(QueueItem.subscriber_id).filter(QueueItem.campaign_id == ac.id).all()
                             sent_sub_ids = {r[0] for r in sent_sub_ids}
                             
-                            # Get all target subscribers for lists
+                            # Get all target subscribers for lists using unified targeting rules
                             target_lists = ac.list_ids or [ac.list_id] if (ac.list_ids or ac.list_id) else []
                             sub_query = db.query(Subscriber).filter(
                                 Subscriber.list_id.in_(target_lists),
                                 Subscriber.tenant_id == ac.tenant_id,
                                 Subscriber.status.in_(["active", "deferred"])
                             )
-                            
-                            # Evaluate targeting rules
-                            rules = ac.target_rules or {}
-                            if rules:
-                                target_tag = rules.get("tag")
-                                if target_tag:
-                                    tags_list = [t.strip() for t in target_tag.split(",") if t.strip()]
-                                    if tags_list:
-                                        from sqlalchemy import or_
-                                        tag_filters = [Subscriber.tags.like(f'%"{t}"%') for t in tags_list]
-                                        sub_query = sub_query.filter(or_(*tag_filters))
-                                    
-                                target_engagements = rules.get("engagement")
-                                if target_engagements:
-                                    if isinstance(target_engagements, list):
-                                        scores = [int(e) for e in target_engagements if str(e).isdigit()]
-                                        if scores:
-                                            sub_query = sub_query.filter(Subscriber.engagement_score.in_(scores))
-                                    elif str(target_engagements).isdigit():
-                                        sub_query = sub_query.filter(Subscriber.engagement_score == int(target_engagements))
-                                    
-                                signup_after = rules.get("signup_after")
-                                if signup_after and str(signup_after).strip():
-                                    try:
-                                        dt = datetime.fromisoformat(str(signup_after).replace("Z", ""))
-                                        sub_query = sub_query.filter(Subscriber.created_at >= dt)
-                                    except Exception:
-                                        pass
-                                        
-                                signup_before = rules.get("signup_before")
-                                if signup_before and str(signup_before).strip():
-                                    try:
-                                        dt = datetime.fromisoformat(str(signup_before).replace("Z", ""))
-                                        sub_query = sub_query.filter(Subscriber.created_at <= dt)
-                                    except Exception:
-                                        pass
-                            
+                            sub_query = apply_targeting_rules_to_query(sub_query, ac.target_rules or {})
                             target_subscribers = sub_query.all()
                             
                             # De-duplicate
@@ -696,10 +781,14 @@ async def process_queue():
                             remaining_subs = [s for s in unique_subs.values() if s.id not in sent_sub_ids]
                             
                             if remaining_subs:
-                                settings = db.query(GlobalSettings).first()
-                                tracking_domain = settings.public_url if (settings and settings.public_url) else ""
-                                if tracking_domain:
-                                    tracking_domain = tracking_domain.rstrip("/")
+                                effective_order = (getattr(ac, "send_order", None) or "inherit").strip().lower()
+                                if effective_order == "inherit":
+                                    tenant_obj = db.query(Tenant).filter(Tenant.id == ac.tenant_id).first()
+                                    effective_order = (getattr(tenant_obj, "queue_send_order", None) or "default").strip().lower()
+                                remaining_subs = order_subscribers_for_queue(remaining_subs, effective_order)
+
+                                settings_snap = get_cached_global_settings()
+                                tracking_domain = (settings_snap.get("public_url") or "").rstrip("/")
                                     
                                 for sub in remaining_subs:
                                     body = render_email_template(
@@ -707,7 +796,8 @@ async def process_queue():
                                         subscriber=sub,
                                         tracking_domain=tracking_domain,
                                         campaign_id=ac.id,
-                                        subscriber_id=sub.id
+                                        subscriber_id=sub.id,
+                                        preheader=winner_preheader,
                                     )
                                     
                                     item = QueueItem(
@@ -723,7 +813,7 @@ async def process_queue():
                                     )
                                     db.add(item)
                                     
-                                ac.total_recipients += len(remaining_subs)
+                                ac.total_recipients = (ac.total_recipients or 0) + len(remaining_subs)
                                 db.commit()
                                 logger.info(f"Queued winning variant '{best_variant}' for {len(remaining_subs)} remaining subscribers.")
             except Exception as ab_err:
@@ -743,46 +833,24 @@ async def process_queue():
             except Exception as se:
                 logger.error(f"Error checking/promoting scheduled campaigns: {se}")
             
-            # Reconcile campaign statuses based on outbox queue items
+            # Reconcile campaign statuses atomically based on outbox queue items
             try:
                 active_campaigns = db.query(Campaign).filter(
                     Campaign.status.in_(["sending", "flushing"])
                 ).all()
                 for camp in active_campaigns:
-                    pending_or_sending = db.query(QueueItem).filter(
-                        QueueItem.campaign_id == camp.id,
-                        QueueItem.status.in_(["pending", "sending"])
-                    ).count()
-                    
-                    deferred_count = db.query(QueueItem).filter(
-                        QueueItem.campaign_id == camp.id,
-                        QueueItem.status == "deferred"
-                    ).count()
-                    
-                    # Self-heal sent and failed counter columns against actual QueueItem outbox state
                     sent_items = db.query(QueueItem).filter(QueueItem.campaign_id == camp.id, QueueItem.status == "sent").count()
                     failed_items = db.query(QueueItem).filter(QueueItem.campaign_id == camp.id, QueueItem.status == "failed").count()
+                    updates = {}
                     if sent_items > (camp.sent_count or 0):
-                        camp.sent_count = sent_items
+                        updates[Campaign.sent_count] = sent_items
                     if failed_items > (camp.failed_count or 0):
-                        camp.failed_count = failed_items
-                    
-                    if pending_or_sending > 0:
-                        if camp.status != "sending":
-                            camp.status = "sending"
-                            db.commit()
-                    else:
-                        # All emails have been sent once!
-                        if deferred_count > 0:
-                            if camp.status != "flushing":
-                                camp.status = "flushing"
-                                db.commit()
-                                logger.info(f"Campaign '{camp.name}' status updated to flushing (has {deferred_count} deferred items left).")
-                        else:
-                            if camp.status != "completed":
-                                camp.status = "completed"
-                                db.commit()
-                                logger.info(f"Campaign '{camp.name}' status updated to completed (all queue items processed/purged).")
+                        updates[Campaign.failed_count] = failed_items
+                    if updates:
+                        db.query(Campaign).filter(Campaign.id == camp.id).update(updates, synchronize_session=False)
+                        db.commit()
+
+                    _reconcile_campaign_status_atomic(db, camp.id, camp.name or "")
             except Exception as rse:
                 logger.error(f"Error reconciling campaign statuses: {rse}")
             
@@ -800,9 +868,10 @@ async def process_queue():
                     exp_item.error_message = "Queue item expired after 3 days of delivery attempts."
                     exp_item.error_code = 408
                     
-                    camp = db.query(Campaign).filter(Campaign.id == exp_item.campaign_id).first()
-                    if camp:
-                        camp.failed_count += 1
+                    db.query(Campaign).filter(Campaign.id == exp_item.campaign_id).update(
+                        {Campaign.failed_count: func.coalesce(Campaign.failed_count, 0) + 1},
+                        synchronize_session=False,
+                    )
                         
                     sub = db.query(Subscriber).filter(Subscriber.id == exp_item.subscriber_id).first()
                     if sub:
@@ -816,37 +885,42 @@ async def process_queue():
                             sub.bounce_source_email = "System Outbox Queue Monitor"
                     db.commit()
             
-            # Evaluate automatic background backups
+            # Evaluate automatic background backups without blocking the asyncio loop
             try:
                 settings = db.query(GlobalSettings).first()
                 if settings and settings.backup_interval_hours and settings.backup_interval_hours > 0:
                     last_backup = settings.last_backup_at
                     if not last_backup or (datetime.utcnow() - last_backup).total_seconds() >= settings.backup_interval_hours * 3600:
                         logger.info("Automatic backup schedule triggered.")
-                        from routes.backup_routes import perform_system_backup
-                        perform_system_backup(db)
+                        await asyncio.to_thread(_run_scheduled_backup_sync)
             except Exception as backup_err:
                 logger.error(f"Error executing automatic scheduled backup: {backup_err}")
             
-            # 2. Fetch active sending candidate batch (up to 50 items)
+            # 2. Fetch active sending candidate batch ordered by QueueItem.id ASC to preserve send_order
             items = db.query(QueueItem).join(Campaign).filter(
                 QueueItem.status.in_(["pending", "deferred"]),
                 QueueItem.next_attempt <= now,
                 Campaign.status.in_(["sending", "flushing", "automation"]) # Skip paused, draft, or completed campaigns
-            ).order_by(QueueItem.created_at.asc()).limit(50).all()
+            ).order_by(QueueItem.id.asc()).limit(50).all()
             
             if not items:
                 await asyncio.sleep(2)
                 continue
+
+            # Resolve global concurrency limits once per queue batch iteration
+            global_settings = get_cached_global_settings()
+            max_global_threads = global_settings.get("max_global_sending_threads", 50)
+            max_domain_threads = global_settings.get("max_domain_sending_threads", 20)
                 
             for item in items:
-                # Resolve global settings for concurrency limits
-                global_settings = db.query(GlobalSettings).first()
-                max_global_threads = global_settings.max_global_sending_threads if (global_settings and global_settings.max_global_sending_threads) else 50
-                max_domain_threads = global_settings.max_domain_sending_threads if (global_settings and global_settings.max_domain_sending_threads) else 20
-                
+                # Re-verify campaign status is still active (protects against pause during batch loop)
+                live_status = db.query(Campaign.status).filter(Campaign.id == item.campaign_id).scalar()
+                if live_status not in ["sending", "flushing", "automation"]:
+                    continue
+
                 # Check overall program active thread limit
-                total_active_threads = sum(active_threads.values())
+                with active_threads_lock:
+                    total_active_threads = sum(active_threads.values())
                 if total_active_threads >= max_global_threads:
                     break
                 
@@ -879,9 +953,25 @@ async def process_queue():
                     # Set status to sending to prevent multiple submission races
                     item.status = "sending"
                     db.commit()
-                    
-                    # Submit task to concurrent thread pool
-                    executor.submit(deliver_item_task, item.id)
+
+                    # Pre-acquire thread counts before executor submission to eliminate burst overshoot
+                    if tenant_id is not None:
+                        with active_threads_lock:
+                            active_threads[tenant_id] = active_threads.get(tenant_id, 0) + 1
+                    if item_domain:
+                        with domain_active_threads_lock:
+                            domain_active_threads[item_domain] = domain_active_threads.get(item_domain, 0) + 1
+
+                    try:
+                        executor.submit(deliver_item_task, item.id, True, tenant_id, item_domain)
+                    except Exception:
+                        if tenant_id is not None:
+                            with active_threads_lock:
+                                active_threads[tenant_id] = max(0, active_threads.get(tenant_id, 0) - 1)
+                        if item_domain:
+                            with domain_active_threads_lock:
+                                domain_active_threads[item_domain] = max(0, domain_active_threads.get(item_domain, 0) - 1)
+                        raise
                 
             await asyncio.sleep(0.1) # Sleep briefly to throttle loop queries
             

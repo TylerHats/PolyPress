@@ -1,9 +1,12 @@
 import os
+import re
+import json
 import logging
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from acme_helper import active_challenges
@@ -12,8 +15,10 @@ from database import init_db, SessionLocal, User, Tenant, GlobalSettings
 from auth import hash_password
 from sending_worker import process_queue
 from bounce_worker import bounce_worker_loop
-from update_worker import auto_update_worker_loop
+from update_worker import auto_update_worker_loop, get_installed_version_info
 from automation_worker import process_automation_states
+from analytics_service import get_bulk_campaign_metrics
+from location_helper import download_geoip_db, close_geoip_reader
 
 # Import routers
 from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tracking_routes, embed_routes, ssl_routes, developer_routes, backup_routes, update_routes, user_routes, report_routes, automation_routes
@@ -21,14 +26,10 @@ from routes import auth_routes, tenant_routes, campaign_routes, list_routes, tra
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("polypress")
 
-# Get running version from git tag to append query params for browser cache invalidation
-APP_VERSION = "1.0.0"
-try:
-    import subprocess
-    res = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], capture_output=True, text=True, check=True)
-    APP_VERSION = res.stdout.strip()
-except Exception:
-    pass
+# Resolve running version cleanly from VERSION file / env / git tag for cache invalidation
+APP_VERSION, _, _ = get_installed_version_info()
+if not APP_VERSION or APP_VERSION == "v0.0.0":
+    APP_VERSION = "1.0.0"
 
 def seed_bootstrap_data():
     db = SessionLocal()
@@ -54,6 +55,16 @@ def record_historical_metrics():
     
     db = SessionLocal()
     history_db = HistorySessionLocal()
+
+    def _compute_totals(camp_list):
+        if not camp_list:
+            return 0, 0, 0, 0
+        metrics_map = get_bulk_campaign_metrics(db, [c.id for c in camp_list])
+        sent_t = sum(max(metrics_map.get(c.id, {}).get("sent", 0), c.sent_count or 0) for c in camp_list)
+        opens_t = sum(metrics_map.get(c.id, {}).get("opens", 0) for c in camp_list)
+        clicks_t = sum(metrics_map.get(c.id, {}).get("clicks", 0) for c in camp_list)
+        bounces_t = sum((c.bounce_count or 0) for c in camp_list)
+        return sent_t, opens_t, clicks_t, bounces_t
     
     try:
         global_settings = db.query(GlobalSettings).first()
@@ -65,14 +76,10 @@ def record_historical_metrics():
         latest_global = history_db.query(HistoricalMetric).filter(HistoricalMetric.tenant_id == None).order_by(HistoricalMetric.recorded_at.desc()).first()
         
         if not latest_global or (now - latest_global.recorded_at) >= timedelta(hours=global_freq):
-            # Calculate global metrics
+            # Calculate global metrics using unified bot-filtered analytics
             sub_count = db.query(Subscriber).filter(Subscriber.status == "active").count()
-            # Campaigns metrics
             campaigns = db.query(Campaign).all()
-            sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
-            opens = sum(c.open_count for c in campaigns if c.open_count)
-            clicks = sum(c.click_count for c in campaigns if c.click_count)
-            bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+            sent, opens, clicks, bounces = _compute_totals(campaigns)
             
             metric = HistoricalMetric(
                 tenant_id=None,
@@ -99,13 +106,10 @@ def record_historical_metrics():
             latest_tenant = history_db.query(HistoricalMetric).filter(HistoricalMetric.tenant_id == tenant.id).order_by(HistoricalMetric.recorded_at.desc()).first()
             
             if not latest_tenant or (now - latest_tenant.recorded_at) >= timedelta(hours=tenant_freq):
-                # Calculate tenant metrics
+                # Calculate tenant metrics using unified bot-filtered analytics
                 sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == tenant.id, Subscriber.status == "active").count()
                 campaigns = db.query(Campaign).filter(Campaign.tenant_id == tenant.id).all()
-                sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
-                opens = sum(c.open_count for c in campaigns if c.open_count)
-                clicks = sum(c.click_count for c in campaigns if c.click_count)
-                bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+                sent, opens, clicks, bounces = _compute_totals(campaigns)
                 
                 metric = HistoricalMetric(
                     tenant_id=tenant.id,
@@ -131,9 +135,9 @@ def record_historical_metrics():
 
 async def historical_metrics_worker_loop():
     logger.info("Starting historical metrics worker...")
-    # Initial run on startup
+    # Initial run offloaded so startup isn't blocked
     try:
-        record_historical_metrics()
+        await asyncio.to_thread(record_historical_metrics)
     except Exception as e:
         logger.error(f"Error doing initial historical metrics check: {e}")
         
@@ -141,7 +145,7 @@ async def historical_metrics_worker_loop():
         try:
             # Sleep 1 hour between checks
             await asyncio.sleep(3600)
-            record_historical_metrics()
+            await asyncio.to_thread(record_historical_metrics)
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -155,6 +159,9 @@ async def lifespan(app: FastAPI):
     
     logger.info("Seeding bootstrap data...")
     seed_bootstrap_data()
+
+    # Warm offline GeoIP database without blocking server readiness
+    asyncio.create_task(asyncio.to_thread(download_geoip_db))
     
     logger.info("Launching background sending queue worker...")
     sending_task = asyncio.create_task(process_queue())
@@ -184,6 +191,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(sending_task, bounce_task, update_task, metrics_task, automation_task, return_exceptions=True)
     except Exception as e:
         logger.warning(f"Error while cleaning background tasks: {e}")
+    close_geoip_reader()
     logger.info("Shutdown complete.")
 
 app = FastAPI(
@@ -192,18 +200,29 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# CORS configuration (never pair wildcard origins with allow_credentials=True)
+_cors_env = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+if _cors_env and _cors_env != "*":
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+    _cors_credentials = True
+else:
+    _cors_origins = ["*"]
+    _cors_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 @app.middleware("http")
-async def check_schema_mismatch(request: Request, call_next):
+async def static_cache_and_schema_guard(request: Request, call_next):
     import database
+    path = request.url.path
     if database.SCHEMA_MISMATCH:
         allowed_paths = [
             "/api/admin/update/schema-status",
@@ -211,7 +230,6 @@ async def check_schema_mismatch(request: Request, call_next):
             "/static/",
             "/branding/"
         ]
-        path = request.url.path
         is_allowed = any(path.startswith(p) for p in allowed_paths) or path == "/"
         if not is_allowed and path.startswith("/api/"):
             return JSONResponse(
@@ -223,7 +241,14 @@ async def check_schema_mismatch(request: Request, call_next):
                     "db_version": database.DB_SCHEMA_VERSION
                 }
             )
-    return await call_next(request)
+    response = await call_next(request)
+    if (path.startswith("/static/") or path.startswith("/branding/")) and response.status_code == 200:
+        if "Cache-Control" not in response.headers:
+            if request.query_params.get("v"):
+                response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+            else:
+                response.headers["Cache-Control"] = "public, max-age=300"
+    return response
 
 # Include routers
 app.include_router(auth_routes.router)
@@ -290,11 +315,22 @@ def get_index_html_response() -> HTMLResponse:
             finally:
                 db.close()
                 
-            # Replace scripts and links to force cache busting
+            # Replace scripts and links to force cache busting (including hardcoded ?v=... suffixes)
             html = html.replace('{{APP_NAME}}', app_name)
             html = html.replace('{{APP_LOGO}}', app_logo)
-            html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={APP_VERSION}"')
-            html = html.replace('src="/static/app.js"', f'src="/static/app.js?v={APP_VERSION}"')
+            html = re.sub(
+                r'href="/static/style\.css(?:\?v=[^"]*)?"',
+                f'href="/static/style.css?v={APP_VERSION}"',
+                html,
+            )
+            html = re.sub(
+                r'src="/static/app\.js(?:\?v=[^"]*)?"',
+                f'src="/static/app.js?v={APP_VERSION}"',
+                html,
+            )
+            version_script = f"<script>window.POLYPRESS_VERSION = {json.dumps(APP_VERSION)};</script>"
+            if "</head>" in html:
+                html = html.replace("</head>", f"    {version_script}\n</head>", 1)
             return HTMLResponse(
                 content=html,
                 headers={

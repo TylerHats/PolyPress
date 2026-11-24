@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 import hashlib
 import secrets
 from datetime import datetime
-from database import get_db, User, ApiKey, WebhookSubscription, Tenant, Subscriber, SubscriberList
+from database import get_db, User, ApiKey, WebhookSubscription, Tenant, Subscriber, SubscriberList, Campaign
 import auth
 from webhook_dispatcher import trigger_webhook
 
@@ -94,13 +94,28 @@ def delete_api_key(key_id: int, db: Session = Depends(get_db), current_user: Use
 
 # WEBHOOKS MANAGEMENT
 
+def _serialize_webhook_safe(sub: WebhookSubscription, include_secret: bool = False) -> dict:
+    data = {
+        "id": sub.id,
+        "tenant_id": sub.tenant_id,
+        "url": sub.url,
+        "has_secret": bool(sub.secret),
+        "events": sub.events,
+        "active": sub.active,
+        "created_at": sub.created_at.isoformat() if sub.created_at else None,
+    }
+    if include_secret:
+        data["secret"] = sub.secret
+    return data
+
+
 @router.get("/webhooks")
 def list_webhooks(db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="User is not associated with a tenant")
         
     subs = db.query(WebhookSubscription).filter(WebhookSubscription.tenant_id == current_user.tenant_id).all()
-    return subs
+    return [_serialize_webhook_safe(s, include_secret=False) for s in subs]
 
 @router.post("/webhooks")
 def create_webhook(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
@@ -110,13 +125,18 @@ def create_webhook(payload: dict, db: Session = Depends(get_db), current_user: U
     url = payload.get("url")
     events = payload.get("events", ["*"])
     
-    if not url or not url.startswith("http"):
+    if not url or not str(url).startswith("http"):
         raise HTTPException(status_code=400, detail="Valid target destination URL required")
+
+    from security_utils import is_safe_outbound_url
+    is_safe, reason = is_safe_outbound_url(str(url))
+    if not is_safe:
+        raise HTTPException(status_code=400, detail=f"Webhook URL rejected: {reason}")
         
     secret = secrets.token_hex(16)
     sub = WebhookSubscription(
         tenant_id=current_user.tenant_id,
-        url=url,
+        url=str(url).strip(),
         secret=secret,
         events=events,
         active=True
@@ -124,7 +144,7 @@ def create_webhook(payload: dict, db: Session = Depends(get_db), current_user: U
     db.add(sub)
     db.commit()
     db.refresh(sub)
-    return sub
+    return _serialize_webhook_safe(sub, include_secret=True)
 
 @router.put("/webhooks/{hook_id}")
 def update_webhook(hook_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
@@ -134,14 +154,19 @@ def update_webhook(hook_id: int, payload: dict, db: Session = Depends(get_db), c
     sub = db.query(WebhookSubscription).filter(WebhookSubscription.id == hook_id, WebhookSubscription.tenant_id == current_user.tenant_id).first()
     if not sub:
         raise HTTPException(status_code=404, detail="Webhook subscription not found")
-        
-    sub.url = payload.get("url", sub.url)
+
+    if "url" in payload and payload["url"]:
+        from security_utils import is_safe_outbound_url
+        is_safe, reason = is_safe_outbound_url(str(payload["url"]))
+        if not is_safe:
+            raise HTTPException(status_code=400, detail=f"Webhook URL rejected: {reason}")
+        sub.url = str(payload["url"]).strip()
     sub.events = payload.get("events", sub.events)
     sub.active = payload.get("active", sub.active)
     
     db.commit()
     db.refresh(sub)
-    return sub
+    return _serialize_webhook_safe(sub, include_secret=False)
 
 @router.delete("/webhooks/{hook_id}")
 def delete_webhook(hook_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_admin)):
@@ -189,10 +214,14 @@ def developer_add_subscriber(payload: dict, request: Request, background_tasks: 
     token = secrets.token_hex(32) if is_double_optin else None
     
     if existing:
+        from sqlalchemy.orm.attributes import flag_modified
         existing.name = name or existing.name
         existing.status = status_state
         existing.double_opt_in_token = token
-        existing.custom_data.update(custom_data)
+        merged_custom = dict(existing.custom_data or {})
+        merged_custom.update(custom_data or {})
+        existing.custom_data = merged_custom
+        flag_modified(existing, "custom_data")
         sub = existing
     else:
         sub = Subscriber(
@@ -226,6 +255,7 @@ def developer_add_subscriber(payload: dict, request: Request, background_tasks: 
 
     # Send transactional confirmation email if pending (Double Opt-In)
     if is_double_optin:
+        import html as html_lib
         from database import GlobalSettings
         settings = db.query(GlobalSettings).first()
         base_url = settings.public_url if (settings and settings.public_url) else f"{request.base_url.scheme}://{request.base_url.netloc}"
@@ -239,17 +269,17 @@ def developer_add_subscriber(payload: dict, request: Request, background_tasks: 
             email_body = tenant.double_opt_in_body_html.replace("{{confirm_url}}", confirm_url).replace("{confirm_url}", confirm_url)
         else:
             email_body = CONFIRMATION_EMAIL_TEMPLATE.format(
-                tenant_name=tenant.name,
+                tenant_name=html_lib.escape(tenant.name or "PolyPress"),
                 confirm_url=confirm_url
             )
             
-        from sending_worker import send_transactional_email
+        from sending_worker import send_transactional_email_by_tenant_id
         background_tasks.add_task(
-            send_transactional_email,
+            send_transactional_email_by_tenant_id,
             to_email=email,
             subject=subject,
             body_html=email_body,
-            tenant=tenant
+            tenant_id=tenant.id
         )
         
     return {

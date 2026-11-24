@@ -395,7 +395,11 @@ async def import_csv_subscribers(
             if name_val:
                 sub.name = name_val
             sub.status = status_val
-            sub.custom_data.update(custom_data)
+            from sqlalchemy.orm.attributes import flag_modified
+            merged_custom = dict(sub.custom_data or {})
+            merged_custom.update(custom_data)
+            sub.custom_data = merged_custom
+            flag_modified(sub, "custom_data")
             if old_status != "active" and status_val == "active":
                 new_actives.append(sub)
         else:

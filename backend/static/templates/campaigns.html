@@ -28,7 +28,7 @@
                             </div>
 
                             <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-                                <button @click="bulkCancelCampaigns()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 6px 14px; background: rgba(239, 68, 68, 0.1); border-color: var(--color-danger); color: var(--color-danger); display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                <button x-show="user.role !== 'tenant_user'" @click="bulkCancelCampaigns()" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 6px 14px; background: rgba(239, 68, 68, 0.1); border-color: var(--color-danger); color: var(--color-danger); display: flex; align-items: center; gap: 6px; white-space: nowrap;">
                                     <i data-lucide="x-circle" style="width: 14px; height: 14px;"></i> Cancel Broadcasts
                                 </button>
                                 <button x-show="user.role !== 'tenant_user'" @click="bulkDeleteCampaigns()" class="btn btn-danger btn-sm" style="font-size: 12px; padding: 6px 14px; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
@@ -69,7 +69,7 @@
                                             </td>
                                             <td x-text="c.sent_count + '/' + c.total_recipients"></td>
                                             <td x-text="c.open_count + ' (' + calculatePercentage(c.open_count, c.sent_count) + '%)'"></td>
-                                            <td x-text="c.click_count"></td>
+                                            <td x-text="(c.unique_clicks !== undefined && c.unique_clicks !== null && c.click_count > 0) ? (c.click_count + ' (' + c.unique_clicks + ' unique)') : c.click_count"></td>
                                             <td>
                                                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                                      <button x-show="c.status === 'draft' && user.role !== 'tenant_user'" @click="startVisualEditor(c)" class="btn btn-secondary btn-sm" title="Edit Design/Content">
@@ -84,16 +84,16 @@
                                                      <button x-show="c.status !== 'draft'" @click="openStatsModal(c.id)" class="btn btn-secondary btn-sm" title="View Metrics">
                                                          <i data-lucide="bar-chart-2"></i> Stats
                                                      </button>
-                                                     <button x-show="c.status === 'sending'" @click="pauseCampaign(c.id)" class="btn btn-secondary btn-sm" title="Pause Broadcast" style="background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); color: var(--color-warning); padding: 4px 8px; font-size: 11px;">
+                                                     <button x-show="['sending', 'flushing'].includes(c.status) && user.role !== 'tenant_user'" @click="pauseCampaign(c.id)" class="btn btn-secondary btn-sm" title="Pause Broadcast" style="background: rgba(245, 158, 11, 0.1); border-color: var(--color-warning); color: var(--color-warning); padding: 4px 8px; font-size: 11px;">
                                                           <i data-lucide="pause" style="width:12px; height:12px;"></i> Pause
                                                       </button>
-                                                      <button x-show="c.status === 'paused'" @click="resumeCampaign(c.id)" class="btn btn-secondary btn-sm" title="Resume Broadcast" style="background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); color: var(--color-success); padding: 4px 8px; font-size: 11px;">
+                                                      <button x-show="c.status === 'paused' && user.role !== 'tenant_user'" @click="resumeCampaign(c.id)" class="btn btn-secondary btn-sm" title="Resume Broadcast" style="background: rgba(16, 185, 129, 0.1); border-color: var(--color-success); color: var(--color-success); padding: 4px 8px; font-size: 11px;">
                                                           <i data-lucide="play" style="width:12px; height:12px;"></i> Resume
                                                       </button>
-                                                      <button x-show="['sending', 'paused', 'queued', 'scheduled'].includes(c.status)" @click="cancelCampaign(c.id)" class="btn btn-danger btn-sm" title="Cancel Broadcast" style="padding: 4px 8px; font-size: 11px;">
+                                                      <button x-show="['sending', 'flushing', 'paused', 'queued', 'scheduled'].includes(c.status) && user.role !== 'tenant_user'" @click="cancelCampaign(c.id)" class="btn btn-danger btn-sm" title="Cancel Broadcast" style="padding: 4px 8px; font-size: 11px;">
                                                           <i data-lucide="x-circle" style="width:12px; height:12px;"></i> Cancel
                                                       </button>
-                                                     <button x-show="!['sending', 'queued'].includes(c.status) && user.role !== 'tenant_user'" @click="deleteCampaign(c.id)" class="btn btn-danger btn-sm" title="Delete">
+                                                     <button x-show="!['sending', 'flushing', 'queued'].includes(c.status) && user.role !== 'tenant_user'" @click="deleteCampaign(c.id)" class="btn btn-danger btn-sm" title="Delete">
                                                          <i data-lucide="trash-2"></i>
                                                      </button>
                                                  </div>

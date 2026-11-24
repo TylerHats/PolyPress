@@ -5,10 +5,53 @@ from sqlalchemy import func, or_
 from datetime import datetime, timedelta
 import zoneinfo
 import re
+import random
+import html as html_lib
 import urllib.parse
 import database as db_mod
 from database import get_db, Campaign, SubscriberList, Subscriber, QueueItem, User, TrackingLog, GlobalSettings, Tenant
 import auth
+from analytics_service import (
+    real_tracking_filter,
+    normalize_tracking_url,
+    get_campaign_real_opens,
+    get_campaign_real_clicks,
+    get_campaign_ab_metrics,
+    get_bulk_campaign_metrics,
+    reconcile_campaign_counts_bulk,
+)
+
+VALID_SEND_ORDERS = {"default", "random", "alphabetical", "alphabetical_desc", "domain_interleaved"}
+
+
+def order_subscribers_for_queue(subscribers: list, send_order: str = "default") -> list:
+    """Order recipients before inserting QueueItems according to the selected dispatch strategy."""
+    if not subscribers:
+        return []
+    order = (send_order or "default").strip().lower()
+    if order == "random":
+        shuffled = list(subscribers)
+        random.SystemRandom().shuffle(shuffled)
+        return shuffled
+    if order == "alphabetical":
+        return sorted(subscribers, key=lambda s: ((s.email or "").lower(), s.id or 0))
+    if order == "alphabetical_desc":
+        return sorted(subscribers, key=lambda s: ((s.email or "").lower(), s.id or 0), reverse=True)
+    if order == "domain_interleaved":
+        buckets = {}
+        for s in sorted(subscribers, key=lambda sub: ((sub.email or "").lower(), sub.id or 0)):
+            em = (s.email or "").strip().lower()
+            dom = em.split("@")[-1] if "@" in em else ""
+            buckets.setdefault(dom, []).append(s)
+        ordered_domains = sorted(buckets.keys(), key=lambda d: len(buckets[d]), reverse=True)
+        res = []
+        max_len = max((len(buckets[d]) for d in ordered_domains), default=0)
+        for idx in range(max_len):
+            for d in ordered_domains:
+                if idx < len(buckets[d]):
+                    res.append(buckets[d][idx])
+        return res
+    return list(subscribers)
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
 
@@ -96,9 +139,9 @@ def apply_targeting_rules_to_query(query, rules: dict):
 def render_email_template(body_html: str, subscriber: Subscriber, tracking_domain: str, campaign_id: int, subscriber_id: int, preheader: str = "") -> str:
     rendered = body_html or ""
     
-    # Prepend hidden preheader text if present
+    # Prepend hidden preheader text if present (HTML-escaped to prevent injection)
     if preheader:
-        preheader_text = str(preheader).strip()
+        preheader_text = html_lib.escape(str(preheader).strip())
         preheader_html = f'<div style="display:none;max-height:0px;max-width:0px;opacity:0;overflow:hidden;font-size:1px;color:#fff;line-height:1px;">{preheader_text}</div>'
         if "<body>" in rendered:
             rendered = rendered.replace("<body>", f"<body>{preheader_html}")
@@ -123,9 +166,15 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
     rendered = rendered.replace("{{email}}", subscriber.email or "")
     rendered = rendered.replace("{{name}}", subscriber.name or "")
     
-    # Inject unsubscribe URL
+    # Inject signed unsubscribe URL (prevents cross-subscriber preference center IDOR)
+    tracking_domain = (tracking_domain or "").strip().rstrip("/")
+    has_valid_domain = tracking_domain.startswith("http://") or tracking_domain.startswith("https://")
     sub_id = subscriber_id if subscriber_id != 0 else (subscriber.id if (subscriber and subscriber.id) else 0)
-    unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/{sub_id}/{campaign_id}"
+    unsub_sig = auth.sign_url_token(f"unsub:{sub_id}:{campaign_id}")
+    if has_valid_domain:
+        unsubscribe_url = f"{tracking_domain}/api/embed/unsubscribe/{sub_id}/{campaign_id}?sig={unsub_sig}"
+    else:
+        unsubscribe_url = "#"
     rendered = rendered.replace("{{unsubscribe_url}}", unsubscribe_url)
     
     # Custom attributes replacement
@@ -233,61 +282,84 @@ def render_email_template(body_html: str, subscriber: Subscriber, tracking_domai
     # Strip any unresolved conditional tags
     rendered = re.sub(r'\{%.*?%\}', '', rendered)
     
-    # Inject open tracking pixel
-    open_pixel = f'<img src="{tracking_domain}/api/track/open/{campaign_id}/{subscriber_id}.gif" width="1" height="1" style="display:none;" />'
-    if "</body>" in rendered:
-        rendered = rendered.replace("</body>", f"{open_pixel}</body>")
-    else:
-        rendered += open_pixel
-        
-    # Rewrite links for click tracking
-    def click_rewriter(match):
-        url = match.group(2)
-        if "api/embed/unsubscribe" in url or url.startswith("#") or url.startswith("mailto:") or url.startswith("tel:"):
-            return match.group(0)
-        encoded_url = urllib.parse.quote(url)
-        redirect_url = f"{tracking_domain}/api/track/click/{campaign_id}/{subscriber_id}?url={encoded_url}"
-        return f'{match.group(1)}"{redirect_url}"'
-        
-    rendered = re.sub(r'(href\s*=\s*)["\']([^"\']+)["\']', click_rewriter, rendered, flags=re.IGNORECASE)
-    
+    # Inject open tracking pixel with explicit empty alt="" and border="0" for accessibility/deliverability
+    if has_valid_domain:
+        open_pixel = f'<img src="{tracking_domain}/api/track/open/{campaign_id}/{subscriber_id}.gif" alt="" width="1" height="1" border="0" style="display:none;" />'
+        if "</body>" in rendered:
+            rendered = rendered.replace("</body>", f"{open_pixel}</body>")
+        else:
+            rendered += open_pixel
+
+        # Rewrite links for click tracking with HMAC signatures to prevent open redirects
+        def click_rewriter(match):
+            raw_url = html_lib.unescape(match.group(2)).strip()
+            lower_url = raw_url.lower()
+            if (
+                "api/embed/unsubscribe" in lower_url
+                or raw_url.startswith("#")
+                or lower_url.startswith("mailto:")
+                or lower_url.startswith("tel:")
+                or lower_url.startswith("javascript:")
+                or lower_url.startswith("data:")
+            ):
+                return match.group(0)
+            encoded_url = urllib.parse.quote(raw_url, safe='')
+            click_sig = auth.sign_url_token(f"click:{campaign_id}:{subscriber_id}:{raw_url}")
+            redirect_url = f"{tracking_domain}/api/track/click/{campaign_id}/{subscriber_id}?url={encoded_url}&sig={click_sig}"
+            return f'{match.group(1)}"{redirect_url}"'
+
+        rendered = re.sub(r'(href\s*=\s*)["\']([^"\']+)["\']', click_rewriter, rendered, flags=re.IGNORECASE)
+
     return rendered
 
+
+def _serialize_campaign_summary(c: Campaign, metrics: dict) -> dict:
+    return {
+        "id": c.id,
+        "tenant_id": c.tenant_id,
+        "list_id": c.list_id,
+        "list_ids": c.list_ids or ([c.list_id] if c.list_id else []),
+        "name": c.name,
+        "description": c.description,
+        "subject": c.subject,
+        "preheader": c.preheader,
+        "is_custom_html": bool(c.is_custom_html),
+        "ab_testing_enabled": bool(c.ab_testing_enabled),
+        "ab_test_ratio": c.ab_test_ratio,
+        "ab_test_hours": c.ab_test_hours,
+        "ab_winner_criteria": c.ab_winner_criteria,
+        "ab_winning_variant": c.ab_winning_variant,
+        "ab_variants_count": len(c.ab_variants or []),
+        "status": c.status,
+        "send_order": getattr(c, "send_order", None) or "inherit",
+        "target_rules": c.target_rules or {},
+        "total_recipients": c.total_recipients or 0,
+        "sent_count": metrics.get("sent", c.sent_count or 0),
+        "failed_count": metrics.get("failed", c.failed_count or 0),
+        "bounce_count": c.bounce_count or 0,
+        "open_count": metrics.get("opens", c.open_count or 0),
+        "click_count": metrics.get("clicks", c.click_count or 0),
+        "unique_clicks": metrics.get("unique_clicks", 0),
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "sent_at": c.sent_at.isoformat() if c.sent_at else None,
+        "scheduled_send_at": c.scheduled_send_at.isoformat() if c.scheduled_send_at else None,
+    }
+
+
+def _serialize_campaign_detail(c: Campaign, metrics: dict) -> dict:
+    data = _serialize_campaign_summary(c, metrics)
+    data.update({
+        "body_blocks": c.body_blocks or [],
+        "body_html": c.body_html or "",
+        "custom_html": c.custom_html or "",
+        "ab_variants": c.ab_variants or [],
+    })
+    return data
+
+
 def reconcile_campaign_counts_inline(campaigns, db: Session):
-    need_commit = False
-    for c in campaigns:
-        if c.status in ["sending", "flushing", "completed", "paused"]:
-            sent_count = db.query(QueueItem).filter(QueueItem.campaign_id == c.id, QueueItem.status == "sent").count()
-            failed_count = db.query(QueueItem).filter(QueueItem.campaign_id == c.id, QueueItem.status == "failed").count()
-            if sent_count > (c.sent_count or 0):
-                c.sent_count = sent_count
-                need_commit = True
-            if failed_count > (c.failed_count or 0):
-                c.failed_count = failed_count
-                need_commit = True
+    return reconcile_campaign_counts_bulk(db, campaigns)
 
-        # Always reconcile click_count with TrackingLog (excluding bot clicks)
-        real_clicks = db.query(TrackingLog).filter(
-            TrackingLog.campaign_id == c.id,
-            TrackingLog.event_type == "click",
-            or_(TrackingLog.is_bot == False, TrackingLog.is_bot == None)
-        ).count()
-        if (c.click_count or 0) != real_clicks:
-            c.click_count = real_clicks
-            need_commit = True
-
-        # Always reconcile unique open_count with TrackingLog (excluding bot opens)
-        real_opens = db.query(TrackingLog.subscriber_id).filter(
-            TrackingLog.campaign_id == c.id,
-            TrackingLog.event_type == "open",
-            or_(TrackingLog.is_bot == False, TrackingLog.is_bot == None)
-        ).distinct().count()
-        if (c.open_count or 0) != real_opens:
-            c.open_count = real_opens
-            need_commit = True
-
-    if need_commit:
-        db.commit()
 
 @router.get("")
 def list_campaigns(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
@@ -300,8 +372,9 @@ def list_campaigns(db: Session = Depends(get_db), current_user: User = Depends(a
     else:
         campaigns = db.query(Campaign).filter(Campaign.tenant_id == current_user.tenant_id).order_by(Campaign.created_at.desc()).all()
     
-    reconcile_campaign_counts_inline(campaigns, db)
-    return campaigns
+    metrics_map = reconcile_campaign_counts_bulk(db, campaigns)
+    return [_serialize_campaign_summary(c, metrics_map.get(c.id, {})) for c in campaigns]
+
 
 @router.get("/{campaign_id}")
 def get_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
@@ -314,8 +387,9 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: 
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     
-    reconcile_campaign_counts_inline([campaign], db)
-    return campaign
+    metrics_map = reconcile_campaign_counts_bulk(db, [campaign])
+    return _serialize_campaign_detail(campaign, metrics_map.get(campaign.id, {}))
+
 
 @router.post("")
 def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
@@ -339,6 +413,10 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
             if not sub_list:
                 raise HTTPException(status_code=404, detail=f"Subscriber list ID {lid} not found")
         campaign_tenant_id = current_user.tenant_id
+
+    raw_order = (payload.get("send_order") or "inherit").strip().lower()
+    if raw_order not in VALID_SEND_ORDERS and raw_order != "inherit":
+        raw_order = "inherit"
         
     campaign = Campaign(
         tenant_id=campaign_tenant_id,
@@ -358,6 +436,7 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
         ab_winner_criteria=payload.get("ab_winner_criteria", "open_rate"),
         ab_variants=payload.get("ab_variants", []),
         ab_winning_variant=None,
+        send_order=raw_order,
         target_rules=payload.get("target_rules", {}),
         status="draft"
     )
@@ -365,6 +444,7 @@ def create_campaign(payload: dict, db: Session = Depends(get_db), current_user: 
     db.commit()
     db.refresh(campaign)
     return campaign
+
 
 @router.put("/{campaign_id}")
 def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
@@ -399,6 +479,11 @@ def update_campaign(campaign_id: int, payload: dict, db: Session = Depends(get_d
     campaign.ab_variants = payload.get("ab_variants", campaign.ab_variants)
     campaign.ab_winning_variant = payload.get("ab_winning_variant", campaign.ab_winning_variant)
     campaign.target_rules = payload.get("target_rules", campaign.target_rules)
+
+    if "send_order" in payload:
+        raw_order = (payload.get("send_order") or "inherit").strip().lower()
+        if raw_order in VALID_SEND_ORDERS or raw_order == "inherit":
+            campaign.send_order = raw_order
     
     if "list_ids" in payload:
         list_ids = payload["list_ids"]
@@ -453,16 +538,27 @@ def duplicate_campaign(campaign_id: int, db: Session = Depends(get_db), current_
         list_id=campaign.list_id,
         list_ids=campaign.list_ids,
         name=f"Copy of {campaign.name}",
+        description=campaign.description,
         subject=campaign.subject,
         preheader=campaign.preheader,
         body_blocks=campaign.body_blocks,
         body_html=campaign.body_html,
+        is_custom_html=campaign.is_custom_html,
+        custom_html=campaign.custom_html,
+        ab_testing_enabled=campaign.ab_testing_enabled,
+        ab_test_ratio=campaign.ab_test_ratio,
+        ab_test_hours=campaign.ab_test_hours,
+        ab_winner_criteria=campaign.ab_winner_criteria,
+        ab_variants=campaign.ab_variants,
+        send_order=getattr(campaign, "send_order", None) or "inherit",
+        target_rules=campaign.target_rules or {},
         status="draft"
     )
     db.add(new_campaign)
     db.commit()
     db.refresh(new_campaign)
     return new_campaign
+
 
 @router.post("/{campaign_id}/launch")
 def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
@@ -491,6 +587,17 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
             scheduled_time = raw_time.astimezone(zoneinfo.ZoneInfo("UTC")).replace(tzinfo=None)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid scheduled date format: {e}")
+
+    # Resolve queue dispatch order (campaign override or tenant default)
+    requested_order = ((payload or {}).get("send_order") or getattr(campaign, "send_order", None) or "inherit").strip().lower()
+    if payload and "send_order" in payload and requested_order in (VALID_SEND_ORDERS | {"inherit"}):
+        campaign.send_order = requested_order
+    if requested_order in VALID_SEND_ORDERS:
+        effective_send_order = requested_order
+    else:
+        tenant_obj = db.query(Tenant).filter(Tenant.id == campaign.tenant_id).first()
+        t_order = (getattr(tenant_obj, "queue_send_order", None) or "default").strip().lower()
+        effective_send_order = t_order if t_order in VALID_SEND_ORDERS else "default"
             
     # Get subscribers matching list constraints and targeting rules
     target_lists = campaign.list_ids or [campaign.list_id] if (campaign.list_ids or campaign.list_id) else []
@@ -507,7 +614,7 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
     for sub in subscribers:
         if sub.email.lower() not in unique_subs:
             unique_subs[sub.email.lower()] = sub
-    subscribers = list(unique_subs.values())
+    subscribers = order_subscribers_for_queue(list(unique_subs.values()), effective_send_order)
     
     if not subscribers:
         raise HTTPException(status_code=400, detail="Cannot send campaign to an empty list")
@@ -517,25 +624,25 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
     # Clear any previous queue items if re-scheduling/updating
     db.query(QueueItem).filter(QueueItem.campaign_id == campaign.id).delete()
     
-    # Create queue items
+    # Create queue items (strictly using campaign.tenant_id so Super Admin global launches work)
     queue_items = []
     
     if campaign.ab_testing_enabled and campaign.ab_variants:
         campaign.ab_winning_variant = None
-        import random
-        random.seed()
         
         num_variants = len(campaign.ab_variants)
         test_group_size = int(len(subscribers) * (campaign.ab_test_ratio or 0.2))
         if test_group_size < num_variants:
             test_group_size = min(len(subscribers), num_variants)
             
-        test_subs = random.sample(subscribers, test_group_size)
+        test_subs = random.SystemRandom().sample(subscribers, test_group_size)
+        test_subs = order_subscribers_for_queue(test_subs, effective_send_order)
         
         for idx, sub in enumerate(test_subs):
             variant = campaign.ab_variants[idx % num_variants]
+            variant_body = variant.get("custom_html") if variant.get("is_custom_html") else variant.get("body_html", "")
             body = render_email_template(
-                body_html=variant.get("body_html", ""),
+                body_html=variant_body or "",
                 subscriber=sub,
                 tracking_domain=tracking_domain,
                 campaign_id=campaign.id,
@@ -546,7 +653,7 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
             next_attempt = scheduled_time if scheduled_time else datetime.utcnow()
             
             item = QueueItem(
-                tenant_id=current_user.tenant_id,
+                tenant_id=campaign.tenant_id,
                 campaign_id=campaign.id,
                 subscriber_id=sub.id,
                 email=sub.email,
@@ -559,9 +666,10 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
             db.add(item)
             queue_items.append(item)
     else:
+        raw_body = campaign.custom_html if (campaign.is_custom_html and campaign.custom_html) else (campaign.body_html or "")
         for sub in subscribers:
             body = render_email_template(
-                body_html=campaign.body_html,
+                body_html=raw_body,
                 subscriber=sub,
                 tracking_domain=tracking_domain,
                 campaign_id=campaign.id,
@@ -573,7 +681,7 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
             next_attempt = scheduled_time if scheduled_time else datetime.utcnow()
             
             item = QueueItem(
-                tenant_id=current_user.tenant_id,
+                tenant_id=campaign.tenant_id,
                 campaign_id=campaign.id,
                 subscriber_id=sub.id,
                 email=sub.email,
@@ -600,6 +708,7 @@ def launch_campaign(campaign_id: int, request: Request, payload: dict = None, db
         db.commit()
         return {"detail": f"Campaign launched successfully. {len(queue_items)} emails queued."}
 
+
 @router.post("/{campaign_id}/preview-target-subscribers")
 def preview_target_subscribers(
     campaign_id: int,
@@ -617,17 +726,28 @@ def preview_target_subscribers(
         if not current_user.tenant_id:
             raise HTTPException(status_code=400, detail="User not associated with a tenant")
         campaign = db.query(Campaign).filter(Campaign.id == campaign_id, Campaign.tenant_id == current_user.tenant_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
         
     target_lists = payload.get("list_ids", [])
-    if not target_lists and campaign:
+    if not target_lists:
         target_lists = campaign.list_ids or ([campaign.list_id] if campaign.list_id else [])
             
     if not target_lists:
         return {"total": 0, "page": page, "limit": limit, "subscribers": []}
+
+    valid_list_ids = [
+        r[0] for r in db.query(SubscriberList.id).filter(
+            SubscriberList.tenant_id == campaign.tenant_id,
+            SubscriberList.id.in_(target_lists)
+        ).all()
+    ]
+    if len(valid_list_ids) != len(set(target_lists)):
+        raise HTTPException(status_code=403, detail="One or more target subscriber lists do not belong to this tenant")
         
     query = db.query(Subscriber).filter(
-        Subscriber.list_id.in_(target_lists),
-        Subscriber.tenant_id == (campaign.tenant_id if campaign else current_user.tenant_id),
+        Subscriber.list_id.in_(valid_list_ids),
+        Subscriber.tenant_id == campaign.tenant_id,
         Subscriber.status.in_(["active", "deferred"])
     )
     
@@ -671,6 +791,7 @@ def preview_target_subscribers(
         ]
     }
 
+
 @router.get("/{campaign_id}/stats")
 def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     if current_user.role == "super_admin":
@@ -682,24 +803,10 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    # Get detailed link clicks (excluding bot clicks)
-    clicks = db.query(TrackingLog.link_url, func.count(TrackingLog.id).label("click_count")).filter(
-        TrackingLog.campaign_id == campaign_id,
-        TrackingLog.event_type == "click",
-        or_(TrackingLog.is_bot == False, TrackingLog.is_bot == None)
-    ).group_by(TrackingLog.link_url).all()
-    
-    click_stats = [{"link": c.link_url, "clicks": c.click_count} for c in clicks if c.link_url]
-    total_clicks = sum(c["clicks"] for c in click_stats)
-
-    if (campaign.click_count or 0) != total_clicks:
-        campaign.click_count = total_clicks
-        db.commit()
-
-    # Reconcile counts from QueueItem to ensure exact alignment with outbox states
-    failed_items_count = db.query(QueueItem).filter(QueueItem.campaign_id == campaign_id, QueueItem.status == "failed").count()
-    deferred_items_count = db.query(QueueItem).filter(QueueItem.campaign_id == campaign_id, QueueItem.status == "deferred").count()
-    sent_items_count = db.query(QueueItem).filter(QueueItem.campaign_id == campaign_id, QueueItem.status == "sent").count()
+    metrics_map = reconcile_campaign_counts_bulk(db, [campaign])
+    metrics = metrics_map.get(campaign_id, {})
+    _total_opens, unique_opens = get_campaign_real_opens(db, campaign_id)
+    total_clicks, unique_clicks, click_stats = get_campaign_real_clicks(db, campaign_id)
 
     ab_summary = None
     if campaign.ab_testing_enabled:
@@ -708,52 +815,26 @@ def get_campaign_stats(campaign_id: int, db: Session = Depends(get_db), current_
             for v in campaign.ab_variants:
                 if v.get("id") and v.get("id") not in variants_list:
                     variants_list.append(v.get("id"))
-                    
-        ab_summary = []
-        for vid in variants_list:
-            sent_v = db.query(QueueItem).filter(
-                QueueItem.campaign_id == campaign_id,
-                QueueItem.ab_variant == vid,
-                QueueItem.status == "sent"
-            ).count()
-            
-            opens_v = db.query(TrackingLog.subscriber_id).filter(
-                TrackingLog.campaign_id == campaign_id,
-                TrackingLog.ab_variant == vid,
-                TrackingLog.event_type == "open"
-            ).distinct().count()
-            
-            clicks_v = db.query(TrackingLog.subscriber_id).filter(
-                TrackingLog.campaign_id == campaign_id,
-                TrackingLog.ab_variant == vid,
-                TrackingLog.event_type == "click"
-            ).distinct().count()
-            
-            ab_summary.append({
-                "variant": vid,
-                "sent": sent_v,
-                "opens": opens_v,
-                "clicks": clicks_v,
-                "open_rate": (opens_v / sent_v) if sent_v > 0 else 0.0,
-                "click_rate": (clicks_v / sent_v) if sent_v > 0 else 0.0
-            })
+        ab_summary = get_campaign_ab_metrics(db, campaign_id, variants_list)
 
     return {
         "id": campaign.id,
         "name": campaign.name,
         "subject": campaign.subject,
         "total_recipients": campaign.total_recipients,
-        "sent": sent_items_count or campaign.sent_count or 0,
-        "failed": failed_items_count,
-        "deferred": deferred_items_count,
+        "sent": metrics.get("sent", campaign.sent_count or 0),
+        "failed": metrics.get("failed", campaign.failed_count or 0),
+        "deferred": metrics.get("deferred", 0),
         "bounces": campaign.bounce_count or 0,
-        "opens": campaign.open_count or 0,
+        "opens": unique_opens,
         "clicks": total_clicks,
+        "unique_clicks": unique_clicks,
         "click_stats": click_stats,
         "ab_testing_enabled": campaign.ab_testing_enabled,
         "ab_winning_variant": campaign.ab_winning_variant,
         "ab_summary": ab_summary
     }
+
 
 @router.get("/{campaign_id}/preview", response_class=HTMLResponse)
 def preview_campaign(
@@ -772,12 +853,15 @@ def preview_campaign(
             from auth import SECRET_KEY, ALGORITHM
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             email = payload.get("sub")
-            user = db.query(User).filter(User.email == email, User.is_active == True).first()
+            if payload.get("purpose") == "access" and email:
+                user = db.query(User).filter(User.email == email, User.is_active == True).first()
         except Exception:
             pass
             
     if not user:
         raise HTTPException(status_code=401, detail="Authentication token required")
+    if user.role == "pending":
+        raise HTTPException(status_code=403, detail="Account is pending administrator approval")
         
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not campaign:
@@ -785,7 +869,8 @@ def preview_campaign(
         
     # Enforce tenant scoping check unless user is a super_admin
     if user.role != "super_admin":
-        if not user.tenant_id or campaign.tenant_id != user.tenant_id:
+        allowed = set(user.allowed_tenants or [])
+        if campaign.tenant_id != user.tenant_id and campaign.tenant_id not in allowed:
             raise HTTPException(status_code=403, detail="Permission denied")
         
     # Create mock subscriber
@@ -796,13 +881,13 @@ def preview_campaign(
     )
     
     tracking_domain = get_tracking_domain(request, db)
-    body_html = campaign.body_html
+    body_html = campaign.custom_html if (campaign.is_custom_html and campaign.custom_html) else (campaign.body_html or "")
     preheader = campaign.preheader or ""
     if variant and variant != "A":
         variants = campaign.ab_variants or []
         for v in variants:
             if v.get("id") == variant:
-                body_html = v.get("body_html", "")
+                body_html = v.get("custom_html") if v.get("is_custom_html") else v.get("body_html", "")
                 preheader = v.get("preheader", "")
                 break
 
@@ -826,8 +911,9 @@ def preview_campaign(
         
     return HTMLResponse(content=rendered)
 
+
 @router.post("/{campaign_id}/pause")
-def pause_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def pause_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if current_user.role == "super_admin":
         campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     else:
@@ -844,8 +930,9 @@ def pause_campaign(campaign_id: int, db: Session = Depends(get_db), current_user
     db.commit()
     return {"detail": "Campaign paused successfully."}
 
+
 @router.post("/{campaign_id}/resume")
-def resume_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def resume_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if current_user.role == "super_admin":
         campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     else:
@@ -862,8 +949,9 @@ def resume_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
     db.commit()
     return {"detail": "Campaign resumed successfully."}
 
+
 @router.post("/{campaign_id}/cancel")
-def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.require_tenant_write_access)):
     if current_user.role == "super_admin":
         campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     else:
@@ -886,6 +974,7 @@ def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), current_use
     db.commit()
     return {"detail": "Campaign broadcast cancelled successfully."}
 
+
 @router.get("/{campaign_id}/click-map")
 def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     if current_user.role == "super_admin":
@@ -897,33 +986,26 @@ def get_campaign_click_map(campaign_id: int, db: Session = Depends(get_db), curr
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
-    from sqlalchemy import func
-    clicks = db.query(
-        TrackingLog.link_url,
-        func.count(TrackingLog.id).label("click_count")
-    ).filter(
-        TrackingLog.campaign_id == campaign_id,
-        TrackingLog.event_type == "click"
-    ).group_by(TrackingLog.link_url).all()
-    
-    click_map = [{"url": c[0], "clicks": c[1]} for c in clicks if c[0]]
-    total_clicks = sum(item["clicks"] for item in click_map) or 1
-    
-    formatted_map = []
-    for item in click_map:
-        percentage = (item["clicks"] / total_clicks) * 100
-        formatted_map.append({
-            "url": item["url"],
+    total_clicks, unique_clicks, click_breakdown = get_campaign_real_clicks(db, campaign_id)
+    denom = total_clicks or 1
+    formatted_map = [
+        {
+            "url": item["link"],
             "clicks": item["clicks"],
-            "percentage": round(percentage, 1)
-        })
+            "unique_clicks": item["unique_clicks"],
+            "percentage": round((item["clicks"] / denom) * 100, 1),
+        }
+        for item in click_breakdown
+    ]
         
     return {
         "campaign_id": campaign_id,
-        "total_clicks": sum(item["clicks"] for item in click_map),
+        "total_clicks": total_clicks,
+        "unique_clicks": unique_clicks,
         "click_map": formatted_map,
-        "body_html": campaign.body_html
+        "body_html": campaign.custom_html if (campaign.is_custom_html and campaign.custom_html) else (campaign.body_html or "")
     }
+
 
 @router.post("/{campaign_id}/send-test")
 def send_test_email(
@@ -961,10 +1043,11 @@ def send_test_email(
         )
         
         tracking_domain = get_tracking_domain(request, db)
+        raw_body = campaign.custom_html if (campaign.is_custom_html and campaign.custom_html) else (campaign.body_html or "")
             
         try:
             body_html = render_email_template(
-                body_html=campaign.body_html or "",
+                body_html=raw_body,
                 subscriber=dummy_subscriber,
                 tracking_domain=tracking_domain,
                 campaign_id=campaign.id,
@@ -988,12 +1071,12 @@ def send_test_email(
         return {"detail": "Test email sent successfully"}
     except HTTPException:
         raise
-    except Exception as err:
+    except Exception:
         import traceback
-        tb = traceback.format_exc()
         import logging
-        logging.getLogger("polypress").error(f"Test send 500 error: {tb}")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {err}\n{tb}")
+        logging.getLogger("polypress").error(f"Test send 500 error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Internal server error while sending test email")
+
 
 @router.post("/bulk-action")
 def bulk_action_campaigns(
@@ -1028,7 +1111,7 @@ def bulk_action_campaigns(
     if action == "delete":
         deleted = 0
         for c in campaigns:
-            if c.status in ["sending", "queued"]:
+            if c.status in ["sending", "flushing", "queued"]:
                 continue
             db.delete(c)
             deleted += 1
@@ -1038,11 +1121,11 @@ def bulk_action_campaigns(
     elif action == "cancel":
         cancelled = 0
         for c in campaigns:
-            if c.status in ["sending", "paused", "queued", "scheduled"]:
+            if c.status in ["sending", "flushing", "paused", "queued", "scheduled"]:
                 c.status = "cancelled"
                 db.query(QueueItem).filter(
                     QueueItem.campaign_id == c.id,
-                    QueueItem.status.in_(["pending", "sending"])
+                    QueueItem.status.in_(["pending", "deferred"])
                 ).delete()
                 cancelled += 1
         db.commit()

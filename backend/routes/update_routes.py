@@ -1,18 +1,19 @@
 import os
 import signal
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Response
 from sqlalchemy.orm import Session
 from database import get_db, User, GlobalSettings
 import auth
 from update_worker import (
-    run_git_command,
-    get_latest_github_release,
+    is_running_in_docker,
     check_for_updates_internal,
-    run_update_process
+    get_cached_update_status,
+    run_update_process,
 )
 
 router = APIRouter(prefix="/api/admin/update", tags=["update"])
+
 
 async def schedule_restart():
     # Delay slightly to allow HTTP response to flush
@@ -20,77 +21,58 @@ async def schedule_restart():
     print("Restarting PolyPress process to apply updates...")
     os.kill(os.getpid(), signal.SIGTERM)
 
-@router.get("/status")
-def get_update_status(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+
+def _build_status_payload(db: Session, force: bool = False) -> dict:
     import database
     settings = db.query(GlobalSettings).first()
     channel = settings.update_channel if settings else "stable"
     auto_update = settings.auto_update if settings else False
-    
-    # Fetch origin to get latest updates state forcing tags
-    run_git_command(["fetch", "origin", "--tags", "--force"])
-    
-    current_commit = run_git_command(["rev-parse", "--short", "HEAD"]) or "unknown"
-    current_tag = run_git_command(["describe", "--tags", "--abbrev=0"]) or ""
-    
-    branch = run_git_command(["rev-parse", "--abbrev-ref", "HEAD"]) or "main"
-    latest_main_commit = run_git_command(["rev-parse", "--short", f"origin/{branch}"]) or ""
-    
-    update_available, latest_tag, latest_commit_sha = check_for_updates_internal(channel)
-    
-    if not latest_tag:
-        latest_tag = run_git_command(["describe", "--tags", "--abbrev=0", f"origin/{branch}"]) or current_tag
-        latest_commit_sha = run_git_command(["rev-parse", "--short", latest_tag]) or ""
-    latest_commit = latest_commit_sha or latest_main_commit
-    
-    is_systemd = "INVOCATION_ID" in os.environ
-    
-    is_docker = False
-    if os.path.exists('/.dockerenv'):
-        is_docker = True
-    else:
-        try:
-            with open('/proc/1/cgroup', 'rt') as f:
-                if 'docker' in f.read():
-                    is_docker = True
-        except Exception:
-            pass
-            
-    return {
-        "current_commit": current_commit,
-        "current_tag": current_tag,
-        "latest_commit": latest_commit,
-        "latest_tag": latest_tag or "",
-        "latest_main_commit": latest_main_commit,
-        "update_available": update_available,
-        "update_channel": channel,
-        "auto_update": auto_update,
-        "is_systemd": is_systemd,
-        "is_docker": is_docker,
-        "db_schema_version": database.DB_SCHEMA_VERSION,
-        "db_history_schema_version": database.DB_HISTORY_SCHEMA_VERSION
-    }
+    payload = get_cached_update_status(channel=channel, auto_update=auto_update, force=force)
+    payload["db_schema_version"] = database.DB_SCHEMA_VERSION
+    payload["db_history_schema_version"] = database.DB_HISTORY_SCHEMA_VERSION
+    return payload
+
+
+@router.get("/status")
+def get_update_status(
+    response: Response,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_super_admin),
+):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return _build_status_payload(db, force=force)
+
 
 @router.post("/check")
-def check_updates(db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
-    settings = db.query(GlobalSettings).first()
-    channel = settings.update_channel if settings else "stable"
+def check_updates(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_super_admin),
+):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     try:
-        check_for_updates_internal(channel)
+        return _build_status_payload(db, force=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to check for updates: {e}")
-    return get_update_status(db, current_user)
+
 
 @router.post("/install")
 def install_updates(background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    if is_running_in_docker():
+        raise HTTPException(
+            status_code=400,
+            detail="In-container git updates are disabled for Docker deployments. Run 'docker compose pull && docker compose up -d' on the host.",
+        )
+
     settings = db.query(GlobalSettings).first()
     channel = settings.update_channel if settings else "stable"
     
     # 1. Verify update is available
-    update_available, target_ver, _ = check_for_updates_internal(channel)
-    if not update_available:
-        # Check if we can still try to pull
-        pass
+    update_available, target_ver, _, _ = check_for_updates_internal(channel, fetch_remote=True)
+    if not update_available and not target_ver:
+        raise HTTPException(status_code=400, detail="No update target available.")
         
     # 2. Run update process
     success = run_update_process(channel, target_ver)
@@ -101,8 +83,15 @@ def install_updates(background_tasks: BackgroundTasks, db: Session = Depends(get
     background_tasks.add_task(schedule_restart)
     return {"detail": "Update applied successfully. Server is restarting..."}
 
+
 @router.post("/force-beta")
 def force_beta_update(background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(auth.require_super_admin)):
+    if is_running_in_docker():
+        raise HTTPException(
+            status_code=400,
+            detail="In-container git updates are disabled for Docker deployments. Pull the latest container image instead.",
+        )
+
     # Force updating: switch to beta and pull the latest commits on active branch
     success = run_update_process("beta")
     if not success:

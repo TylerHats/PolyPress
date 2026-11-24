@@ -211,19 +211,34 @@ def process_tenant_bounces(db: Session, tenant: Tenant):
             except:
                 pass
 
+def _process_tenant_bounces_for_id(tenant_id: int):
+    db = SessionLocal()
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant:
+            process_tenant_bounces(db, tenant)
+    finally:
+        db.close()
+
+
 async def bounce_worker_loop():
     while True:
         db = SessionLocal()
         try:
-            tenants = db.query(Tenant).all()
-            for tenant in tenants:
-                process_tenant_bounces(db, tenant)
-                await asyncio.sleep(1)
+            tenant_ids = [r[0] for r in db.query(Tenant.id).all()]
         except Exception as e:
-            logger.error(f"Error in bounce worker loop: {e}")
+            logger.error(f"Error querying tenants in bounce worker loop: {e}")
+            tenant_ids = []
         finally:
             db.close()
-            
+
+        for tid in tenant_ids:
+            try:
+                await asyncio.to_thread(_process_tenant_bounces_for_id, tid)
+            except Exception as e:
+                logger.error(f"Error in bounce worker for tenant {tid}: {e}")
+            await asyncio.sleep(1)
+
         await asyncio.sleep(300)
 
 def start_bounce_worker():

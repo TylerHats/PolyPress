@@ -2,6 +2,7 @@ import logging
 from threading import Thread
 from sqlalchemy.orm import Session
 from database import SessionLocal, Subscriber, QueueItem, TrackingLog
+from analytics_service import real_tracking_filter
 
 logger = logging.getLogger("engagement_service")
 
@@ -22,12 +23,14 @@ def recalculate_subscriber_engagement(db: Session, subscriber_id: int):
         
     total_opens = db.query(TrackingLog).filter(
         TrackingLog.subscriber_id == subscriber_id,
-        TrackingLog.event_type == "open"
+        TrackingLog.event_type == "open",
+        real_tracking_filter(),
     ).count()
     
     total_clicks = db.query(TrackingLog).filter(
         TrackingLog.subscriber_id == subscriber_id,
-        TrackingLog.event_type == "click"
+        TrackingLog.event_type == "click",
+        real_tracking_filter(),
     ).count()
     
     # Calculate score based on opens & clicks vs total emails sent

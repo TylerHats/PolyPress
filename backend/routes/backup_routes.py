@@ -1,4 +1,5 @@
 import os
+import hmac
 import sqlite3
 import zipfile
 import shutil
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from database import get_db, User, engine, GlobalSettings, DATABASE_URL, HISTORY_DATABASE_URL
 import auth
+from security_utils import is_safe_outbound_url, is_path_within
 
 router = APIRouter(prefix="/api/admin/backups", tags=["backups"])
 
@@ -59,13 +61,17 @@ def list_backups(current_user: User = Depends(auth.require_super_admin)):
 
 def push_backup_to_external(zip_path: str, url: str, auth_header: str = None):
     try:
+        is_safe, reason = is_safe_outbound_url(url)
+        if not is_safe:
+            print(f"Blocked unsafe external backup URL '{url}': {reason}")
+            return
         headers = {}
         if auth_header:
             headers["Authorization"] = auth_header
         
         with open(zip_path, "rb") as f:
             files = {"file": (os.path.basename(zip_path), f, "application/zip")}
-            response = requests.post(url, files=files, headers=headers, timeout=300)
+            response = requests.post(url, files=files, headers=headers, timeout=300, allow_redirects=False)
             response.raise_for_status()
             print(f"Successfully pushed backup to external URL: {url}")
     except Exception as e:
@@ -180,7 +186,7 @@ def export_backup(
     configured_token = settings.backup_token if settings else None
     
     provided_token = token or x_polypress_backup_token
-    if not configured_token or not provided_token or provided_token != configured_token:
+    if not configured_token or not provided_token or not hmac.compare_digest(str(configured_token), str(provided_token)):
         raise HTTPException(status_code=401, detail="Unauthorized backup token")
         
     try:
@@ -247,15 +253,14 @@ def export_backup(
 @router.get("/download/{filename}")
 def download_backup(filename: str, current_user: User = Depends(auth.require_super_admin)):
     zip_path = os.path.join(BACKUP_DIR, filename)
-    # Security check: ensure path sits under BACKUP_DIR
     real_path = os.path.realpath(zip_path)
-    if not real_path.startswith(os.path.realpath(BACKUP_DIR)):
+    if not is_path_within(real_path, BACKUP_DIR):
          raise HTTPException(status_code=403, detail="Access denied")
          
     if not os.path.exists(real_path):
         raise HTTPException(status_code=404, detail="Backup file not found")
         
-    return FileResponse(real_path, media_type="application/zip", filename=filename)
+    return FileResponse(real_path, media_type="application/zip", filename=os.path.basename(real_path))
 
 def restart_server():
     import time
@@ -290,7 +295,7 @@ def restore_local_backup(
 ):
     zip_path = os.path.join(BACKUP_DIR, filename)
     real_path = os.path.realpath(zip_path)
-    if not real_path.startswith(os.path.realpath(BACKUP_DIR)):
+    if not is_path_within(real_path, BACKUP_DIR):
          raise HTTPException(status_code=403, detail="Access denied")
          
     if not os.path.exists(real_path):
@@ -310,7 +315,7 @@ def restore_local_backup(
 def delete_backup(filename: str, current_user: User = Depends(auth.require_super_admin)):
     zip_path = os.path.join(BACKUP_DIR, filename)
     real_path = os.path.realpath(zip_path)
-    if not real_path.startswith(os.path.realpath(BACKUP_DIR)):
+    if not is_path_within(real_path, BACKUP_DIR):
          raise HTTPException(status_code=403, detail="Access denied")
          
     if os.path.exists(real_path):

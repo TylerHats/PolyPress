@@ -283,7 +283,7 @@
                     imap_use_ssl: true
                 },
                 totpRequired: false,
-                totpForm: { email: '', code: '' },
+                totpForm: { email: '', code: '', challenge_token: '' },
                 totpSetup: { secret: '', uri: '', code: '', step: 1 },
                 dnsTestResults: {
                     mx: { status: 'missing', sources: { local: [], cloudflare: [], google: [], quad9: [] } },
@@ -308,6 +308,19 @@
                 launchScheduling: { enabled: false, date: '', timezone: 'UTC' },
                 embedCodeTheme: 'dark',
                 embedTab: 'widget',
+                embedPreviewHeight: 310,
+                embedOptions: {
+                    width: '100%',
+                    height: 'auto',
+                    auto_resize: true,
+                    accent: '#2563eb',
+                    align: 'center',
+                    card: true,
+                    compact: false,
+                    show_title: true,
+                    title: '',
+                    button_text: 'Subscribe',
+                },
                 
                 // Host admin & user management state
                 hostAdminMode: true,
@@ -316,13 +329,13 @@
                 userForm: { id: null, email: '', name: '', password: '', role: 'tenant_user', tenant_id: null, allowed_tenants: [] },
                 userModalOpen: false,
                 profileModalOpen: false,
-                profileForm: { name: '', password: '' },
+                profileForm: { name: '', current_password: '', password: '' },
                 
                 // Session details
                 loadingSession: true,
                 mobileSidebarOpen: false,
                 user: { id: null, email: '', name: '', role: '', tenant_id: null, totp_enabled: false },
-                tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500, bounce_provider: 'imap', bounce_webhook_token: '', subscription_confirmed_html: '', unsubscribed_html: '' },
+                tenant: { id: null, name: '', direct_send: false, mta_from_prefix: 'noreply', speed_emails_per_hour: 500, queue_send_order: 'default', bounce_provider: 'imap', bounce_webhook_token: '', subscription_confirmed_html: '', unsubscribed_html: '' },
                 globalSettings: { app_name: '', app_logo: null, public_url: '', oidc_enabled: false, local_login_enabled: true, auto_update: false, update_channel: 'stable', backup_token: '', external_backup_url: '', external_backup_auth_header: '', sending_ip_override: '', oidc_role_claim: 'role', oidc_tenant_claim: 'tenant', oidc_super_admin_value: 'super_admin', oidc_tenant_admin_value: 'tenant_admin', oidc_tenant_user_value: 'tenant_user', backup_interval_hours: 0, backup_retention_count: 10, max_global_sending_threads: 50, max_domain_sending_threads: 20, smtp_connection_reuse: true },
                 updateStatus: { current_commit: '', current_tag: '', latest_commit: '', latest_tag: '', update_available: false, update_channel: 'stable', auto_update: false, is_systemd: false, is_docker: false },
                 schemaMismatch: { active: false, code_ver: 0, db_ver: 0 },
@@ -449,13 +462,13 @@
                 csvImportStep: 1,
                 
                 // Visual block editor state
-                editingCampaign: { id: null, name: '', subject: '', target_rules: { tag: '', engagement: [], signup_after: '', signup_before: '', last_opened_days_under: '', last_opened_days_over: '', opens_count_over: '', opens_count_under: '', location_country: '' } },
+                editingCampaign: { id: null, name: '', subject: '', send_order: 'inherit', target_rules: { tag: '', engagement: [], signup_after: '', signup_before: '', last_opened_days_under: '', last_opened_days_over: '', opens_count_over: '', opens_count_under: '', location_country: '' } },
                 targetingCollapsed: true,
                 editorBlocks: [],
                 selectedBlockIndex: null,
                 
                 // Stats popup
-                campaignStats: { name: '', sent: 0, opens: 0, clicks: 0, bounces: 0, click_stats: [] },
+                campaignStats: { name: '', sent: 0, opens: 0, clicks: 0, unique_clicks: 0, bounces: 0, click_stats: [] },
                 showClickMapVisualizer: false,
                 clickMapHtml: '',
                 clickMapStats: [],
@@ -470,7 +483,9 @@
                 logoVersion: Date.now(),
                 logoFileName: '',
                 
-                // Chart timeout identifier
+                // Debounce timers & chart timeout identifiers
+                _iconTimerId: null,
+                _dashboardInFlight: null,
                 chartTimeoutId: null,
                 
                 // Historical Reports state
@@ -518,7 +533,11 @@
                 },
 
                 refreshIcons() {
-                    const run = () => {
+                    if (this._iconTimerId) {
+                        clearTimeout(this._iconTimerId);
+                    }
+                    this._iconTimerId = setTimeout(() => {
+                        this._iconTimerId = null;
                         if (window.lucide) {
                             if (typeof window.lucide.createIcons === 'function') {
                                 window.lucide.createIcons();
@@ -526,30 +545,35 @@
                                 window.lucide.replace();
                             }
                         }
-                    };
-                    run();
-                    setTimeout(run, 50);
-                    setTimeout(run, 150);
-                    setTimeout(run, 350);
-                    setTimeout(run, 700);
+                    }, 60);
                 },
 
                 async initApp() {
                     this.loadingSession = true;
+                    if (!window._polypressEmbedListenerAdded) {
+                        window._polypressEmbedListenerAdded = true;
+                        window.addEventListener('message', (event) => {
+                            if (event.origin !== window.location.origin) return;
+                            if (event.data && event.data.type === 'polypress-embed-resize' && event.data.height) {
+                                this.embedPreviewHeight = Math.max(120, Number(event.data.height) + 4);
+                            }
+                        });
+                    }
                     try {
-                        // Pre-fetch sub-templates
+                        // Pre-fetch sub-templates in parallel using cache-busted app version
                         const templates = ['dashboard', 'campaigns', 'subscribers', 'settings', 'users', 'reports', 'admin', 'automations'];
+                        const assetVer = encodeURIComponent(window.POLYPRESS_VERSION || '1');
                         this.templates = {};
-                        for (const t of templates) {
+                        await Promise.all(templates.map(async (t) => {
                             try {
-                                const res = await fetch(`/static/templates/${t}.html?_t=${Date.now()}`);
+                                const res = await fetch(`/static/templates/${t}.html?v=${assetVer}`);
                                 if (res.ok) {
                                     this.templates[t] = await res.text();
                                 }
-                            } catch(e) {
+                            } catch (e) {
                                 console.error(`Failed to pre-fetch template ${t}:`, e);
                             }
-                        }
+                        }));
 
                         // Check schema status first
                         try {
@@ -755,6 +779,7 @@
                         if (data.status === 'totp_required') {
                             this.totpRequired = true;
                             this.totpForm.email = data.email;
+                            this.totpForm.challenge_token = data.challenge_token || '';
                             this.totpForm.code = '';
                             this.showToast('2FA verification code required');
                         } else {
@@ -779,6 +804,7 @@
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
+                                challenge_token: this.totpForm.challenge_token,
                                 email: this.totpForm.email,
                                 code: this.totpForm.code
                             })
@@ -1111,13 +1137,13 @@
                 },
 
                 async bulkAddSubscriberTag() {
-                    const tagName = prompt('Enter tag name to add to selected contacts:');
+                    const tagName = await this.askPrompt('Enter tag name to add to selected contacts:', 'e.g. VIP', 'Add Tag');
                     if (!tagName || !tagName.trim()) return;
                     await this.executeSubscriberBulkAction('add_tag', { tag_name: tagName.trim() });
                 },
 
                 async bulkRemoveSubscriberTag() {
-                    const tagName = prompt('Enter tag name to remove from selected contacts:');
+                    const tagName = await this.askPrompt('Enter tag name to remove from selected contacts:', 'e.g. VIP', 'Remove Tag');
                     if (!tagName || !tagName.trim()) return;
                     await this.executeSubscriberBulkAction('remove_tag', { tag_name: tagName.trim() });
                 },
@@ -1465,11 +1491,15 @@
                         }
 
                         if (this.user.role === 'super_admin') {
-                            await this.fetchGlobalSettings();
-                            await this.fetchUpdateStatus();
-                            if (this.updateStatus && this.updateStatus.update_available) {
-                                this.showToast('System Update Available! Go to Admin Panel to install.', 'info');
-                            }
+                            this.fetchGlobalSettings();
+                            this.fetchUpdateStatus().then(() => {
+                                if (this.updateStatus && this.updateStatus.update_available) {
+                                    const msg = this.updateStatus.is_docker
+                                        ? 'New container image available! Pull the latest Docker image to upgrade.'
+                                        : 'System Update Available! Go to Admin Panel to install.';
+                                    this.showToast(msg, 'info');
+                                }
+                            });
                         }
                         
                         // Load saved tenant context if not in host admin mode
@@ -1487,19 +1517,22 @@
                             }
                         }
                         
-                        // Load context details
+                        // Load tenant context, workspace lists/campaigns/automations, and dashboard metrics in parallel
+                        const initTasks = [];
                         if (this.user.role === 'super_admin' && this.hostAdminMode) {
                             this.tenant = { name: 'PolyPress Console' };
                         } else {
-                            await this.fetchTenant();
+                            initTasks.push(this.fetchTenant());
                         }
+                        initTasks.push(
+                            this.fetchCampaigns(),
+                            this.fetchLists(),
+                            this.fetchAutomations(),
+                            this.loadDashboardMetrics(),
+                        );
+                        await Promise.all(initTasks);
                         
-                        await this.fetchCampaigns();
-                        await this.fetchLists();
-                        await this.fetchAutomations();
-                        await this.loadDashboardMetrics();
-                        
-                        this.switchTab('dashboard');
+                        this.switchTab('dashboard', true);
                     } catch(e) {
                         this.handleLogout();
                     }
@@ -1524,13 +1557,15 @@
                     if (this.hostAdminMode) {
                         this.activeTenantId = null;
                         this.tenant = { name: 'PolyPress Console' };
-                        this.switchTab('dashboard');
+                        this.switchTab('dashboard', true);
                         this.fetchTenants();
                         this.fetchGlobalSettings();
-                        await this.fetchCampaigns();
-                        await this.fetchLists();
-                        await this.fetchAutomations();
-                        await this.loadDashboardMetrics();
+                        await Promise.all([
+                            this.fetchCampaigns(),
+                            this.fetchLists(),
+                            this.fetchAutomations(),
+                            this.loadDashboardMetrics(),
+                        ]);
                     } else {
                         // Switching to client workspace mode: select first tenant if any
                         if (this.tenants.length > 0 && !this.activeTenantId) {
@@ -1574,16 +1609,20 @@
                     this.subscribersCount = 0;
                     
                     // Re-load data in selected tenant context
-                    await this.fetchCampaigns();
-                    await this.fetchLists();
-                    await this.fetchAutomations();
-                    await this.loadDashboardMetrics();
+                    await Promise.all([
+                        this.fetchCampaigns(),
+                        this.fetchLists(),
+                        this.fetchAutomations(),
+                        this.loadDashboardMetrics(),
+                    ]);
                     
                     if (this.activeTab === 'reports') {
-                        await this.fetchReportData();
-                        await this.loadReportSettings();
+                        await Promise.all([
+                            this.fetchReportData(),
+                            this.loadReportSettings(),
+                        ]);
                     } else {
-                        this.switchTab('dashboard');
+                        this.switchTab('dashboard', true);
                     }
                     this.refreshIcons();
                 },
@@ -1742,7 +1781,7 @@
 
                 // Profile Settings Actions
                 openProfileModal() {
-                    this.profileForm = { name: this.user.name, password: '' };
+                    this.profileForm = { name: this.user.name, current_password: '', password: '' };
                     this.totpSetup.step = 1;
                     this.profileModalOpen = true;
                     this.refreshIcons();
@@ -1756,10 +1795,11 @@
                     try {
                         const payload = { name: this.profileForm.name };
                         if (this.profileForm.password) {
+                            payload.current_password = this.profileForm.current_password;
                             payload.password = this.profileForm.password;
                         }
                         
-                        const res = await fetch(`/api/admin/users/${this.user.id}`, {
+                        const res = await fetch('/api/auth/me', {
                             method: 'PUT',
                             headers: this.getAuthHeaders(),
                             body: JSON.stringify(payload)
@@ -1770,24 +1810,28 @@
                             this.user.name = this.profileForm.name;
                             this.profileModalOpen = false;
                         } else {
-                            throw new Error('Failed to update profile');
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(err.detail || 'Failed to update profile');
                         }
                     } catch(e) {
                         this.showToast(e.message, 'error');
                     }
                 },
                 
-                async fetchTenant() {
+                async fetchDetectedIp() {
                     try {
-                        const res = await fetch('/api/tenants/my', { headers: this.getAuthHeaders() });
-                        if (res.ok) this.tenant = await res.json();
-                        
-                        // Fetch server egress public IP asynchronously for overrides placeholder
                         const ipRes = await fetch('/api/tenants/my/detected-ip', { headers: this.getAuthHeaders() });
                         if (ipRes.ok) {
                             const data = await ipRes.json();
                             this.detectedPublicIp = data.public_ip;
                         }
+                    } catch(e) {}
+                },
+
+                async fetchTenant() {
+                    try {
+                        const res = await fetch('/api/tenants/my', { headers: this.getAuthHeaders() });
+                        if (res.ok) this.tenant = await res.json();
                     } catch(e) {}
                 },
                 
@@ -2230,11 +2274,6 @@
                             const data = await res.json();
                             if (data) this.globalSettings = data;
                         }
-                        const ipRes = await fetch('/api/tenants/my/detected-ip', { headers: this.getAuthHeaders() });
-                        if (ipRes.ok) {
-                            const ipData = await ipRes.json();
-                            this.detectedPublicIp = ipData.public_ip;
-                        }
                     } catch(e) {}
                 },
                 
@@ -2503,10 +2542,12 @@
                 },
                 
                 async installUpdate() {
-                    let warn = 'Are you sure you want to install this update?';
                     if (this.updateStatus.is_docker) {
-                        warn += '\n\nℹ️ NOTE: Running in Docker. This update will apply a temporary hot-patch to the running container, which will revert if you pull a new image. The container will restart automatically.';
-                    } else if (!this.updateStatus.is_systemd) {
+                        this.showToast('Docker installs update by pulling the latest image: docker compose pull && docker compose up -d', 'info');
+                        return;
+                    }
+                    let warn = 'Are you sure you want to install this update?';
+                    if (!this.updateStatus.is_systemd) {
                         warn += '\n\n⚠️ WARNING: PolyPress is not running under systemd. The server will shutdown to update, but will NOT restart automatically. You will need to start the process manually.';
                     } else {
                         warn += '\n\nThe server will restart automatically to apply updates.';
@@ -2530,10 +2571,12 @@
                 },
                 
                 async forceBetaUpdate() {
-                    let warn = 'Are you sure you want to force-pull the latest commit from the active branch?';
                     if (this.updateStatus.is_docker) {
-                        warn += '\n\nℹ️ NOTE: Running in Docker. This will temporarily hot-patch the container with the latest commit from the active branch. Recreating the container will revert this change.';
-                    } else if (!this.updateStatus.is_systemd) {
+                        this.showToast('Docker installs update by pulling the latest image: docker compose pull && docker compose up -d', 'info');
+                        return;
+                    }
+                    let warn = 'Are you sure you want to force-pull the latest commit from the active branch?';
+                    if (!this.updateStatus.is_systemd) {
                         warn += '\n\n⚠️ WARNING: PolyPress is not running under systemd. The server will shutdown, but will NOT restart automatically.';
                     } else {
                         warn += '\n\nThe server will restart automatically.';
@@ -2584,9 +2627,11 @@
                 
                 generateBackupToken() {
                     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                    const bytes = new Uint8Array(32);
+                    (window.crypto || crypto).getRandomValues(bytes);
                     let token = 'pp_backup_';
-                    for (let i = 0; i < 32; i++) {
-                        token += chars.charAt(Math.floor(Math.random() * chars.length));
+                    for (let i = 0; i < bytes.length; i++) {
+                        token += chars.charAt(bytes[i] % chars.length);
                     }
                     this.globalSettings.backup_token = token;
                 },
@@ -2644,7 +2689,7 @@
                     } catch(e) {}
                 },
                 
-                switchTab(tab) {
+                switchTab(tab, skipDashboardLoad = false) {
                     this.mobileSidebarOpen = false;
                     if (this.diagnosticsIntervalId) {
                         clearInterval(this.diagnosticsIntervalId);
@@ -2705,9 +2750,10 @@
                     this.activeTab = tab;
                     this.refreshIcons();
                     
-                    if (tab === 'dashboard') {
+                    if (tab === 'dashboard' && !skipDashboardLoad) {
                         this.loadDashboardMetrics();
                     } else if (tab === 'settings') {
+                        if (!this.detectedPublicIp) this.fetchDetectedIp();
                         this.fetchOutboxQueue();
                         this.fetchDeveloperConsole();
                         this.runDnsDiagnostics();
@@ -2721,6 +2767,7 @@
                             }
                         }, 5000);
                     } else if (tab === 'admin') {
+                        if (!this.detectedPublicIp) this.fetchDetectedIp();
                         this.fetchTenants();
                         this.fetchGlobalSettings();
                         this.fetchSslStatus();
@@ -2951,84 +2998,84 @@
 
                 // Dashboard Metrics calculator
                 async loadDashboardMetrics() {
+                    if (this._dashboardInFlight) {
+                        return this._dashboardInFlight;
+                    }
                     this.loadingDashboardStats = true;
-                    try {
-                        // Summarize current totals
-                        this.stats.totalSubscribers = 0;
-                        let sumSubs = 0;
-                        for (let l of this.lists) {
-                            try {
-                                const res = await fetch(`/api/lists/${l.id}/subscribers?limit=1&status=active`, { headers: this.getAuthHeaders() });
-                                const data = await res.json();
-                                sumSubs += data.total;
-                            } catch(e) {}
-                        }
-                        this.stats.totalSubscribers = sumSubs;
-                        
-                        // Fetch history data for current period (X days) and previous period (2X days)
-                        let historyData = [];
+                    const run = (async () => {
                         try {
                             const daysToFetch = this.dashboardPeriod * 2;
                             const startDateStr = new Date(Date.now() - (daysToFetch * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
-                            const res = await fetch(`/api/reports/history?start_date=${startDateStr}`, { headers: this.getAuthHeaders() });
-                            if (res.ok) {
-                                historyData = await res.json();
+
+                            const [summaryRes, historyRes] = await Promise.all([
+                                fetch('/api/reports/dashboard-summary', { headers: this.getAuthHeaders() }),
+                                fetch(`/api/reports/history?start_date=${startDateStr}`, { headers: this.getAuthHeaders() }),
+                            ]);
+
+                            const summary = summaryRes.ok ? await summaryRes.json() : {};
+                            const historyData = historyRes.ok ? await historyRes.json() : [];
+
+                            this.stats.totalSubscribers = summary.active_subscribers ?? summary.total_subscribers ?? 0;
+
+                            const now = new Date();
+                            const periodMs = this.dashboardPeriod * 24 * 60 * 60 * 1000;
+                            const currentStart = new Date(now.getTime() - periodMs);
+                            const prevStart = new Date(now.getTime() - 2 * periodMs);
+
+                            // 1. Total Subscribers (current vs previous final)
+                            const currentPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= currentStart);
+
+                            let currentSubs = this.stats.totalSubscribers;
+                            let prevSubs = 0;
+
+                            const olderRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') < currentStart);
+                            if (olderRecs.length > 0) {
+                                olderRecs.sort((a, b) => new Date(a.recorded_at + 'Z') - new Date(b.recorded_at + 'Z'));
+                                prevSubs = olderRecs[olderRecs.length - 1].subscriber_count;
                             }
-                        } catch(e) {}
-                        
-                        const now = new Date();
-                        const periodMs = this.dashboardPeriod * 24 * 60 * 60 * 1000;
-                        const currentStart = new Date(now.getTime() - periodMs);
-                        const prevStart = new Date(now.getTime() - 2 * periodMs);
-                        
-                        // 1. Total Subscribers (current vs previous final)
-                        const currentPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= currentStart);
-                        const prevPeriodRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') >= prevStart && new Date(r.recorded_at + 'Z') < currentStart);
-                        
-                        let currentSubs = this.stats.totalSubscribers;
-                        let prevSubs = 0;
-                        
-                        const olderRecs = historyData.filter(r => new Date(r.recorded_at + 'Z') < currentStart);
-                        if (olderRecs.length > 0) {
-                            olderRecs.sort((a, b) => new Date(a.recorded_at + 'Z') - new Date(b.recorded_at + 'Z'));
-                            prevSubs = olderRecs[olderRecs.length - 1].subscriber_count;
-                        } else {
-                            prevSubs = 0;
+                            this.trends.subscribers.diff = currentSubs - prevSubs;
+
+                            // 2. Campaigns Sent in current vs previous (include completed & flushing states)
+                            const sourceCampaigns = (summary.campaigns_summary && summary.campaigns_summary.length > 0)
+                                ? summary.campaigns_summary
+                                : ((this.campaigns && this.campaigns.length > 0) ? this.campaigns : (summary.recent_campaigns || []));
+                            const toUtcDate = (s) => s ? new Date(s.endsWith('Z') ? s : s + 'Z') : new Date(0);
+                            const activeOrSentStatuses = ['sent', 'sending', 'completed', 'flushing'];
+                            const currentCampaigns = sourceCampaigns.filter(c => activeOrSentStatuses.includes(c.status) && toUtcDate(c.created_at) >= currentStart);
+                            const prevCampaigns = sourceCampaigns.filter(c => activeOrSentStatuses.includes(c.status) && toUtcDate(c.created_at) >= prevStart && toUtcDate(c.created_at) < currentStart);
+
+                            this.trends.campaigns.diff = currentCampaigns.length - prevCampaigns.length;
+                            this.stats.campaignsSent = currentCampaigns.length;
+
+                            // 3. Open Rate and Bounce Rate averages for current period
+                            let currentSent = currentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                            let currentOpens = currentCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
+                            let currentBounces = currentCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
+
+                            this.stats.avgOpenRate = currentSent > 0 ? Math.round((currentOpens / currentSent) * 100) : 0;
+                            this.stats.avgBounceRate = currentSent > 0 ? Math.round((currentBounces / currentSent) * 100) : 0;
+
+                            // Previous period open/bounce averages
+                            let prevSent = prevCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                            let prevOpens = prevCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
+                            let prevBounces = prevCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
+
+                            let prevOpenRate = prevSent > 0 ? Math.round((prevOpens / prevSent) * 100) : 0;
+                            let prevBounceRate = prevSent > 0 ? Math.round((prevBounces / prevSent) * 100) : 0;
+
+                            this.trends.openRate.diff = this.stats.avgOpenRate - prevOpenRate;
+                            this.trends.bounceRate.diff = this.stats.avgBounceRate - prevBounceRate;
+
+                            // Generate padded history for chart rendering
+                            const chartPoints = this.preparePaddedHistory(currentPeriodRecs, this.dashboardPeriod, this.reportsTimezone);
+                            this.renderMetricsChart(chartPoints);
+                        } finally {
+                            this.loadingDashboardStats = false;
+                            this._dashboardInFlight = null;
                         }
-                        this.trends.subscribers.diff = currentSubs - prevSubs;
-                        
-                        // 2. Campaigns Sent in current vs previous
-                        const currentCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= currentStart);
-                        const prevCampaigns = this.campaigns.filter(c => (c.status === 'sent' || c.status === 'sending') && new Date(c.created_at) >= prevStart && new Date(c.created_at) < currentStart);
-                        
-                        this.trends.campaigns.diff = currentCampaigns.length - prevCampaigns.length;
-                        this.stats.campaignsSent = currentCampaigns.length;
-                        
-                        // 3. Open Rate and Bounce Rate averages for current period
-                        let currentSent = currentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
-                        let currentOpens = currentCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
-                        let currentBounces = currentCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
-                        
-                        this.stats.avgOpenRate = currentSent > 0 ? Math.round((currentOpens / currentSent) * 100) : 0;
-                        this.stats.avgBounceRate = currentSent > 0 ? Math.round((currentBounces / currentSent) * 100) : 0;
-                        
-                        // Previous period open/bounce averages
-                        let prevSent = prevCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
-                        let prevOpens = prevCampaigns.reduce((sum, c) => sum + (c.open_count || 0), 0);
-                        let prevBounces = prevCampaigns.reduce((sum, c) => sum + (c.bounce_count || 0), 0);
-                        
-                        let prevOpenRate = prevSent > 0 ? Math.round((prevOpens / prevSent) * 100) : 0;
-                        let prevBounceRate = prevSent > 0 ? Math.round((prevBounces / prevSent) * 100) : 0;
-                        
-                        this.trends.openRate.diff = this.stats.avgOpenRate - prevOpenRate;
-                        this.trends.bounceRate.diff = this.stats.avgBounceRate - prevBounceRate;
-                        
-                        // Generate padded history for chart rendering
-                        const chartPoints = this.preparePaddedHistory(currentPeriodRecs, this.dashboardPeriod, this.reportsTimezone);
-                        this.renderMetricsChart(chartPoints);
-                    } finally {
-                        this.loadingDashboardStats = false;
-                    }
+                    })();
+                    this._dashboardInFlight = run;
+                    return run;
                 },
                 
                 renderMetricsChart(chartPoints) {
@@ -3330,7 +3377,7 @@
                                     this.updateEmbedCodeString();
                                 }
                             }
-                            if (this.listSelected && this.listSelected.id === this.fieldsListTarget.id) {
+                            if (this.listSelected === this.fieldsListTarget.id) {
                                 // refresh open browser
                                 this.browseListSubscribers(updatedList);
                             }
@@ -3444,6 +3491,19 @@
                     this.fieldsListTarget = list;
                     this.embedCodeTag = 'Website Embed';
                     this.embedCodeTheme = 'dark';
+                    this.embedPreviewHeight = 310;
+                    this.embedOptions = {
+                        width: '100%',
+                        height: 'auto',
+                        auto_resize: true,
+                        accent: '#2563eb',
+                        align: 'center',
+                        card: true,
+                        compact: false,
+                        show_title: true,
+                        title: '',
+                        button_text: 'Subscribe',
+                    };
                     this.updateEmbedCodeString();
                     this.modals.embedCode = true;
                     this.refreshIcons();
@@ -3451,10 +3511,35 @@
                 
                 updateEmbedCodeString() {
                     const host = window.location.origin;
-                    this.embedIframeSrc = `${host}/api/embed/subscribe/${this.fieldsListTarget.id}?tag=${encodeURIComponent(this.embedCodeTag)}&theme=${this.embedCodeTheme}&_t=${Date.now()}`;
-                    const bg = this.embedCodeTheme === 'light' ? '#f8fafc' : '#0f172a';
-                    const border = this.embedCodeTheme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.08)';
-                    this.embedCodeString = `<iframe src="${host}/api/embed/subscribe/${this.fieldsListTarget.id}?tag=${encodeURIComponent(this.embedCodeTag)}&theme=${this.embedCodeTheme}" width="100%" height="450" style="border:${border}; border-radius:12px; background:${bg};" title="Newsletter Signup"></iframe>`;
+                    const opts = this.embedOptions || {};
+                    const params = new URLSearchParams({
+                        tag: this.embedCodeTag || 'Website Embed',
+                        theme: this.embedCodeTheme || 'dark',
+                        accent: opts.accent || '#2563eb',
+                        align: opts.align || 'center',
+                        card: opts.card !== false ? 'true' : 'false',
+                        compact: opts.compact ? 'true' : 'false',
+                        show_title: opts.show_title !== false ? 'true' : 'false',
+                    });
+                    if (opts.title && opts.title.trim()) params.set('title', opts.title.trim());
+                    if (opts.button_text && opts.button_text.trim()) params.set('button_text', opts.button_text.trim());
+
+                    const publicSrc = `${host}/api/embed/subscribe/${this.fieldsListTarget.id}?${params.toString()}`;
+                    this.embedIframeSrc = `${publicSrc}&_t=${Date.now()}`;
+
+                    const isTransparent = this.embedCodeTheme === 'transparent' || opts.card === false;
+                    const bg = isTransparent ? 'transparent' : (this.embedCodeTheme === 'light' ? '#f8fafc' : '#0f172a');
+                    const border = isTransparent ? 'none' : (this.embedCodeTheme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.08)');
+                    const widthAttr = (opts.width || '100%').trim();
+                    const frameId = `polypress-embed-${this.fieldsListTarget.id}`;
+
+                    if (opts.auto_resize !== false) {
+                        this.embedCodeString = `<iframe id="${frameId}" src="${publicSrc}" width="${widthAttr}" height="320" scrolling="no" style="border:${border}; border-radius:12px; background:${bg}; width:${widthAttr}; max-width:100%; overflow:hidden; display:block;" title="Newsletter Signup"></iframe>\n<script>\nwindow.addEventListener('message', function(e) {\n  if (e.origin !== '${host}') return;\n  var f = document.getElementById('${frameId}');\n  if (f && e.source === f.contentWindow && e.data && e.data.type === 'polypress-embed-resize' && e.data.height) {\n    f.style.height = e.data.height + 'px';\n    f.setAttribute('height', String(e.data.height));\n  }\n});\n<\/script>`;
+                    } else {
+                        const heightVal = (opts.height && opts.height !== 'auto' ? opts.height : '360px').trim();
+                        const heightAttr = heightVal.replace(/px$/i, '');
+                        this.embedCodeString = `<iframe src="${publicSrc}" width="${widthAttr}" height="${heightAttr}" style="border:${border}; border-radius:12px; background:${bg}; width:${widthAttr}; height:${heightVal}; max-width:100%; display:block;" title="Newsletter Signup"></iframe>`;
+                    }
                 },
 
                 // CSV Database Importer
@@ -3480,9 +3565,12 @@
                     formData.append('file', file);
                     
                     try {
+                        const csvHeaders = { 'Authorization': `Bearer ${this.token}` };
+                        const activeTenantHdr = this.getAuthHeaders()['X-PolyPress-Tenant-Id'];
+                        if (activeTenantHdr) csvHeaders['X-PolyPress-Tenant-Id'] = activeTenantHdr;
                         const res = await fetch(`/api/lists/${this.csvListTarget.id}/parse-headers?delimiter=${encodeURIComponent(this.csvDelimiter)}`, {
                             method: 'POST',
-                            headers: { 'Authorization': `Bearer ${this.token}` },
+                            headers: csvHeaders,
                             body: formData
                         });
                         
@@ -3578,9 +3666,12 @@
                     formData.append('delimiter', this.csvDelimiter);
                     
                     try {
+                        const csvHeaders = { 'Authorization': `Bearer ${this.token}` };
+                        const activeTenantHdr = this.getAuthHeaders()['X-PolyPress-Tenant-Id'];
+                        if (activeTenantHdr) csvHeaders['X-PolyPress-Tenant-Id'] = activeTenantHdr;
                         const res = await fetch(`/api/lists/${this.csvListTarget.id}/import`, {
                             method: 'POST',
-                            headers: { 'Authorization': `Bearer ${this.token}` },
+                            headers: csvHeaders,
                             body: formData
                         });
                         
@@ -3599,9 +3690,21 @@
                     }
                 },
 
-                startVisualEditor(campaign) {
-                    this.editingCampaign = campaign;
-                    this.editingCampaign.is_automation_template = (campaign.status === 'automation');
+                async startVisualEditor(campaign) {
+                    let fullCampaign = campaign;
+                    if (campaign && campaign.id) {
+                        try {
+                            const res = await fetch(`/api/campaigns/${campaign.id}`, { headers: this.getAuthHeaders() });
+                            if (res.ok) {
+                                fullCampaign = await res.json();
+                            }
+                        } catch (e) {}
+                    }
+                    this.editingCampaign = fullCampaign;
+                    this.editingCampaign.is_automation_template = (fullCampaign.status === 'automation');
+                    if (!this.editingCampaign.send_order) {
+                        this.editingCampaign.send_order = 'inherit';
+                    }
                     if (!this.editingCampaign.target_rules) {
                         this.editingCampaign.target_rules = { tag: '', engagement: [], signup_after: '', signup_before: '', last_opened_days_under: '', last_opened_days_over: '', opens_count_over: '', opens_count_under: '', location_country: '' };
                     } else {
@@ -3633,7 +3736,7 @@
                     this.activeEditorVariantId = 'A';
                     this.targetingCollapsed = true;
                     this.selectedBlockIndex = null;
-                    this.editorBlocks = campaign.body_blocks || [];
+                    this.editorBlocks = this.editingCampaign.body_blocks || [];
                     this.switchTab('editor');
                 },
                 
@@ -3963,8 +4066,11 @@
                             headers: this.getAuthHeaders(),
                             body: JSON.stringify({
                                 name: this.editingCampaign.name,
+                                description: this.editingCampaign.description || '',
                                 status: this.editingCampaign.status,
                                 subject: this.editingCampaign.subject,
+                                preheader: this.editingCampaign.preheader || '',
+                                send_order: this.editingCampaign.send_order || 'inherit',
                                 body_blocks: this.editingCampaign.body_blocks,
                                 body_html: this.editingCampaign.body_html,
                                 is_custom_html: this.editingCampaign.is_custom_html,
@@ -4005,10 +4111,7 @@
                     try {
                         const res = await fetch(`/api/campaigns/${this.editingCampaign.id}/send-test`, {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${this.token}`
-                            },
+                            headers: this.getAuthHeaders(),
                             body: JSON.stringify({ email: this.testSendEmail })
                         });
                         let data = {};
@@ -4061,10 +4164,7 @@
                     try {
                         const res = await fetch(`/api/lists/${this.listSelected}/bulk-unsubscribe`, {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${this.token}`
-                            },
+                            headers: this.getAuthHeaders(),
                             body: JSON.stringify({ subscriber_ids: invalidIds })
                         });
                         if (!res.ok) throw new Error('Bulk unsubscribe failed');
@@ -4079,33 +4179,12 @@
                 
                 async submitLaunchCampaign() {
                     this.modals.confirmLaunch = false;
-                    let html;
-                    if (this.editingCampaign.is_custom_html) {
-                        html = this.editingCampaign.custom_html || '';
-                        if (this.tenant.email_footer_html && !html.includes('api/embed/unsubscribe')) {
-                            html += '<br>' + this.tenant.email_footer_html;
-                        }
-                    } else {
-                        html = compileBlocksToHtml(this.editorBlocks, this.tenant.email_footer_html);
-                    }
                     try {
-                          await fetch(`/api/campaigns/${this.editingCampaign.id}`, {
-                              method: 'PUT',
-                              headers: this.getAuthHeaders(),
-                              body: JSON.stringify({
-                                  name: this.editingCampaign.name,
-                                  subject: this.editingCampaign.subject,
-                                  preheader: this.editingCampaign.preheader,
-                                  body_blocks: this.editorBlocks,
-                                  body_html: html,
-                                  is_custom_html: this.editingCampaign.is_custom_html,
-                                  custom_html: this.editingCampaign.custom_html,
-                                  target_rules: this.editingCampaign.target_rules,
-                                  list_ids: this.editingCampaign.list_ids
-                              })
-                          });
+                          await this.saveCampaignDraft(true);
                           
-                          const launchPayload = {};
+                          const launchPayload = {
+                              send_order: this.editingCampaign.send_order || 'inherit',
+                          };
                           if (this.launchScheduling.enabled && this.launchScheduling.date) {
                               launchPayload.scheduled_send_at = this.launchScheduling.date;
                               launchPayload.timezone = this.launchScheduling.timezone;
@@ -4262,29 +4341,32 @@
                                         } catch(e) {}
                                         try {
                                             const parsed = new URL(u, window.location.origin);
-                                            return (parsed.hostname + parsed.pathname).toLowerCase().replace(/\/$/, '');
+                                            const cleanPath = (parsed.pathname || '/').replace(/\/$/, '');
+                                            return (parsed.hostname + cleanPath + parsed.search).toLowerCase();
                                         } catch(e) {
                                             return u.toLowerCase().replace(/\/$/, '');
                                         }
                                     };
 
+                                    const totalClicksDenom = this.clickMapStats.reduce((sum, item) => sum + (item.clicks || 0), 0) || 1;
                                     const links = doc.getElementsByTagName('a');
                                     for (let a of links) {
                                         const url = a.getAttribute('href');
                                         const normUrl = normalizeUrl(url);
                                         if (!normUrl) continue;
                                         
-                                        const stat = this.clickMapStats.find(x => {
+                                        const matchingStats = this.clickMapStats.filter(x => {
                                             if (!x.url) return false;
-                                            const normStatUrl = normalizeUrl(x.url);
-                                            return normStatUrl && normStatUrl === normUrl;
+                                            return normalizeUrl(x.url) === normUrl;
                                         });
-                                        if (stat) {
+                                        if (matchingStats.length > 0) {
+                                            const aggClicks = matchingStats.reduce((s, m) => s + (m.clicks || 0), 0);
+                                            const aggPct = Math.round(((aggClicks / totalClicksDenom) * 100) * 10) / 10;
                                             const bubble = doc.createElement('span');
                                             bubble.className = 'click-overlay-bubble';
-                                            bubble.textContent = `${stat.percentage}% (${stat.clicks})`;
+                                            bubble.textContent = `${aggPct}% (${aggClicks})`;
                                             
-                                            const pct = Math.min(100, Math.max(0, parseFloat(stat.percentage) || 0));
+                                            const pct = Math.min(100, Math.max(0, aggPct));
                                             const fontSize = Math.round(9 + (pct / 100) * 17);
                                             const py = Math.round(1 + (pct / 100) * 9);
                                             const px = Math.round(4 + (pct / 100) * 18);
@@ -4697,9 +4779,7 @@
                         if (res.ok) {
                             this.confirmResetHistory = false;
                             this.showToast('Historical metrics database cleared successfully.');
-                            if (this.loadDashboardStats) {
-                                this.loadDashboardStats();
-                            }
+                            this.loadDashboardMetrics();
                         } else {
                             const err = await res.json();
                             this.showToast(err.detail || 'Failed to reset history database', 'error');
@@ -4755,9 +4835,17 @@
                     }
                 },
 
-                openPreviewOnlyModal(campaign) {
-                    this.editingCampaign = campaign;
-                    this.previewIframeSrc = `/api/campaigns/${campaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&_t=${Date.now()}`;
+                async openPreviewOnlyModal(campaign) {
+                    let fullCampaign = campaign;
+                    if (campaign && campaign.id && campaign.ab_testing_enabled && !campaign.ab_variants) {
+                        try {
+                            const res = await fetch(`/api/campaigns/${campaign.id}`, { headers: this.getAuthHeaders() });
+                            if (res.ok) fullCampaign = await res.json();
+                        } catch (e) {}
+                    }
+                    this.editingCampaign = fullCampaign;
+                    this.previewVariantId = 'A';
+                    this.previewIframeSrc = `/api/campaigns/${fullCampaign.id}/preview?mock_name=${encodeURIComponent(this.mockPreviewFields.name)}&mock_email=${encodeURIComponent(this.mockPreviewFields.email)}&token=${encodeURIComponent(this.token)}&_t=${Date.now()}`;
                     this.modals.campaignPreview = true;
                     this.refreshIcons();
                 },

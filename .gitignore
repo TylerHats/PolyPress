@@ -56,6 +56,10 @@ backend/*.db-journal
 backend/*.db-shm
 backend/*.db-wal
 
+# Runtime secrets
+.polypress_secret
+backend/.polypress_secret
+
 # Certificate stores
 certs/
 

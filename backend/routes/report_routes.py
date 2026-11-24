@@ -2,11 +2,136 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from database import get_db, get_history_db, User, Tenant, HistoricalMetric, Campaign, Subscriber
+from database import get_db, get_history_db, User, Tenant, HistoricalMetric, Campaign, Subscriber, SubscriberList
 import auth
+from analytics_service import get_bulk_campaign_metrics, reconcile_campaign_counts_bulk
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+@router.get("/dashboard-summary")
+def get_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.get_current_user),
+):
+    """Single-query dashboard summary replacing serial list-loop and redundant campaign/report polling."""
+    tenant_id = current_user.tenant_id
+    if tenant_id is None and current_user.role != "super_admin":
+        raise HTTPException(status_code=400, detail="User not associated with a tenant")
+
+    # 1. Lists and per-list subscriber counts in 2 queries total
+    list_query = db.query(SubscriberList)
+    sub_count_query = db.query(
+        Subscriber.list_id,
+        Subscriber.status,
+        func.count(Subscriber.id),
+    )
+    if tenant_id is not None:
+        list_query = list_query.filter(SubscriberList.tenant_id == tenant_id)
+        sub_count_query = sub_count_query.filter(Subscriber.tenant_id == tenant_id)
+
+    lists = list_query.order_by(SubscriberList.created_at.desc()).all()
+    grouped_counts = sub_count_query.group_by(Subscriber.list_id, Subscriber.status).all()
+
+    per_list = {
+        l.id: {
+            "id": l.id,
+            "tenant_id": l.tenant_id,
+            "name": l.name,
+            "description": l.description,
+            "total_subscribers": 0,
+            "active_subscribers": 0,
+            "unsubscribed": 0,
+            "bounced": 0,
+            "pending": 0,
+        }
+        for l in lists
+    }
+    total_subs = 0
+    active_subs = 0
+    for lid, sub_status, cnt in grouped_counts:
+        c_int = int(cnt or 0)
+        total_subs += c_int
+        if sub_status == "active":
+            active_subs += c_int
+        entry = per_list.get(lid)
+        if entry:
+            entry["total_subscribers"] += c_int
+            if sub_status == "active":
+                entry["active_subscribers"] += c_int
+            elif sub_status == "unsubscribed":
+                entry["unsubscribed"] += c_int
+            elif sub_status == "bounced":
+                entry["bounced"] += c_int
+            elif sub_status == "pending":
+                entry["pending"] += c_int
+
+    # 2. Campaign metrics using unified real open/click calculations
+    camp_query = db.query(Campaign)
+    if tenant_id is not None:
+        camp_query = camp_query.filter(Campaign.tenant_id == tenant_id)
+    campaigns = camp_query.order_by(Campaign.created_at.desc()).all()
+    metrics_map = reconcile_campaign_counts_bulk(db, campaigns)
+
+    total_sent = 0
+    total_opens = 0
+    total_clicks = 0
+    total_bounces = 0
+    recent_campaigns = []
+    campaigns_summary = []
+
+    for idx, c in enumerate(campaigns):
+        m = metrics_map.get(c.id, {})
+        c_sent = m.get("sent", c.sent_count or 0)
+        c_opens = m.get("opens", c.open_count or 0)
+        c_clicks = m.get("clicks", c.click_count or 0)
+        c_bounces = c.bounce_count or 0
+        total_sent += c_sent
+        total_opens += c_opens
+        total_clicks += c_clicks
+        total_bounces += c_bounces
+        created_iso = c.created_at.isoformat() if c.created_at else None
+        campaigns_summary.append({
+            "id": c.id,
+            "status": c.status,
+            "created_at": created_iso,
+            "sent_count": c_sent,
+            "open_count": c_opens,
+            "bounce_count": c_bounces,
+        })
+        if idx < 10:
+            recent_campaigns.append({
+                "id": c.id,
+                "name": c.name,
+                "subject": c.subject,
+                "status": c.status,
+                "total_recipients": c.total_recipients or 0,
+                "sent_count": c_sent,
+                "failed_count": m.get("failed", c.failed_count or 0),
+                "bounce_count": c_bounces,
+                "open_count": c_opens,
+                "click_count": c_clicks,
+                "unique_clicks": m.get("unique_clicks", 0),
+                "created_at": created_iso,
+                "sent_at": c.sent_at.isoformat() if c.sent_at else None,
+            })
+
+    return {
+        "total_subscribers": total_subs,
+        "active_subscribers": active_subs,
+        "total_lists": len(lists),
+        "total_campaigns": len(campaigns),
+        "total_sent": total_sent,
+        "total_opens": total_opens,
+        "total_clicks": total_clicks,
+        "total_bounces": total_bounces,
+        "lists_summary": list(per_list.values()),
+        "recent_campaigns": recent_campaigns,
+        "campaigns_summary": campaigns_summary,
+    }
+
 
 @router.get("/history")
 def get_history(
@@ -17,9 +142,17 @@ def get_history(
     history_db: Session = Depends(get_history_db),
     current_user: User = Depends(auth.get_current_user)
 ):
-    # Context logic:
-    if tenant_id is None:
-        tenant_id = current_user.tenant_id
+    # Prevent cross-tenant IDOR on historical metrics
+    if tenant_id is not None:
+        if current_user.role != "super_admin":
+            allowed = set(current_user.allowed_tenants or [])
+            if tenant_id != current_user.tenant_id and tenant_id not in allowed:
+                raise HTTPException(status_code=403, detail="Access denied to requested tenant reports")
+    else:
+        if current_user.role != "super_admin":
+            if not current_user.tenant_id:
+                raise HTTPException(status_code=403, detail="Access denied to global reports")
+            tenant_id = current_user.tenant_id
             
     query = history_db.query(HistoricalMetric)
     if tenant_id is not None:
@@ -137,6 +270,16 @@ def force_record_snapshot(
     current_user: User = Depends(auth.require_tenant_admin)
 ):
     now = datetime.utcnow()
+
+    def _compute_tenant_totals(camp_list):
+        if not camp_list:
+            return 0, 0, 0, 0
+        metrics_map = get_bulk_campaign_metrics(db, [c.id for c in camp_list])
+        sent_t = sum(max(metrics_map.get(c.id, {}).get("sent", 0), c.sent_count or 0) for c in camp_list)
+        opens_t = sum(metrics_map.get(c.id, {}).get("opens", 0) for c in camp_list)
+        clicks_t = sum(metrics_map.get(c.id, {}).get("clicks", 0) for c in camp_list)
+        bounces_t = sum((c.bounce_count or 0) for c in camp_list)
+        return sent_t, opens_t, clicks_t, bounces_t
     
     if current_user.tenant_id is None:
         if current_user.role != "super_admin":
@@ -144,10 +287,7 @@ def force_record_snapshot(
             
         sub_count = db.query(Subscriber).filter(Subscriber.status == "active").count()
         campaigns = db.query(Campaign).all()
-        sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
-        opens = sum(c.open_count for c in campaigns if c.open_count)
-        clicks = sum(c.click_count for c in campaigns if c.click_count)
-        bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+        sent, opens, clicks, bounces = _compute_tenant_totals(campaigns)
         
         metric = HistoricalMetric(
             tenant_id=None,
@@ -164,10 +304,7 @@ def force_record_snapshot(
         for tenant in tenants:
             t_sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == tenant.id, Subscriber.status == "active").count()
             t_campaigns = db.query(Campaign).filter(Campaign.tenant_id == tenant.id).all()
-            t_sent = sum(c.total_recipients for c in t_campaigns if c.total_recipients)
-            t_opens = sum(c.open_count for c in t_campaigns if c.open_count)
-            t_clicks = sum(c.click_count for c in t_campaigns if c.click_count)
-            t_bounces = sum(c.bounce_count for c in t_campaigns if c.bounce_count)
+            t_sent, t_opens, t_clicks, t_bounces = _compute_tenant_totals(t_campaigns)
             
             t_metric = HistoricalMetric(
                 tenant_id=tenant.id,
@@ -190,10 +327,7 @@ def force_record_snapshot(
             
         sub_count = db.query(Subscriber).filter(Subscriber.tenant_id == tenant.id, Subscriber.status == "active").count()
         campaigns = db.query(Campaign).filter(Campaign.tenant_id == tenant.id).all()
-        sent = sum(c.total_recipients for c in campaigns if c.total_recipients)
-        opens = sum(c.open_count for c in campaigns if c.open_count)
-        clicks = sum(c.click_count for c in campaigns if c.click_count)
-        bounces = sum(c.bounce_count for c in campaigns if c.bounce_count)
+        sent, opens, clicks, bounces = _compute_tenant_totals(campaigns)
         
         metric = HistoricalMetric(
             tenant_id=tenant.id,

@@ -1,13 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Request, Response, BackgroundTasks
 from fastapi.responses import RedirectResponse
 import requests
 import os
+import secrets
+import hmac
+import jwt
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 import database as db_mod
 from database import get_db, User, GlobalSettings, Tenant
 import auth
 import urllib.parse
 from routes.tenant_routes import generate_dkim_keypair
+from security_utils import (
+    login_rate_limiter,
+    totp_rate_limiter,
+    password_reset_rate_limiter,
+    check_and_record_totp_step,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -118,14 +128,25 @@ def run_setup(payload: dict, db: Session = Depends(get_db)):
     }
 
 @router.post("/login")
-def login(payload: dict, db: Session = Depends(get_db)):
+def login(payload: dict, request: Request, db: Session = Depends(get_db)):
     email = payload.get("email")
     password = payload.get("password")
     
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password required")
+
+    client_ip = request.client.host if request.client else "unknown"
+    email_norm = str(email).strip().lower()
+    if (
+        not login_rate_limiter.check_and_record(f"login:{client_ip}:{email_norm}", 15, 60)
+        or not login_rate_limiter.check_and_record(f"login_ip:{client_ip}", 60, 60)
+    ):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please wait a minute and try again.")
         
     user = db.query(User).filter(User.email == email, User.is_active == True).first()
+    if not user:
+        from sqlalchemy import func
+        user = db.query(User).filter(func.lower(User.email) == email_norm, User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
         
@@ -140,7 +161,12 @@ def login(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
         
     if user.totp_enabled:
-        return {"status": "totp_required", "email": user.email}
+        challenge_token = auth.create_totp_challenge_token(user.email)
+        return {
+            "status": "totp_required",
+            "email": user.email,
+            "challenge_token": challenge_token,
+        }
         
     token = auth.create_access_token({"sub": user.email})
     return {
@@ -152,19 +178,31 @@ def login(payload: dict, db: Session = Depends(get_db)):
     }
 
 @router.post("/totp-verify")
-def totp_verify(payload: dict, db: Session = Depends(get_db)):
-    email = payload.get("email")
+def totp_verify(payload: dict, request: Request, db: Session = Depends(get_db)):
+    challenge_token = payload.get("challenge_token")
     code = payload.get("code")
     
-    if not email or not code:
-        raise HTTPException(status_code=400, detail="Email and TOTP code required")
+    if not challenge_token or not code:
+        raise HTTPException(status_code=400, detail="2FA challenge token and TOTP code required")
+
+    verified_email = auth.verify_totp_challenge_token(challenge_token)
+    if not verified_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired 2FA challenge")
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not totp_rate_limiter.check_and_record(f"totp:{client_ip}:{verified_email.lower()}", 10, 60):
+        raise HTTPException(status_code=429, detail="Too many verification attempts. Please wait a minute.")
         
-    user = db.query(User).filter(User.email == email, User.is_active == True).first()
+    user = db.query(User).filter(User.email == verified_email, User.is_active == True).first()
     if not user or not user.totp_enabled or not user.totp_secret:
         raise HTTPException(status_code=400, detail="Invalid verification request")
         
-    if not auth.verify_totp(user.totp_secret, code):
+    matched_step = auth.verify_totp_with_step(user.totp_secret, code)
+    if matched_step is None:
         raise HTTPException(status_code=401, detail="Invalid verification code")
+
+    if not check_and_record_totp_step(user.id, matched_step):
+        raise HTTPException(status_code=401, detail="TOTP code has already been used. Please wait for the next code.")
         
     token = auth.create_access_token({"sub": user.email})
     return {
@@ -190,8 +228,11 @@ def totp_enable(payload: dict, current_user: User = Depends(auth.get_current_use
     if not secret or not code:
         raise HTTPException(status_code=400, detail="Secret and verification code required")
         
-    if not auth.verify_totp(secret, code):
+    matched_step = auth.verify_totp_with_step(secret, code)
+    if matched_step is None:
         raise HTTPException(status_code=400, detail="Invalid verification code")
+    if not check_and_record_totp_step(current_user.id, matched_step):
+        raise HTTPException(status_code=400, detail="TOTP code already used. Wait for the next code.")
         
     current_user.totp_secret = secret
     current_user.totp_enabled = True
@@ -205,8 +246,11 @@ def totp_disable(payload: dict, current_user: User = Depends(auth.get_current_us
     if not code:
         raise HTTPException(status_code=400, detail="Verification code required")
         
-    if not auth.verify_totp(current_user.totp_secret, code):
+    matched_step = auth.verify_totp_with_step(current_user.totp_secret, code)
+    if matched_step is None:
         raise HTTPException(status_code=400, detail="Invalid verification code")
+    if not check_and_record_totp_step(current_user.id, matched_step):
+        raise HTTPException(status_code=400, detail="TOTP code already used. Wait for the next code.")
         
     current_user.totp_secret = None
     current_user.totp_enabled = False
@@ -231,7 +275,7 @@ def get_public_settings(db: Session = Depends(get_db)):
     }
 
 @router.get("/oidc/url")
-def get_oidc_url(db: Session = Depends(get_db)):
+def get_oidc_url(request: Request, response: Response, db: Session = Depends(get_db)):
     settings = db.query(GlobalSettings).first()
     if not settings or not settings.oidc_enabled:
         raise HTTPException(status_code=400, detail="OIDC login is disabled")
@@ -245,24 +289,53 @@ def get_oidc_url(db: Session = Depends(get_db)):
         
         public_url = settings.public_url or "http://localhost:8000"
         redirect_uri = settings.oidc_redirect_url or f"{public_url.rstrip('/')}/api/auth/oidc/callback"
+
+        state_nonce = secrets.token_urlsafe(24)
+        state_token = auth.create_access_token(
+            {"nonce": state_nonce},
+            expires_delta=timedelta(minutes=10),
+            purpose="oidc_state",
+        )
+        is_https = (request.url.scheme == "https") or (request.headers.get("x-forwarded-proto") == "https")
+        response.set_cookie(
+            key="polypress_oidc_state",
+            value=state_nonce,
+            max_age=600,
+            path="/",
+            httponly=True,
+            samesite="lax",
+            secure=is_https,
+        )
         
         login_url = (
             f"{auth_endpoint}?"
-            f"client_id={settings.oidc_client_id}&"
-            f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
+            f"client_id={urllib.parse.quote(settings.oidc_client_id or '', safe='')}&"
+            f"redirect_uri={urllib.parse.quote(redirect_uri, safe='')}&"
             f"response_type=code&"
             f"scope=openid%20profile%20email&"
-            f"state=polypress_auth"
+            f"state={urllib.parse.quote(state_token, safe='')}"
         )
         return {"url": login_url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch OIDC configuration: {str(e)}")
 
 @router.get("/oidc/callback")
-def oidc_callback(code: str = Query(...), state: str = None, db: Session = Depends(get_db)):
+def oidc_callback(request: Request, code: str = Query(...), state: str = Query(None), db: Session = Depends(get_db)):
     settings = db.query(GlobalSettings).first()
     if not settings or not settings.oidc_enabled:
         return RedirectResponse(url="/#/login?error=OIDC_disabled")
+
+    cookie_nonce = request.cookies.get("polypress_oidc_state")
+    if not state or not cookie_nonce:
+        return RedirectResponse(url="/#/login?error=invalid_oidc_state")
+
+    try:
+        state_payload = jwt.decode(state, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+        token_nonce = state_payload.get("nonce")
+        if state_payload.get("purpose") != "oidc_state" or not token_nonce or not hmac.compare_digest(str(cookie_nonce), str(token_nonce)):
+            return RedirectResponse(url="/#/login?error=invalid_oidc_state")
+    except jwt.PyJWTError:
+        return RedirectResponse(url="/#/login?error=invalid_oidc_state")
         
     try:
         config_url = f"{settings.oidc_issuer.rstrip('/')}/.well-known/openid-configuration"
@@ -290,23 +363,33 @@ def oidc_callback(code: str = Query(...), state: str = None, db: Session = Depen
         userinfo_res = requests.get(userinfo_endpoint, headers=headers, timeout=5)
         userinfo_res.raise_for_status()
         userinfo = userinfo_res.json()
+
+        if userinfo.get("email_verified") is False or str(userinfo.get("email_verified", "true")).lower() == "false":
+            resp = RedirectResponse(url="/#/login?error=email_not_verified")
+            resp.delete_cookie("polypress_oidc_state")
+            return resp
         
         email = userinfo.get("email")
-        name = userinfo.get("name", email.split("@")[0])
-        
         if not email:
-            return RedirectResponse(url="/#/login?error=no_email_claim")
-            
+            resp = RedirectResponse(url="/#/login?error=no_email_claim")
+            resp.delete_cookie("polypress_oidc_state")
+            return resp
+
+        name = userinfo.get("name", email.split("@")[0])
         user = auth.process_oidc_user(db, email, name, userinfo)
         session_token = auth.create_access_token({"sub": user.email})
-        return RedirectResponse(url=f"/#/login?token={session_token}")
+        resp = RedirectResponse(url=f"/#/login?token={urllib.parse.quote(session_token, safe='')}")
+        resp.delete_cookie("polypress_oidc_state")
+        return resp
         
     except Exception as e:
         print(f"OIDC callback error: {e}")
-        return RedirectResponse(url=f"/#/login?error={requests.utils.quote(str(e))}")
+        resp = RedirectResponse(url=f"/#/login?error={urllib.parse.quote(str(e), safe='')}")
+        resp.delete_cookie("polypress_oidc_state")
+        return resp
 
 @router.get("/me")
-def get_me(current_user: User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def get_me(current_user: User = Depends(auth.get_authenticated_user), db: Session = Depends(get_db)):
     tenant_name = None
     if current_user.tenant_id:
         tenant = db.query(db_mod.Tenant).filter(db_mod.Tenant.id == current_user.tenant_id).first()
@@ -320,6 +403,36 @@ def get_me(current_user: User = Depends(auth.get_current_user), db: Session = De
         "role": current_user.role,
         "tenant_id": current_user.tenant_id,
         "tenant_name": tenant_name,
+        "totp_enabled": current_user.totp_enabled,
+        "auth_type": current_user.auth_type,
+        "allowed_tenants": current_user.allowed_tenants or []
+    }
+
+@router.put("/me")
+def update_me(payload: dict, current_user: User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    if "name" in payload and str(payload.get("name") or "").strip():
+        current_user.name = str(payload["name"]).strip()
+
+    new_password = payload.get("password")
+    if new_password:
+        if current_user.auth_type != "local":
+            raise HTTPException(status_code=400, detail="Password changes are only supported for local accounts")
+        current_password = payload.get("current_password")
+        if not current_password or not current_user.password_hash or not auth.verify_password(current_password, current_user.password_hash):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if len(str(new_password)) < 8:
+            raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+        current_user.password_hash = auth.hash_password(str(new_password))
+
+    db.commit()
+    db.refresh(current_user)
+    return {
+        "detail": "Profile updated successfully",
+        "id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.name,
+        "role": current_user.role,
+        "tenant_id": current_user.tenant_id,
         "totp_enabled": current_user.totp_enabled,
         "auth_type": current_user.auth_type,
         "allowed_tenants": current_user.allowed_tenants or []
@@ -398,15 +511,19 @@ def reset_branding_logo(
     return {"status": "success", "logo_url": "/branding/logo.png"}
 
 @router.post("/forgot-password")
-def forgot_password(payload: dict, db: Session = Depends(get_db)):
-    import secrets
-    from datetime import datetime, timedelta
-    
+def forgot_password(payload: dict, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     email = payload.get("email", "").strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not password_reset_rate_limiter.check_and_record(f"forgot:{client_ip}:{email}", 10, 60):
+        raise HTTPException(status_code=429, detail="Too many password reset requests. Please try again later.")
         
     user = db.query(User).filter(User.email == email, User.auth_type == "local").first()
+    if not user:
+        from sqlalchemy import func
+        user = db.query(User).filter(func.lower(User.email) == email, User.auth_type == "local").first()
     if not user:
         # Prevent user enumeration
         return {"detail": "If the email is registered for a local account, a reset link will be sent shortly."}
@@ -449,20 +566,26 @@ def forgot_password(payload: dict, db: Session = Depends(get_db)):
     </div>
     """
     
-    from sending_worker import send_transactional_email
-    send_transactional_email(to_email=user.email, subject=subject, body_html=body_html, tenant=tenant)
+    from sending_worker import send_transactional_email_by_tenant_id
+    background_tasks.add_task(
+        send_transactional_email_by_tenant_id,
+        to_email=user.email,
+        subject=subject,
+        body_html=body_html,
+        tenant_id=tenant.id,
+    )
     
     return {"detail": "If the email is registered for a local account, a reset link will be sent shortly."}
 
 @router.post("/reset-password")
 def reset_password(payload: dict, db: Session = Depends(get_db)):
-    from datetime import datetime
-    
     token = payload.get("token")
     new_password = payload.get("password")
     
     if not token or not new_password:
         raise HTTPException(status_code=400, detail="Token and password are required")
+    if len(str(new_password)) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
         
     user = db.query(User).filter(
         User.password_reset_token == token,
@@ -472,7 +595,7 @@ def reset_password(payload: dict, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
         
-    user.password_hash = auth.get_password_hash(new_password)
+    user.password_hash = auth.hash_password(str(new_password))
     user.password_reset_token = None
     user.password_reset_expires_at = None
     db.commit()

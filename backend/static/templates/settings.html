@@ -45,7 +45,7 @@
                                          </div>
                                          <div class="field">
                                              <label>SMTP Password</label>
-                                             <input type="password" name="tenant_smtp_pass_field" autocomplete="new-password" x-model="tenant.smtp_password" placeholder="••••••••">
+                                             <input type="password" name="tenant_smtp_pass_field" autocomplete="new-password" x-model="tenant.smtp_password" :placeholder="tenant.smtp_has_password ? 'Configured (leave blank to keep)' : '••••••••'">
                                          </div>
                                      </div>
                                     <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
@@ -116,8 +116,8 @@
                                 </div>
                             </div>
 
-                            <!-- Speed settings -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                            <!-- Speed & Queue Dispatch settings -->
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
                                 <div class="field">
                                     <label>Queue Sending Speed (Emails / Hour)</label>
                                     <input type="number" x-model="tenant.speed_emails_per_hour" placeholder="500">
@@ -127,6 +127,17 @@
                                     <label>Failed Email Retry Period (Minutes)</label>
                                     <input type="number" x-model="tenant.retry_interval_minutes" placeholder="15" min="1">
                                     <span style="font-size: 11px; color: var(--text-muted);">Cooldown period before retrying deferred queue items.</span>
+                                </div>
+                                <div class="field">
+                                    <label>Queue Dispatch Order</label>
+                                    <select x-model="tenant.queue_send_order">
+                                        <option value="default">Default (Database Order)</option>
+                                        <option value="random">Random / Shuffled</option>
+                                        <option value="alphabetical">Alphabetical (A → Z)</option>
+                                        <option value="alphabetical_desc">Reverse Alphabetical (Z → A)</option>
+                                        <option value="domain_interleaved">Domain Interleaved (Deliverability)</option>
+                                    </select>
+                                    <span style="font-size: 11px; color: var(--text-muted);">Default order recipients are queued when launching campaigns.</span>
                                 </div>
                             </div>
 
@@ -236,7 +247,7 @@
                                          </div>
                                          <div class="field">
                                              <label>IMAP Password</label>
-                                             <input type="password" name="tenant_imap_pass_field" autocomplete="new-password" x-model="tenant.imap_password" placeholder="••••••••">
+                                             <input type="password" name="tenant_imap_pass_field" autocomplete="new-password" x-model="tenant.imap_password" :placeholder="tenant.imap_has_password ? 'Configured (leave blank to keep)' : '••••••••'">
                                          </div>
                                      </div>
                                     <div class="toggle-field">

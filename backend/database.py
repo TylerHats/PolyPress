@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, Float, text, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, Float, text, inspect, event, func
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 BASE_DIR = os.path.realpath(os.path.dirname(__file__))
@@ -28,8 +28,8 @@ def check_and_apply_restore():
         write_log(f"Found restore zip at: {restore_zip} (Size: {os.path.getsize(restore_zip)} bytes)")
         
         try:
-            import zipfile
             import shutil
+            from security_utils import safe_extract_zip
             
             # Extract to temp
             temp_extract = os.path.join(backup_dir, "temp_restore_extract")
@@ -37,9 +37,8 @@ def check_and_apply_restore():
                 shutil.rmtree(temp_extract)
             os.makedirs(temp_extract, exist_ok=True)
             
-            write_log("Extracting zip archive...")
-            with zipfile.ZipFile(restore_zip, 'r') as zipf:
-                zipf.extractall(temp_extract)
+            write_log("Extracting zip archive securely...")
+            safe_extract_zip(restore_zip, temp_extract)
             write_log("Extraction completed.")
                 
             restored_db = os.path.join(temp_extract, "polypress.db")
@@ -146,14 +145,25 @@ def check_and_apply_restore():
 # Run it immediately during import sequence
 check_and_apply_restore()
 
+def _configure_sqlite_connection(dbapi_conn, connection_record):
+    """Enable WAL concurrency, busy timeout, and normal sync on SQLite connections."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("PRAGMA busy_timeout=10000;")
+    cursor.execute("PRAGMA synchronous=NORMAL;")
+    cursor.close()
+
+
 engine = create_engine(
     DATABASE_URL, 
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 )
+if DATABASE_URL.startswith("sqlite"):
+    event.listen(engine, "connect", _configure_sqlite_connection)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-CURRENT_SCHEMA_VERSION = 16
+CURRENT_SCHEMA_VERSION = 17
 SCHEMA_MISMATCH = False
 DB_SCHEMA_VERSION = 0
 CURRENT_HISTORY_SCHEMA_VERSION = 1
@@ -199,6 +209,7 @@ class GlobalSettings(Base):
     external_backup_url = Column(String, nullable=True)
     external_backup_auth_header = Column(String, nullable=True)
     schema_version = Column(Integer, default=CURRENT_SCHEMA_VERSION)
+    legacy_unsub_cutoff_campaign_id = Column(Integer, default=0)
     
     # Dynamic OIDC claim mappings
     oidc_role_claim = Column(String, default="role")
@@ -277,6 +288,7 @@ class Tenant(Base):
     # History logs settings
     history_retention_days = Column(Integer, default=30)
     history_record_frequency_hours = Column(Integer, default=24)
+    queue_send_order = Column(String, default="default") # default, random, alphabetical, alphabetical_desc, domain_interleaved
     
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -404,7 +416,8 @@ class Campaign(Base):
     ab_variants = Column(JSON, default=list)
     ab_winning_variant = Column(String, nullable=True)
     
-    status = Column(String, default="draft") # draft, queued, sending, sent, cancelled
+    status = Column(String, default="draft") # draft, queued, sending, flushing, paused, sent, completed, cancelled
+    send_order = Column(String, default="inherit") # inherit, default, random, alphabetical, alphabetical_desc, domain_interleaved
     target_rules = Column(JSON, default=dict)
     
     # Statistics
@@ -559,6 +572,8 @@ history_engine = create_engine(
     HISTORY_DATABASE_URL,
     connect_args={"check_same_thread": False} if HISTORY_DATABASE_URL.startswith("sqlite") else {}
 )
+if HISTORY_DATABASE_URL.startswith("sqlite"):
+    event.listen(history_engine, "connect", _configure_sqlite_connection)
 HistorySessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=history_engine)
 HistoryBase = declarative_base()
 
@@ -677,6 +692,7 @@ def init_db():
         return  # Block migrations and initialization
         
     # 4. If compatible, run dynamic column reconciliation for main database
+    run_v17_backfill = False
     try:
         with engine.begin() as conn:
             inspector = inspect(engine)
@@ -717,6 +733,34 @@ def init_db():
                         print(f"Migrating schema: Running query '{alter_query}'")
                         conn.execute(text(alter_query))
                         
+            inspector_idx = inspect(engine)
+            index_statements = []
+            if inspector_idx.has_table("queue_items"):
+                index_statements.extend([
+                    "CREATE INDEX IF NOT EXISTS ix_queue_items_status_next_attempt ON queue_items (status, next_attempt)",
+                    "CREATE INDEX IF NOT EXISTS ix_queue_items_campaign_status ON queue_items (campaign_id, status)",
+                    "CREATE INDEX IF NOT EXISTS ix_queue_items_tenant_status ON queue_items (tenant_id, status)",
+                ])
+            if inspector_idx.has_table("tracking_logs"):
+                index_statements.extend([
+                    "CREATE INDEX IF NOT EXISTS ix_tracking_logs_camp_event_bot_sub ON tracking_logs (campaign_id, event_type, is_bot, subscriber_id)",
+                    "CREATE INDEX IF NOT EXISTS ix_tracking_logs_sub_event_bot ON tracking_logs (subscriber_id, event_type, is_bot)",
+                ])
+            if inspector_idx.has_table("subscribers"):
+                index_statements.append(
+                    "CREATE INDEX IF NOT EXISTS ix_subscribers_list_status_email ON subscribers (list_id, status, email)"
+                )
+            if inspector_idx.has_table("campaigns"):
+                index_statements.append(
+                    "CREATE INDEX IF NOT EXISTS ix_campaigns_tenant_status ON campaigns (tenant_id, status)"
+                )
+            for idx_sql in index_statements:
+                conn.execute(text(idx_sql))
+
+            prev_ver_row = conn.execute(text("SELECT schema_version FROM global_settings LIMIT 1")).fetchone()
+            prev_schema_version = int(prev_ver_row[0]) if prev_ver_row and prev_ver_row[0] is not None else CURRENT_SCHEMA_VERSION
+            run_v17_backfill = prev_schema_version < 17
+
             # Update schema_version in DB to CURRENT_SCHEMA_VERSION after migrations complete
             conn.execute(text(f"UPDATE global_settings SET schema_version = {CURRENT_SCHEMA_VERSION}"))
             DB_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
@@ -811,5 +855,30 @@ def init_db():
                 if sub_list:
                     s.tenant_id = sub_list.tenant_id
         db.commit()
+
+        if run_v17_backfill:
+            try:
+                from location_helper import is_bot_or_proxy
+                from analytics_service import reconcile_campaign_counts_bulk
+                logs_to_check = db.query(TrackingLog).filter(
+                    (TrackingLog.is_bot == False) | (TrackingLog.is_bot == None)
+                ).yield_per(500)
+                updated_bots = 0
+                for tl in logs_to_check:
+                    is_b = is_bot_or_proxy(tl.user_agent or "")
+                    if is_b or tl.is_bot is None:
+                        tl.is_bot = bool(is_b)
+                        updated_bots += 1
+                if updated_bots:
+                    db.flush()
+                all_campaigns = db.query(Campaign).all()
+                reconcile_campaign_counts_bulk(db, all_campaigns)
+                max_camp_id = db.query(func.max(Campaign.id)).scalar() or 0
+                if settings and not (settings.legacy_unsub_cutoff_campaign_id or 0):
+                    settings.legacy_unsub_cutoff_campaign_id = int(max_camp_id)
+                db.commit()
+            except Exception as backfill_err:
+                print(f"v17 analytics backfill warning: {backfill_err}")
+                db.rollback()
     finally:
         db.close()

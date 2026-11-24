@@ -1,5 +1,5 @@
 /* PolyPress Custom Styling - Premium Dark Glassmorphism */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+/* Fonts loaded asynchronously via <link> in index.html */
 
 :root {
     --bg-base: #090d16;
@@ -791,6 +791,8 @@ input[type="checkbox"]:checked + .toggle-switch::after {
 
 .toast-success { background: var(--color-success); }
 .toast-error { background: var(--color-danger); }
+.toast-info { background: var(--color-primary); }
+.toast-warning { background: var(--color-warning); }
 
 /* Import CSV Mapper styles */
 .mapping-row {

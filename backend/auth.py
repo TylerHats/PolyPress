@@ -1,4 +1,5 @@
 import os
+import hmac
 import hashlib
 import secrets
 import base64
@@ -10,13 +11,57 @@ import jwt
 from fastapi import Depends, HTTPException, status, Security, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from database import get_db, User, GlobalSettings, Tenant
+from database import get_db, User, GlobalSettings, Tenant, DATABASE_URL, BASE_DIR
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
+
+def _load_or_create_secret_key() -> str:
+    env_key = os.getenv("JWT_SECRET_KEY")
+    if env_key:
+        return env_key
+    if DATABASE_URL.startswith("sqlite:///") and ":memory:" not in DATABASE_URL:
+        db_dir = os.path.dirname(os.path.realpath(DATABASE_URL.replace("sqlite:///", "", 1)))
+    else:
+        db_dir = os.path.realpath(BASE_DIR)
+    secret_file = os.path.join(db_dir, ".polypress_secret")
+    try:
+        if os.path.exists(secret_file):
+            with open(secret_file, "r", encoding="utf-8") as f:
+                stored = f.read().strip()
+            if len(stored) >= 32:
+                return stored
+        os.makedirs(db_dir, exist_ok=True)
+        new_key = secrets.token_hex(32)
+        fd = os.open(secret_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(new_key)
+        return new_key
+    except Exception:
+        return secrets.token_hex(32)
+
+
+SECRET_KEY = _load_or_create_secret_key()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
 
 security = HTTPBearer(auto_error=False)
+
+
+def sign_url_token(payload_str: str) -> str:
+    """Compute a deterministic HMAC-SHA256 signature for public URL verification."""
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        payload_str.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:32]
+
+
+def verify_url_token(payload_str: str, sig: Optional[str]) -> bool:
+    """Constant-time check for HMAC URL signatures."""
+    if not sig:
+        return False
+    expected = sign_url_token(payload_str)
+    return hmac.compare_digest(expected, str(sig).strip())
+
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -27,6 +72,7 @@ def hash_password(password: str) -> str:
         100000
     ).hex()
     return f"{salt}${db_hash}"
+
 
 def verify_password(password: str, hashed: str) -> bool:
     if not hashed or "$" not in hashed:
@@ -40,21 +86,42 @@ def verify_password(password: str, hashed: str) -> bool:
     ).hex()
     return secrets.compare_digest(db_hash, test_hash)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None, purpose: str = "access"):
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "purpose": purpose})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(
+
+def create_totp_challenge_token(email: str) -> str:
+    return create_access_token(
+        {"sub": email},
+        expires_delta=timedelta(minutes=5),
+        purpose="totp_challenge",
+    )
+
+
+def verify_totp_challenge_token(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("purpose") != "totp_challenge":
+            return None
+        return payload.get("sub")
+    except jwt.PyJWTError:
+        return None
+
+
+def _resolve_authenticated_user(
     request: Request,
-    token: Optional[str] = Query(None),
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(security),
-    db: Session = Depends(get_db)
+    token: Optional[str],
+    credentials: Optional[HTTPAuthorizationCredentials],
+    db: Session,
+    allow_pending: bool = False,
 ) -> User:
     jwt_token = None
     if credentials and credentials.credentials:
@@ -74,7 +141,8 @@ def get_current_user(
     try:
         payload = jwt.decode(jwt_token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
-        if email is None:
+        purpose: str = payload.get("purpose")
+        if email is None or purpose != "access":
             raise credentials_exception
     except jwt.PyJWTError:
         raise credentials_exception
@@ -82,6 +150,12 @@ def get_current_user(
     user = db.query(User).filter(User.email == email, User.is_active == True).first()
     if user is None:
         raise credentials_exception
+
+    if not allow_pending and user.role == "pending":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is pending administrator approval"
+        )
         
     # Context switching for Super Admins via header override
     if user.role == "super_admin":
@@ -115,6 +189,24 @@ def get_current_user(
                 pass
                 
     return user
+
+
+def get_authenticated_user(
+    request: Request,
+    token: Optional[str] = Query(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security),
+    db: Session = Depends(get_db)
+) -> User:
+    return _resolve_authenticated_user(request, token, credentials, db, allow_pending=True)
+
+
+def get_current_user(
+    request: Request,
+    token: Optional[str] = Query(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security),
+    db: Session = Depends(get_db)
+) -> User:
+    return _resolve_authenticated_user(request, token, credentials, db, allow_pending=False)
 
 def require_role(roles: list):
     def dependency(current_user: User = Depends(get_current_user)):
@@ -302,31 +394,34 @@ def generate_totp_secret() -> str:
     random_bytes = secrets.token_bytes(10)
     return base64.b32encode(random_bytes).decode('utf-8').rstrip('=')
 
-def verify_totp(secret: str, code: str, window: int = 1) -> bool:
+def verify_totp_with_step(secret: str, code: str, window: int = 1) -> Optional[int]:
+    """Verify a TOTP code and return the matching 30-second time_step on success."""
     try:
+        code_str = str(code or "").strip()
+        if not code_str.isdigit() or len(code_str) != 6:
+            return None
         # Normalize secret
         secret = secret.strip().replace(" ", "").upper()
         missing_padding = len(secret) % 8
         if missing_padding:
             secret += '=' * (8 - missing_padding)
         key = base64.b32decode(secret)
-        
+
         current_time = int(time.time() // 30)
-        
+
         for w in range(-window, window + 1):
             time_step = current_time + w
             msg = struct.pack(">Q", time_step)
-            h = hmac = hashlib.sha1
-            # Dynamic HMAC-SHA1 calculation
-            h_mac = hmac = hashlib.sha1
-            # We can use standard hmac library:
-            import hmac
             h_digest = hmac.new(key, msg, hashlib.sha1).digest()
             o = h_digest[19] & 15
             token_val = (struct.unpack(">I", h_digest[o:o+4])[0] & 0x7fffffff) % 1000000
-            if f"{token_val:06d}" == str(code).strip():
-                return True
-        return False
+            if hmac.compare_digest(f"{token_val:06d}", code_str):
+                return time_step
+        return None
     except Exception as e:
         print(f"TOTP verification error: {e}")
-        return False
+        return None
+
+
+def verify_totp(secret: str, code: str, window: int = 1) -> bool:
+    return verify_totp_with_step(secret, code, window=window) is not None
